@@ -3,8 +3,10 @@
 /**
  * DesignScreenShell — the shared layout for every /design/* screen (spec §6 intro).
  *
- * Tape progress header → BlousePreview (collapsing on scroll to 64px strip)
- * → H1 → selectors → contextual `Style it up` card → sticky PriceBar.
+ * Tape progress header → sticky BlousePreview (stays pinned under the tape
+ * and smoothly shrinks to a compact strip as the user scrolls, so the preview
+ * is always visible without eating option-list space) → H1 → selectors →
+ * contextual `Style it up` card → sticky PriceBar.
  *
  * Page-local state for ghost-preview (`pendingLayerId`) lives here so the
  * BlousePreview and selectors share one source without prop-drilling through
@@ -17,14 +19,6 @@ import { TapeProgress } from "@/components/layout/TapeProgress";
 import { PriceBar } from "@/components/layout/PriceBar";
 import { BlousePreview } from "@/components/preview/BlousePreview";
 import { ScreenShell } from "@/components/layout/ScreenShell";
-import {
-  BodyFront,
-  Neck,
-  Plus,
-  Ruler,
-  Scissors,
-  Thread,
-} from "@/components/ui/icons";
 import type { BookingDraft } from "@/types/booking";
 
 interface DesignScreenShellProps {
@@ -36,18 +30,8 @@ interface DesignScreenShellProps {
   ctaLabel?: string;
 }
 
-// How far the user scrolls before the preview collapses to the 64px strip.
+// How far the user scrolls before the preview finishes collapsing.
 const COLLAPSE_THRESHOLD = 220;
-
-const ROUTE_ICON: Record<string, React.FC<{ size?: number }>> = {
-  "/design/cut": Scissors,
-  "/design/length": Ruler,
-  "/design/front-neck": Neck,
-  "/design/back": Neck,
-  "/design/tying": Thread,
-  "/design/fit": BodyFront,
-  "/design/add-ons": Plus,
-};
 
 export function DesignScreenShell({
   draft,
@@ -60,10 +44,9 @@ export function DesignScreenShell({
   const [pendingLayerId, setPendingLayerId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
-  // Collapse the preview to a 64px strip when scrolled past it (spec §5.5).
-  // Using window.scrollY directly. The preview uses `invisible` (not `hidden`)
-  // when collapsed so it still occupies its layout space — this prevents the
-  // document height from changing mid-scroll and causing vibration.
+  // Collapse the preview smoothly as the user scrolls past it.
+  // The preview stays sticky under the TapeProgress header but shrinks
+  // (height + scale) so it remains visible without covering content.
   useEffect(() => {
     let ticking = false;
     const handler = () => {
@@ -83,42 +66,40 @@ export function DesignScreenShell({
     };
   }, []);
 
-  const Icon = ROUTE_ICON[route] ?? Ruler;
-
   return (
     <>
       <TapeProgress currentRoute={route} />
 
       <ScreenShell hasPriceBar className="pt-4">
-        <div>
-          <BlousePreview
-            draft={draft}
-            route={route}
-            pendingLayerId={pendingLayerId}
-            activeLayerPrefix={activeLayerPrefix}
-            className={collapsed ? "invisible w-full" : "w-full"}
-          />
-          {/* Collapsed strip when scrolled past preview */}
-          {collapsed && (
-            <div className="fixed left-0 right-0 top-14 z-20 border-b border-tape-silver bg-chalk-white/95 backdrop-blur">
-              <div className="column flex h-16 items-center gap-3 px-4">
-                <span
-                  className="flex h-10 w-10 flex-none items-center justify-center rounded-pill bg-orange-fill text-draep-orange"
-                  aria-hidden
-                >
-                  <Icon size={18} />
-                </span>
-                <div className="flex-1">
-                  <p className="font-heading text-h3 font-semibold text-ink-navy">{title}</p>
-                </div>
-                {/* Rivet terminator */}
-                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-draep-orange" />
-              </div>
-            </div>
-          )}
+        {/* Sticky preview wrapper — sits directly under the tape progress
+            header and smoothly shrinks on scroll instead of being replaced
+            by a separate translucent top bar. */}
+        <div
+          className="sticky top-14 z-20 -mx-4 mb-1 bg-chalk-white px-4 pb-3 pt-1 transition-[padding,box-shadow] duration-300 ease-brand"
+          style={{
+            boxShadow: collapsed ? "var(--shadow-brand)" : "none",
+          }}
+        >
+          <div
+            className={
+              "mx-auto origin-top transition-all duration-300 ease-brand " +
+              (collapsed ? "max-w-[140px]" : "max-w-full")
+            }
+            style={{
+              transform: collapsed ? "scale(0.5)" : "scale(1)",
+            }}
+          >
+            <BlousePreview
+              draft={draft}
+              route={route}
+              pendingLayerId={pendingLayerId}
+              activeLayerPrefix={activeLayerPrefix}
+              className="w-full"
+            />
+          </div>
         </div>
 
-        <div className="mt-5">
+        <div className="mt-3">
           <h1 className="font-heading text-h1 text-ink-navy">
             {title}
           </h1>

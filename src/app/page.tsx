@@ -156,7 +156,7 @@ export default function LandingPage() {
                 onClick={primaryHandler}
                 loading={navigating}
                 fullWidth
-                className="bg-chalk-white text-ink-navy hover:bg-chalk-white/95"
+                className="bg-ink-navy text-chalk-white hover:bg-ink-navy/90"
               >
                 {primaryCta}
               </Button>
@@ -355,7 +355,7 @@ export default function LandingPage() {
               onClick={primaryHandler}
               loading={navigating}
               fullWidth
-              className="bg-chalk-white text-ink-navy hover:bg-chalk-white/95"
+              className="bg-ink-navy text-chalk-white hover:bg-ink-navy/90"
             >
               {primaryCta}
             </Button>
