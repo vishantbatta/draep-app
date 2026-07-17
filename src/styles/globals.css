@@ -1,0 +1,75 @@
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-chalk-white text-ink-navy font-sans antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular numerals everywhere they matter — Brand Book §5. */
+  .font-mono,
+  [data-mono] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* Focus rings — 2px navy-interactive, 2px offset (a11y §11). */
+  :focus-visible {
+    outline: 2px solid var(--navy-interactive);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Respect prefers-reduced-motion — Brand Book §7. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Mobile-first column. Centered max-w-480 (spec §1). */
+  .column {
+    @apply mx-auto w-full max-w-column px-4;
+  }
+
+  /* Sentence-case headings only — Brand Book §5. */
+  .heading {
+    @apply font-heading text-ink-navy;
+  }
+
+  /* Tap target floor — a11y §11. */
+  .tap {
+    @apply min-h-[44px] min-w-[44px];
+  }
+
+  /* Tick-pattern divider (Brand Book §8). */
+  .tick-divider {
+    background-image: repeating-linear-gradient(
+      to right,
+      var(--tape-silver) 0,
+      var(--tape-silver) 8px,
+      transparent 8px,
+      transparent 14px
+    );
+    background-size: 14px 1px;
+    background-repeat: repeat-x;
+    background-position: center;
+    height: 1px;
+  }
+}

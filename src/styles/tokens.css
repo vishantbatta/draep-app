@@ -1,0 +1,49 @@
+/**
+ * Draep brand tokens — source of truth.
+ * Mirrors Brand Book §4 (Color System) and Frontend Spec §3.1.
+ * Do NOT introduce hex values anywhere else; Tailwind colors extend from these vars.
+ */
+:root {
+  /* Primary palette */
+  --ink-navy: #083068;
+  --draep-orange: #f89010;
+  --ember: #d06010;
+  --tape-silver: #d8d8d8;
+  --chalk-white: #ffffff;
+
+  /* Navy tints */
+  --navy-interactive: #3a5c8f;
+  --navy-disabled: #9fb3cf;
+  --navy-bg: #eaf0f8;
+
+  /* Orange tints */
+  --orange-highlight: #fbb95e;
+  --orange-fill: #fde3bf;
+  --warm-bg: #fff6ea;
+
+  /* Semantic */
+  --success: #16a34a;
+  --warning: #eab308;
+  --error: #dc2626;
+  --info: #2563eb;
+
+  /* Tape Gradient — used only on hero, primary buttons, progress fill, symbol */
+  --tape-gradient: linear-gradient(
+    135deg,
+    #f89010 0%,
+    #e87810 33%,
+    #d06010 66%,
+    #a85010 100%
+  );
+
+  /* Single elevation — navy at 8% opacity, soft and warm */
+  --shadow-brand: 0 6px 20px -8px rgba(8, 48, 104, 0.18),
+    0 2px 6px -2px rgba(8, 48, 104, 0.08);
+
+  /* Radii — no sharp corners anywhere */
+  --radius-card: 12px;
+  --radius-pill: 9999px;
+
+  /* Container */
+  --column-max: 480px;
+}
