@@ -21,7 +21,7 @@ export function ScreenShell({ children, className, hasPriceBar }: ScreenShellPro
     <main
       className={clsx(
         "column min-h-dvh bg-chalk-white pb-6",
-        hasPriceBar && "pb-64",
+        hasPriceBar && "pb-52",
         className,
       )}
     >
