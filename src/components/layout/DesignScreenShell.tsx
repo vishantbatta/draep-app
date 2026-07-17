@@ -72,21 +72,25 @@ export function DesignScreenShell({
 
       <ScreenShell hasPriceBar className="pt-4">
         {/* Sticky preview wrapper — sits directly under the tape progress
-            header and smoothly shrinks on scroll instead of being replaced
-            by a separate translucent top bar. */}
+            header. On scroll, the wrapper's actual height collapses (not a
+            CSS transform — transforms don't trigger reflow and would leave a
+            white gap). Collapsing real height gives the freed space to the
+            options list below. The inner preview is scaled to match so the
+            blouse stays legible at the smaller size. */}
         <div
-          className="sticky top-14 z-20 -mx-4 mb-1 bg-chalk-white px-4 pb-3 pt-1 transition-[padding,box-shadow] duration-300 ease-brand"
+          className={
+            "sticky top-14 z-20 -mx-4 mb-1 overflow-hidden bg-chalk-white px-4 transition-all duration-300 ease-brand " +
+            (collapsed ? "py-1.5 shadow-brand" : "pb-3 pt-1")
+          }
           style={{
-            boxShadow: collapsed ? "var(--shadow-brand)" : "none",
+            height: collapsed ? "64px" : "auto",
           }}
         >
           <div
-            className={
-              "mx-auto origin-top transition-all duration-300 ease-brand " +
-              (collapsed ? "max-w-[140px]" : "max-w-full")
-            }
+            className="mx-auto h-full w-full origin-top transition-all duration-300 ease-brand"
             style={{
-              transform: collapsed ? "scale(0.5)" : "scale(1)",
+              maxWidth: collapsed ? "160px" : "100%",
+              transform: collapsed ? "scale(0.55)" : "scale(1)",
             }}
           >
             <BlousePreview
@@ -94,7 +98,7 @@ export function DesignScreenShell({
               route={route}
               pendingLayerId={pendingLayerId}
               activeLayerPrefix={activeLayerPrefix}
-              className="w-full"
+              className="h-full w-full"
             />
           </div>
         </div>
