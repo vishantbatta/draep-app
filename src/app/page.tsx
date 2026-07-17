@@ -235,7 +235,7 @@ export default function LandingPage() {
           <h2 className="mt-3 font-heading text-h1 font-semibold text-ink-navy">
             Three things we
             <br />
-            won't compromise.
+            won&apos;t compromise.
           </h2>
 
           <div className="mt-8 space-y-3">
