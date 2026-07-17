@@ -4,26 +4,23 @@
  * Review — spec §6.9.
  *
  * Grouped summary list in journey order: Structure → Fit → Add-ons.
- * Each row deep-links back to its screen with ?from=review.
- * Price breakdown card below the list (navy table, orange total row).
+ * Each row opens an inline edit sheet (BottomSheet) — no navigation
+ * back to the design step. Price breakdown card below the list.
  * Sticky CTA: Continue.
- *
- * On return from a deep-linked screen, scroll back to the edited row
- * (spec §4 — scroll restoration via element id + scroll: false on navigation).
  */
 
-import { Suspense, useEffect, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { TapeProgress } from "@/components/layout/TapeProgress";
 import { PriceBar } from "@/components/layout/PriceBar";
 import { ScreenShell } from "@/components/layout/ScreenShell";
 import { BlousePreview } from "@/components/preview/BlousePreview";
 import { ReviewRow } from "@/components/review/ReviewRow";
+import { ReviewEditSheet } from "@/components/review/ReviewEditSheet";
 import { PriceBreakdown } from "@/components/review/PriceBreakdown";
-import { CATALOG, ADD_ONS, CATEGORY_BY_ID, ADDON_BY_ID } from "@/lib/catalog";
+import { CATEGORY_BY_ID, ADDON_BY_ID } from "@/lib/catalog";
 import { useBookingStore } from "@/lib/booking-store";
-import { computePrice } from "@/lib/pricing";
 import { OPTION_PRICING } from "@/lib/pricing-config";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
@@ -49,24 +46,11 @@ function ReviewContent() {
   const draft = useBookingStore((s) => s.draft);
   const hydrated = useBookingStore((s) => s.hydrated);
   const router = useRouter();
-  const params = useSearchParams();
-  const returnedFromReview = params.get("from") === "review";
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (hydrated) track({ event: "review_viewed" });
   }, [hydrated]);
-
-  // Scroll restoration: on return, scroll to the most-recently-edited row.
-  useEffect(() => {
-    if (!returnedFromReview || typeof window === "undefined") return;
-    const lastEditedId = sessionStorage.getItem("draep:last-review-edit");
-    if (!lastEditedId) return;
-    const el = document.getElementById(`review-row-${lastEditedId}`);
-    if (el) {
-      // Give the page a tick to lay out before scrolling.
-      requestAnimationFrame(() => el.scrollIntoView({ behavior: "smooth", block: "center" }));
-    }
-  }, [returnedFromReview, hydrated]);
 
   const structureRows = useMemo(() => buildStructureRows(draft), [draft]);
   const fitRows = useMemo(() => buildFitRows(draft), [draft]);
@@ -100,23 +84,43 @@ function ReviewContent() {
 
         <Section title={strings.review.structureGroup}>
           {structureRows.map((row) => (
-            <ReviewRow key={row.testId} {...row} />
+            <ReviewRow key={row.testId} {...row} onEdit={setEditingId} />
           ))}
         </Section>
 
         <Section title={strings.review.fitGroup}>
           {fitRows.map((row) => (
-            <ReviewRow key={row.testId} {...row} />
+            <ReviewRow key={row.testId} {...row} onEdit={setEditingId} />
           ))}
         </Section>
 
         <Section title={strings.review.addOnsGroup}>
           {addOnRows.length === 0 ? (
-            <p className="rounded-card bg-navy-bg px-4 py-3 text-body text-ink-navy/70">
-              {strings.review.noAddOns}
-            </p>
+            <button
+              type="button"
+              onClick={() => setEditingId("__material_addons__")}
+              className="flex w-full items-center gap-3 rounded-card bg-navy-bg px-4 py-3 text-left transition-colors hover:bg-navy-bg/80"
+            >
+              <p className="flex-1 text-body text-ink-navy/70">
+                {strings.review.noAddOns}
+              </p>
+              <span className="text-caption font-medium text-draep-orange">
+                {strings.review.editCta}
+              </span>
+            </button>
           ) : (
-            addOnRows.map((row) => <ReviewRow key={row.testId} {...row} />)
+            <>
+              {addOnRows.map((row) => (
+                <ReviewRow key={row.testId} {...row} onEdit={setEditingId} />
+              ))}
+              <button
+                type="button"
+                onClick={() => setEditingId("__material_addons__")}
+                className="mt-1 w-full rounded-card px-4 py-2.5 text-left text-caption font-medium text-draep-orange transition-colors hover:bg-navy-bg"
+              >
+                + {strings.review.editCta} add-ons
+              </button>
+            </>
           )}
         </Section>
 
@@ -129,6 +133,8 @@ function ReviewContent() {
       </ScreenShell>
 
       <PriceBar draft={draft} currentRoute="/review" ctaLabel={strings.review.continue} />
+
+      <ReviewEditSheet editingId={editingId} onClose={() => setEditingId(null)} />
     </>
   );
 }
@@ -145,7 +151,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 interface RowData {
   label: string;
   value: string;
-  route?: string;
   price?: number;
   testId: string;
 }
@@ -174,7 +179,6 @@ function buildCategoryRow(draft: BookingDraft, categoryId: string): RowData {
   return {
     label: category.label,
     value: sub ? `${option?.label} · ${sub.label}` : option?.label ?? "—",
-    route: category.route,
     price,
     testId: categoryId,
   };
@@ -201,7 +205,6 @@ function buildAddOnRows(draft: BookingDraft | null): RowData[] {
       out.push({
         label: addOn.label,
         value: placementLabels || "None",
-        route: "/design/add-ons",
         testId: id,
       });
     } else if (addOn.kind === "choice") {
@@ -209,14 +212,12 @@ function buildAddOnRows(draft: BookingDraft | null): RowData[] {
       out.push({
         label: addOn.label,
         value: choice?.label ?? "—",
-        route: addOn.contextRoutes?.[0] ?? "/design/add-ons",
         testId: id,
       });
     } else {
       out.push({
         label: addOn.label,
         value: "Yes",
-        route: addOn.contextRoutes?.[0] ?? "/design/add-ons",
         testId: id,
       });
     }

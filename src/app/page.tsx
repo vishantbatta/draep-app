@@ -45,6 +45,7 @@ export default function LandingPage() {
   const hasDraft = Boolean(draft);
 
   useEffect(() => {
+    router.prefetch("/style");
     router.prefetch(DESIGN_ROUTES[0]);
   }, [router]);
 
@@ -53,7 +54,7 @@ export default function LandingPage() {
     initDraft();
     track({ event: "landing_cta_tapped", resumed: false });
     startTransition(() => {
-      router.push(DESIGN_ROUTES[0]);
+      router.push("/style");
     });
   };
 

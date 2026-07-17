@@ -19,9 +19,10 @@ interface BottomSheetProps {
   title: string;
   children: ReactNode;
   className?: string;
+  footer?: ReactNode;
 }
 
-export function BottomSheet({ open, onClose, title, children, className }: BottomSheetProps) {
+export function BottomSheet({ open, onClose, title, children, className, footer }: BottomSheetProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -57,6 +58,7 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
             aria-label={title}
             className={clsx(
               "relative w-full max-w-column rounded-t-card bg-chalk-white shadow-brand",
+              "flex max-h-[85dvh] flex-col",
               className,
             )}
             initial={{ y: "100%" }}
@@ -70,7 +72,14 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
             <div className="px-4 pb-2">
               <h2 className="font-heading text-h2 text-ink-navy">{title}</h2>
             </div>
-            <div className="px-4 pb-6 pt-1">{children}</div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-1">
+              {children}
+            </div>
+            {footer && (
+              <div className="border-t border-tape-silver/60 bg-chalk-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+                {footer}
+              </div>
+            )}
           </motion.div>
         </motion.div>
       )}

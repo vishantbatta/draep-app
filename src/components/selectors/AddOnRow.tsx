@@ -36,7 +36,7 @@ interface AddOnRowProps {
   addOn: AddOn;
   state: AddOnState | undefined;
   route: string | null;
-  source: "context" | "addons_screen";
+  source: "context" | "addons_screen" | "review_sheet";
   onToggle: (enabled: boolean) => void;
   onChoose: (choiceId: string) => void;
   onTogglePlacement: (placementId: string, on: boolean) => void;

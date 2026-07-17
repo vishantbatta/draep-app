@@ -37,6 +37,16 @@ export const strings = {
     counter: (current: number, total: number) => `${current}/${total}`,
   },
 
+  style: {
+    heading: "Choose from our library",
+    topHeading: "Share your design preference",
+    subheading: "Upload a photo or pick from our library below.",
+    uploadCta: "Upload your design",
+    buildCta: "Build from scratch",
+    or: "or",
+    libraryHeading: "Choose from our library",
+  },
+
   preview: {
     flipToFront: "Front view",
     flipToBack: "Back view",
@@ -85,6 +95,8 @@ export const strings = {
     continue: "Continue",
     breakdownTitle: "Price breakdown",
     total: "Total payable",
+    done: "Done",
+    editCta: "Edit",
   },
 
   contact: {

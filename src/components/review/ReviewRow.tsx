@@ -4,11 +4,9 @@
  * ReviewRow — one row in the review summary list (spec §6.9).
  *
  * label (caption, navy-interactive) · value incl. sub-option (body, Ink Navy)
- * · price (mono, right-aligned) · chevron. Tap → deep-link to that screen
- * with ?from=review.
+ * · price (mono, right-aligned) · chevron. Tap → opens the inline edit sheet
+ * (no navigation back to the design step).
  */
-
-import Link from "next/link";
 
 import { ChevronRight } from "@/components/ui/icons";
 import { MonoNumber } from "@/components/ui/MonoNumber";
@@ -18,16 +16,18 @@ import { strings } from "@/lib/strings";
 interface ReviewRowProps {
   label: string;
   value: string;
-  route?: string;
+  testId: string;
   price?: number;
-  testId?: string;
+  onEdit?: (testId: string) => void;
 }
 
-export function ReviewRow({ label, value, route, price, testId }: ReviewRowProps) {
-  const content = (
-    <div
+export function ReviewRow({ label, value, testId, price, onEdit }: ReviewRowProps) {
+  return (
+    <button
+      type="button"
       id={`review-row-${testId}`}
-      className="flex items-center gap-3 rounded-card px-4 py-3 transition-colors hover:bg-navy-bg"
+      onClick={() => onEdit?.(testId)}
+      className="flex w-full items-center gap-3 rounded-card px-4 py-3 text-left transition-colors hover:bg-navy-bg active:bg-navy-bg"
     >
       <div className="flex-1 min-w-0">
         <p className="text-caption text-navy-interactive">{label}</p>
@@ -38,22 +38,12 @@ export function ReviewRow({ label, value, route, price, testId }: ReviewRowProps
           {formatPrice(price)}
         </MonoNumber>
       )}
-      {price === 0 && (
+      {price !== undefined && price === 0 && (
         <span className="text-caption text-ink-navy/60">
           {strings.priceBar.included}
         </span>
       )}
-      {route && (
-        <ChevronRight size={16} className="text-ink-navy/50" strokeWidth={2.25} />
-      )}
-    </div>
-  );
-
-  if (!route) return content;
-
-  return (
-    <Link href={`${route}?from=review`} className="block">
-      {content}
-    </Link>
+      <ChevronRight size={16} className="text-ink-navy/50" strokeWidth={2.25} />
+    </button>
   );
 }

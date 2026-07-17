@@ -203,3 +203,22 @@ export function Neck(props: IconProps) {
     </svg>
   );
 }
+
+export function Upload(props: IconProps) {
+  return (
+    <svg {...svg(props)}>
+      <path d="M12 16V4" />
+      <path d="M7 9l5-5 5 5" />
+      <path d="M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
+    </svg>
+  );
+}
+
+export function Pencil(props: IconProps) {
+  return (
+    <svg {...svg(props)}>
+      <path d="M14 4l6 6L8 22H2v-6L14 4z" />
+      <path d="M11 7l6 6" />
+    </svg>
+  );
+}

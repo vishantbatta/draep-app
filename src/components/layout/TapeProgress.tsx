@@ -54,7 +54,7 @@ export function TapeProgress({ currentRoute }: TapeProgressProps) {
 
   const handleBack = () => {
     if (isReview) {
-      router.push(DESIGN_ROUTES[DESIGN_ROUTES.length - 1]);
+      router.back();
       return;
     }
     const prev = prevRouteBefore(currentRoute);

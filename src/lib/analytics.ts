@@ -13,7 +13,7 @@ export type AnalyticsEvent =
       to: string;
       subOptionId?: string;
     }
-  | { event: "addon_toggled"; addOnId: string; enabled: boolean; source: "context" | "addons_screen" }
+  | { event: "addon_toggled"; addOnId: string; enabled: boolean; source: "context" | "addons_screen" | "review_sheet" }
   | { event: "design_completed_default_count"; defaultCount: number }
   | { event: "review_viewed" }
   | { event: "review_row_edited"; rowId: string }
