@@ -48,6 +48,13 @@
     @apply mx-auto w-full max-w-column px-4;
   }
 
+  /* Landing page wrapper — max-w-1120 desktop+responsive (mirrors draep.html). */
+  .lp-wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
   /* Sentence-case headings only — Brand Book §5. */
   .heading {
     @apply font-heading text-ink-navy;
@@ -71,5 +78,76 @@
     background-repeat: repeat-x;
     background-position: center;
     height: 1px;
+  }
+
+  /* === Landing page (draep.html port) === */
+
+  /* Full-width tape gradient strip with tick marks (draep.html .tape-strip). */
+  .lp-tape-strip {
+    height: 16px;
+    background: linear-gradient(
+      135deg,
+      #f89010 0%,
+      #e87810 40%,
+      #d06010 72%,
+      #a85010 100%
+    );
+    position: relative;
+    overflow: hidden;
+  }
+  .lp-tape-strip::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.55) 0 1.5px,
+      transparent 1.5px 22px
+    );
+  }
+
+  /* Scroll reveal — fade up. `.in` toggled by IntersectionObserver. */
+  .lp-reveal {
+    opacity: 0;
+    transform: translateY(22px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+  .lp-reveal.lp-in {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Floating cards animation. */
+  .lp-float {
+    animation: lp-floaty 6s ease-in-out infinite;
+  }
+  .lp-float-2 {
+    animation: lp-floaty 6s ease-in-out infinite 0.8s;
+  }
+  .lp-float-3 {
+    animation: lp-floaty 7s ease-in-out infinite 0.4s;
+  }
+  @keyframes lp-floaty {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-9px);
+    }
+  }
+
+  /* Reduced motion: disable all landing-page animations. */
+  @media (prefers-reduced-motion: reduce) {
+    .lp-reveal {
+      opacity: 1 !important;
+      transform: none !important;
+      transition: none !important;
+    }
+    .lp-float,
+    .lp-float-2,
+    .lp-float-3 {
+      animation: none !important;
+    }
   }
 }
