@@ -77,24 +77,26 @@ export function AddOnRow({
   return (
     <div
       className={clsx(
-        "rounded-card border bg-chalk-white transition-colors",
-        enabled ? "border-draep-orange/50 bg-orange-fill/30" : "border-tape-silver",
+        "rounded-card border transition-colors",
+        enabled
+          ? "border-draep-orange bg-orange-fill shadow-card"
+          : "border-hairline-strong bg-chalk-white hover:border-navy-interactive",
       )}
       onPointerEnter={() => ghostLayerId && onPreviewStart?.(ghostLayerId)}
       onPointerLeave={() => onPreviewEnd?.()}
     >
       <div className="flex items-center gap-3 px-4 py-3">
-        <span className="flex h-10 w-10 flex-none items-center justify-center rounded-pill bg-warm-bg text-ink-navy">
+        <span className="flex h-10 w-10 flex-none items-center justify-center rounded-pill bg-mist-navy text-ink-navy">
           <Plus size={18} />
         </span>
         <div className="flex-1">
           <p className="font-heading text-h3 text-ink-navy">{addOn.label}</p>
           {addOn.caption && (
-            <p className="text-caption text-ink-navy/70">{addOn.caption}</p>
+            <p className="text-caption text-muted">{addOn.caption}</p>
           )}
         </div>
         {priceLabel && (
-          <MonoNumber className="text-data text-ink-navy/80">{priceLabel}</MonoNumber>
+          <MonoNumber className="text-data text-ink-navy">{priceLabel}</MonoNumber>
         )}
         <ToggleSwitch
           checked={enabled}
@@ -137,7 +139,7 @@ export function AddOnRow({
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
             className="overflow-hidden px-4 pb-3"
           >
-            <p className="text-caption text-ink-navy/70 mb-1">Choose placements</p>
+            <p className="text-caption text-muted mb-1">Choose placements</p>
             <div className="flex flex-wrap gap-2">
               {placements.map((placement) => {
                 const on = Boolean(state?.placements?.[placement.id]);
@@ -182,14 +184,14 @@ export function AddOnRow({
             className="overflow-hidden px-4 pb-3"
           >
             <label className="block">
-              <span className="text-caption text-ink-navy/70">
+              <span className="text-caption text-muted">
                 {addOn.extraInput.label}
               </span>
               <input
                 type={addOn.extraInput.type}
                 value={state?.extraInputs?.[addOn.extraInput.id] ?? ""}
                 onChange={(e) => onSetExtraInput?.(addOn.extraInput!.id, e.target.value)}
-                className="mt-1 w-full rounded-card border border-tape-silver px-3 py-2 text-body focus-visible:outline-none focus-visible:border-navy-interactive"
+                className="mt-1 w-full rounded-card border border-hairline-strong bg-chalk-white px-3 py-2 text-body"
               />
             </label>
           </motion.div>
@@ -242,7 +244,7 @@ function ToggleSwitch({
     >
       <span
         className={clsx(
-          "absolute h-5 w-5 transform rounded-full bg-chalk-white shadow-brand transition-transform duration-200 ease-brand",
+          "absolute h-5 w-5 transform rounded-full bg-chalk-white shadow-card transition-transform duration-200 ease-brand",
           checked ? "translate-x-6" : "translate-x-1",
         )}
       />

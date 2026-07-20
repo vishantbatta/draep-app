@@ -29,7 +29,7 @@ export function SlotPicker({
   return (
     <div className="space-y-4">
       <div>
-        <p className="mb-2 text-caption text-ink-navy/70">Date</p>
+        <p className="mb-2 text-caption text-muted">Date</p>
         <div className="flex flex-wrap gap-2">
           {dates.map((d) => (
             <Chip
@@ -47,7 +47,7 @@ export function SlotPicker({
       </div>
 
       <div>
-        <p className="mb-2 text-caption text-ink-navy/70">3-hour window</p>
+        <p className="mb-2 text-caption text-muted">3-hour window</p>
         <div className="flex flex-wrap gap-2">
           {VISIT_SLOT_WINDOWS.map((w) => (
             <Chip

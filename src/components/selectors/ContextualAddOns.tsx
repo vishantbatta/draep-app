@@ -30,11 +30,11 @@ export function ContextualAddOns({ route }: ContextualAddOnsProps) {
   if (!addOns.length || !draft) return null;
 
   return (
-    <section className="mt-6 rounded-card bg-warm-bg p-4">
+    <section className="mt-6 rounded-card border border-hairline-strong bg-chalk-white p-4 shadow-card">
       <h3 className="font-heading text-h3 text-ink-navy">
         {strings.addonSection.styleHeading}
       </h3>
-      <p className="mt-1 text-caption text-ink-navy/70">
+      <p className="mt-1 text-caption text-muted">
         {strings.addonSection.defaultCaption}
       </p>
       <div className="mt-3 space-y-2">

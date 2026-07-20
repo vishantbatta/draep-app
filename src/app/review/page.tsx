@@ -78,7 +78,8 @@ function ReviewContent() {
           <BlousePreview draft={draft} route="/review" className="aspect-[6/7]" />
         </div>
 
-        <h1 className="mt-5 font-heading text-h1 text-ink-navy">
+        <p className="mt-5 eyebrow">Summary</p>
+        <h1 className="font-heading text-h1 text-ink-navy">
           {strings.review.title}
         </h1>
 
@@ -99,12 +100,12 @@ function ReviewContent() {
             <button
               type="button"
               onClick={() => setEditingId("__material_addons__")}
-              className="flex w-full items-center gap-3 rounded-card bg-navy-bg px-4 py-3 text-left transition-colors hover:bg-navy-bg/80"
+              className="flex w-full items-center gap-3 rounded-card border border-hairline bg-chalk-white px-4 py-3 text-left transition-colors hover:border-navy-interactive hover:shadow-card"
             >
-              <p className="flex-1 text-body text-ink-navy/70">
+              <p className="flex-1 text-body text-muted">
                 {strings.review.noAddOns}
               </p>
-              <span className="text-caption font-medium text-draep-orange">
+              <span className="text-caption font-medium text-accent-text">
                 {strings.review.editCta}
               </span>
             </button>
@@ -116,7 +117,7 @@ function ReviewContent() {
               <button
                 type="button"
                 onClick={() => setEditingId("__material_addons__")}
-                className="mt-1 w-full rounded-card px-4 py-2.5 text-left text-caption font-medium text-draep-orange transition-colors hover:bg-navy-bg"
+                className="mt-1 w-full rounded-card px-4 py-2.5 text-left text-caption font-medium text-accent-text transition-colors hover:bg-mist-navy"
               >
                 + {strings.review.editCta} add-ons
               </button>
@@ -125,6 +126,7 @@ function ReviewContent() {
         </Section>
 
         <div className="mt-6">
+          <p className="eyebrow mb-1">Rate card</p>
           <h2 className="mb-2 font-heading text-h2 text-ink-navy">
             {strings.review.breakdownTitle}
           </h2>

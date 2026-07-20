@@ -3,6 +3,9 @@
  *
  * Per spec §1: mobile-first 360–430px viewports; usable on desktop with a
  * centered max-width 480px column.
+ *
+ * Brand Book §4: page background is Warm Sand. Cards (chalk-white) sit on it
+ * and earn their elevation through `shadow-card`.
  */
 
 import { clsx } from "clsx";
@@ -20,7 +23,7 @@ export function ScreenShell({ children, className, hasPriceBar }: ScreenShellPro
   return (
     <main
       className={clsx(
-        "column min-h-dvh bg-chalk-white",
+        "column min-h-dvh bg-warm-sand",
         hasPriceBar ? "pb-52" : "pb-6",
         className,
       )}

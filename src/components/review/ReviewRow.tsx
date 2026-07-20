@@ -27,23 +27,23 @@ export function ReviewRow({ label, value, testId, price, onEdit }: ReviewRowProp
       type="button"
       id={`review-row-${testId}`}
       onClick={() => onEdit?.(testId)}
-      className="flex w-full items-center gap-3 rounded-card px-4 py-3 text-left transition-colors hover:bg-navy-bg active:bg-navy-bg"
+      className="flex w-full items-center gap-3 rounded-card border border-hairline bg-chalk-white px-4 py-3 text-left transition-colors hover:bg-mist-navy hover:border-navy-interactive"
     >
       <div className="flex-1 min-w-0">
-        <p className="text-caption text-navy-interactive">{label}</p>
+        <p className="text-caption text-muted">{label}</p>
         <p className="mt-0.5 truncate text-body text-ink-navy">{value}</p>
       </div>
       {price !== undefined && price > 0 && (
-        <MonoNumber className="text-data text-ink-navy/85">
+        <MonoNumber className="text-data text-ink-navy">
           {formatPrice(price)}
         </MonoNumber>
       )}
       {price !== undefined && price === 0 && (
-        <span className="text-caption text-ink-navy/60">
+        <span className="text-caption text-muted">
           {strings.priceBar.included}
         </span>
       )}
-      <ChevronRight size={16} className="text-ink-navy/50" strokeWidth={2.25} />
+      <ChevronRight size={16} className="text-muted" strokeWidth={2.25} />
     </button>
   );
 }

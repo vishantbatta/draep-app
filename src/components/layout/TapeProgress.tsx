@@ -63,13 +63,13 @@ export function TapeProgress({ currentRoute }: TapeProgressProps) {
   };
 
   return (
-    <header className="sticky top-0 z-30 bg-chalk-white/95 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-hairline bg-warm-sand/95 backdrop-blur">
       <div className="column flex h-14 items-center gap-2 px-3">
         <button
           type="button"
           onClick={handleBack}
           aria-label={strings.tape.back}
-          className="tap flex flex-none items-center justify-center rounded-pill text-ink-navy hover:bg-navy-bg"
+          className="tap flex flex-none items-center justify-center rounded-pill text-ink-navy hover:bg-mist-navy"
         >
           <ArrowLeft size={20} strokeWidth={2.25} />
         </button>

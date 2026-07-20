@@ -51,7 +51,7 @@ export function MapPinPicker({ lat, lng, onPinChange }: MapPinPickerProps) {
   return (
     <div>
       <div
-        className="relative aspect-[4/3] w-full overflow-hidden rounded-card border border-tape-silver bg-navy-bg"
+        className="relative aspect-[4/3] w-full overflow-hidden rounded-card border border-hairline-strong bg-mist-navy"
         role="img"
         aria-label={
           lat != null && lng != null
@@ -78,7 +78,7 @@ export function MapPinPicker({ lat, lng, onPinChange }: MapPinPickerProps) {
 
         {/* Pin */}
         <div
-          className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full text-draep-orange"
+          className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full text-accent-text"
           aria-hidden
         >
           <MapPin size={36} strokeWidth={2.5} />
@@ -88,14 +88,14 @@ export function MapPinPicker({ lat, lng, onPinChange }: MapPinPickerProps) {
           type="button"
           onClick={useMyLocation}
           disabled={locating}
-          className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-pill bg-chalk-white px-3 py-1.5 text-caption font-medium text-ink-navy shadow-brand disabled:opacity-60"
+          className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-pill bg-chalk-white px-3 py-1.5 text-caption font-medium text-ink-navy shadow-card disabled:opacity-60"
         >
           <Crosshair size={14} />
           {locating ? "Locating…" : strings.contact.useMyLocation}
         </button>
       </div>
 
-      <div className="mt-2 flex items-center gap-2 text-caption text-ink-navy/70">
+      <div className="mt-2 flex items-center gap-2 text-caption text-muted">
         <MapPin size={14} />
         {lat != null && lng != null
           ? `${lat.toFixed(4)}, ${lng.toFixed(4)}`
@@ -103,12 +103,12 @@ export function MapPinPicker({ lat, lng, onPinChange }: MapPinPickerProps) {
       </div>
 
       {area && !area.serviceable && (
-        <p className="mt-1 text-caption text-error">
+        <p className="mt-1 text-caption text-error-text">
           Outside V0 service area.
         </p>
       )}
       {area?.serviceable && (
-        <p className="mt-1 text-caption text-success">
+        <p className="mt-1 text-caption text-success-text">
           In our {area.areaName} service area.
         </p>
       )}

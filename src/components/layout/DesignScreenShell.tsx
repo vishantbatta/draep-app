@@ -95,11 +95,11 @@ export function DesignScreenShell({
             thumbnail anchored under the TapeProgress header. */}
         {collapsed && (
           <div
-            className="fixed left-0 right-0 top-14 z-20 border-b border-tape-silver bg-chalk-white/95 backdrop-blur"
+            className="fixed left-0 right-0 top-14 z-20 border-b border-hairline bg-warm-sand/95 backdrop-blur"
             aria-hidden
           >
             <div className="column flex h-16 items-center gap-3 px-4">
-              <div className="h-12 w-12 flex-none overflow-hidden rounded-card bg-warm-bg">
+              <div className="h-12 w-12 flex-none overflow-hidden rounded-card bg-warm-sand">
                 <div className="origin-top-left scale-[0.18]">
                   <BlousePreview
                     draft={draft}

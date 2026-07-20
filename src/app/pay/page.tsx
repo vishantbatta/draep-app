@@ -79,15 +79,16 @@ export default function PayPage() {
     <>
       <TapeProgress currentRoute="/review" />
       <ScreenShell className="pt-4">
+        <p className="eyebrow">Payment</p>
         <h1 className="font-heading text-h1 text-ink-navy">
           {strings.pay.title}
         </h1>
 
-        {/* Order summary card */}
-        <div className="mt-5 rounded-card border border-tape-silver bg-chalk-white p-4">
+        {/* Order summary card — Brand Book §8 card: hairline + shadow-card */}
+        <div className="mt-5 rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-caption text-ink-navy/70">{strings.pay.summary}</p>
+              <p className="text-caption text-muted">{strings.pay.summary}</p>
               <p className="font-heading text-h3 text-ink-navy">{strings.pay.items(itemCount)}</p>
             </div>
             <button
@@ -99,8 +100,8 @@ export default function PayPage() {
               Details
             </button>
           </div>
-          <div className="mt-4 flex items-baseline justify-between border-t border-tape-silver pt-4">
-            <span className="text-body text-ink-navy/80">{strings.review.total}</span>
+          <div className="mt-4 flex items-baseline justify-between border-t border-hairline pt-4">
+            <span className="text-body text-ink/80">{strings.review.total}</span>
             <MonoNumber className="text-h1 font-semibold text-ink-navy">
               {formatPrice(price.total)}
             </MonoNumber>
@@ -133,7 +134,7 @@ export default function PayPage() {
           )}
         </div>
 
-        <p className="mt-4 text-caption text-ink-navy/70">
+        <p className="mt-4 text-caption text-muted">
           Secure UPI payment. We never store your card details.
         </p>
       </ScreenShell>

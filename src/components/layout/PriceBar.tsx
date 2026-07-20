@@ -62,7 +62,7 @@ export function PriceBar({ draft, currentRoute, ctaLabel }: PriceBarProps) {
       >
         <div
           className="absolute left-0 right-0 top-0 h-px"
-          style={{ background: "var(--tape-silver)" }}
+          style={{ background: "var(--hairline)" }}
           aria-hidden
         />
         <div className="column flex items-center justify-between gap-3 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
@@ -72,13 +72,13 @@ export function PriceBar({ draft, currentRoute, ctaLabel }: PriceBarProps) {
             className="flex flex-col items-start gap-0.5 text-left"
             aria-label={`${strings.priceBar.total}: ${formatPrice(price.total)} ${strings.priceBar.inclAddons}`}
           >
-            <span className="flex items-center gap-1 text-caption text-ink-navy/70">
+            <span className="flex items-center gap-1 text-caption text-muted">
               {strings.priceBar.total}
               <ChevronDown size={12} strokeWidth={2.25} />
             </span>
             <span className="flex items-baseline gap-1">
               <AnimatedAmount amount={price.total} />
-              <span className="text-caption text-ink-navy/60">
+              <span className="text-caption text-muted">
                 {strings.priceBar.inclAddons}
               </span>
             </span>

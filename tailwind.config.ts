@@ -10,17 +10,46 @@ const config: Config = {
         "ink-navy": "var(--ink-navy)",
         "draep-orange": "var(--draep-orange)",
         ember: "var(--ember)",
+        "deep-ember": "var(--deep-ember)",
         "tape-silver": "var(--tape-silver)",
         "chalk-white": "var(--chalk-white)",
+
+        // ACCESSIBLE ORANGE — use this for any orange that is text, an icon,
+        // or a button fill under white text. draep-orange fails WCAG AA; deep-ember
+        // is the brand-book "deep ember" stop and passes at 5.5:1 on white.
+        "accent-text": "var(--accent-text)",
+        "accent-fill": "var(--accent-fill)",
+
+        // Brand Book §4/§5 — text colors
+        ink: "var(--ink)",
+        muted: "var(--muted)",
+
+        // Brand Book §4 — surface tints
+        "warm-sand": "var(--warm-sand)",
+        "mist-navy": "var(--mist-navy)",
+
+        // Brand Book §4 — hairline borders
+        hairline: "var(--hairline)",
+        "hairline-strong": "var(--hairline-strong)",
+
+        // Legacy aliases — keep so existing utility classes continue to work.
         "navy-interactive": "var(--navy-interactive)",
         "navy-disabled": "var(--navy-disabled)",
         "navy-bg": "var(--navy-bg)",
         "orange-highlight": "var(--orange-highlight)",
         "orange-fill": "var(--orange-fill)",
         "warm-bg": "var(--warm-bg)",
+
+        // Semantic — Brand Book §4
         success: "var(--success)",
+        "success-text": "var(--success-text)", // AA on success-bg
+        "success-bg": "var(--success-bg)",
+        "success-border": "var(--success-border)",
         warning: "var(--warning)",
         error: "var(--error)",
+        "error-text": "var(--error-text)", // AA on error-bg
+        "error-bg": "var(--error-bg)",
+        "error-border": "var(--error-border)",
         info: "var(--info)",
       },
       fontFamily: {
@@ -37,19 +66,23 @@ const config: Config = {
         body: ["15px", { lineHeight: "22px" }],
         caption: ["13px", { lineHeight: "18px" }],
         data: ["14px", { lineHeight: "20px" }],
+        // Brand Book §5/§6 — eyebrow label (mono, tracked, uppercase)
+        eyebrow: ["12px", { lineHeight: "16px", letterSpacing: "0.18em" }],
       },
       borderRadius: {
         card: "12px",
+        sheet: "16px",
         pill: "9999px",
       },
       boxShadow: {
-        // Single elevation level — navy at 8% opacity, soft and warm (Brand Book §8).
-        brand: "0 6px 20px -8px rgba(8, 48, 104, 0.18), 0 2px 6px -2px rgba(8, 48, 104, 0.08)",
+        // Brand Book §8 — three-tier warm elevation
+        card: "var(--shadow-card)", // card surfaces
+        brand: "var(--shadow-brand)", // floating surfaces (sticky bars, sheets)
+        primary: "var(--shadow-primary)", // primary CTA ember glow
       },
       backgroundImage: {
         // Tape Gradient — 135°, top-left to bottom-right (Brand Book §4).
-        tape:
-          "linear-gradient(135deg, #F89010 0%, #E87810 33%, #D06010 66%, #A85010 100%)",
+        tape: "linear-gradient(135deg, #F89010 0%, #E87810 40%, #D06010 75%, #A85010 100%)",
       },
       transitionTimingFunction: {
         brand: "cubic-bezier(0.22, 1, 0.36, 1)",

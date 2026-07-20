@@ -40,7 +40,7 @@ export default function DesignLayout({ children }: { children: React.ReactNode }
 
 function LoadingSkeleton() {
   return (
-    <div className="column flex min-h-dvh items-center justify-center">
+    <div className="column flex min-h-dvh items-center justify-center bg-warm-sand">
       <div
         aria-hidden
         className="h-1 w-24 overflow-hidden rounded-pill bg-tape-silver"

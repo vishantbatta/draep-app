@@ -24,8 +24,8 @@ export function PlacementSizePicker({
   onSelectSize,
 }: PlacementSizePickerProps) {
   return (
-    <div className="ml-4 mt-2 border-l-2 border-tape-silver pl-3">
-      <p className="text-caption text-ink-navy/70">{placementLabel} size</p>
+    <div className="ml-4 mt-2 border-l-2 border-hairline-strong pl-3">
+      <p className="text-caption text-muted">{placementLabel} size</p>
       <div className="mt-1 flex flex-wrap gap-2">
         {sizes.map((size) => (
           <Chip

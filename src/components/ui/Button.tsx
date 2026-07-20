@@ -1,13 +1,16 @@
 "use client";
 
 /**
- * Draep Button — Brand Book §8.
+ * Draep Button — Brand Book §8 (.btn-primary spec).
  *
- *   primary   : Tape Gradient fill, white bold label, pill. Pressed → Ember.
+ *   primary   : Tape Gradient fill (#F89010 → #A85010), white bold label, pill.
+ *               Exact spec: .btn-primary{background:var(--grad);color:#fff;
+ *               border-radius:999px;padding:12px 30px;
+ *               box-shadow:0 4px 12px rgba(208,96,16,.28)}
+ *               Pressed → Ember (#D06010) per §3.3.
  *   secondary : 1.5px Ink Navy outline, navy label, transparent fill, pill.
  *
  * Always pill-shaped; no sharp corners. Tap target ≥44px (a11y §11).
- * Pressed state shifts the primary button toward Ember per §3.3.
  */
 
 import { clsx } from "clsx";
@@ -34,10 +37,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
   const variants: Record<Variant, string> = {
     primary:
-      "text-chalk-white bg-tape shadow-brand hover:brightness-105 " +
-      "active:bg-ember active:bg-none",
+      "text-chalk-white bg-tape shadow-primary hover:brightness-105 " +
+      "active:bg-ember active:bg-none active:shadow-none",
     secondary:
-      "text-ink-navy bg-transparent border-[1.5px] border-ink-navy hover:bg-navy-bg",
+      "text-ink-navy bg-transparent border-[1.5px] border-ink-navy hover:bg-mist-navy",
   };
 
   return (

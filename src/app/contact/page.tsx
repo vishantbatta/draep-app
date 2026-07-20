@@ -109,6 +109,7 @@ export default function ContactPage() {
     <>
       <TapeProgress currentRoute="/review" />
       <ScreenShell className="pt-4">
+        <p className="eyebrow">Visit details</p>
         <h1 className="font-heading text-h1 text-ink-navy">
           {strings.contact.title}
         </h1>
@@ -122,7 +123,7 @@ export default function ContactPage() {
             <div className="flex items-stretch gap-2">
               <span
                 data-mono
-                className="inline-flex min-w-[58px] items-center justify-center rounded-card border border-tape-silver bg-navy-bg px-3 font-mono text-body text-ink-navy"
+                className="inline-flex min-w-[58px] items-center justify-center rounded-card border border-hairline-strong bg-mist-navy px-3 font-mono text-body text-ink-navy"
               >
                 +91
               </span>
@@ -196,7 +197,7 @@ export default function ContactPage() {
               }}
             />
             {pinTouched && !pin && (
-              <p className="mt-1 text-caption text-error">{strings.contact.validation.pin}</p>
+              <p className="mt-1 text-caption text-error-text">{strings.contact.validation.pin}</p>
             )}
           </Field>
 
@@ -216,12 +217,14 @@ export default function ContactPage() {
 }
 
 function inputClass(hasError: boolean): string {
+  // Brand Book §8 — 1px hairline border, ink body text, orange focus ring
+  // (the orange ring is applied globally on input:focus in globals.css).
   return [
-    "w-full rounded-card border px-3 py-2.5 min-h-[44px] text-body",
-    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-interactive",
+    "w-full rounded-card border px-3 py-2.5 min-h-[44px] text-body bg-chalk-white",
+    "focus-visible:outline-none",
     hasError
-      ? "border-error bg-[color-mix(in_srgb,var(--error)_6%,white)]"
-      : "border-tape-silver bg-chalk-white",
+      ? "border-error bg-error-bg"
+      : "border-hairline-strong",
   ].join(" ");
 }
 
@@ -236,9 +239,9 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-caption text-ink-navy/80">{label}</span>
+      <span className="mb-1 block text-caption text-muted">{label}</span>
       {children}
-      {error && <p className="mt-1 text-caption text-error">{error}</p>}
+      {error && <p className="mt-1 text-caption text-error-text">{error}</p>}
     </label>
   );
 }

@@ -11,8 +11,14 @@
   }
 
   body {
-    @apply bg-chalk-white text-ink-navy font-sans antialiased;
+    /* Brand Book §4 — page background is Warm Sand, body copy is Ink. */
+    @apply bg-warm-sand text-ink font-sans antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  /* Headings always Ink Navy — Brand Book §5. */
+  h1, h2, h3, h4 {
+    @apply text-ink-navy;
   }
 
   /* Tabular numerals everywhere they matter — Brand Book §5. */
@@ -22,11 +28,20 @@
     font-feature-settings: "tnum" 1;
   }
 
-  /* Focus rings — 2px navy-interactive, 2px offset (a11y §11). */
+  /* Focus rings — Brand Book §8: orange ring on inputs. */
   :focus-visible {
     outline: 2px solid var(--navy-interactive);
     outline-offset: 2px;
     border-radius: 4px;
+  }
+
+  /* Form fields use the orange focus ring (Brand Book §8 .inp:focus). */
+  input:focus,
+  textarea:focus,
+  select:focus {
+    outline: none;
+    border-color: var(--draep-orange);
+    box-shadow: var(--focus-ring);
   }
 
   /* Respect prefers-reduced-motion — Brand Book §7. */
@@ -65,7 +80,8 @@
     @apply min-h-[44px] min-w-[44px];
   }
 
-  /* Tick-pattern divider (Brand Book §8). */
+  /* Tick-pattern divider (Brand Book §8 — tick marks are the core motif).
+     Hairline ticks on tape-silver, used between sections and inside cards. */
   .tick-divider {
     background-image: repeating-linear-gradient(
       to right,
@@ -78,6 +94,23 @@
     background-repeat: repeat-x;
     background-position: center;
     height: 1px;
+  }
+
+  /* Eyebrow label — Brand Book §5/§6. Mono, tracked, uppercase, accent-text.
+     Uses accent-text (deep-ember) so it passes WCAG AA on warm-sand. */
+  .eyebrow {
+    @apply font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-accent-text;
+  }
+
+  /* Dashed tape-silver divider — Brand Book §8 ("dashed Tape Silver for
+     in-progress"). Used for the "or" divider and section separators. */
+  .dashed-divider {
+    border-top: 1px dashed var(--tape-silver);
+  }
+
+  /* Hairline border helper — Brand Book §8 1px borders. */
+  .border-hairline {
+    border-color: var(--hairline);
   }
 
   /* === Landing page (draep.html port) === */

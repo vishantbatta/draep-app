@@ -109,7 +109,7 @@ export default function StylePage() {
   const handleBack = () => router.push("/");
 
   return (
-    <div className="column flex h-dvh flex-col bg-chalk-white">
+    <div className="column flex h-dvh flex-col bg-warm-sand">
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -119,16 +119,24 @@ export default function StylePage() {
         onChange={handleFileChange}
       />
 
-      {/* ───── Top section (30% → collapses to just the back button) ───── */}
+      {/* ───── Top section (30% → collapses to just the back button) ─────
+          Brand Book hero: Ink Navy surface, tape-gradient halo, orange badge. */}
       <header
-        className="relative flex flex-none flex-col justify-end overflow-hidden bg-tape text-chalk-white transition-[height] duration-300 ease-brand"
+        className="relative flex flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white transition-[height] duration-300 ease-brand"
         style={{ height: collapsed ? 36 : "30dvh" }}
       >
-        {/* Back button */}
+        {/* Tape gradient halo — Brand Book .hero::after */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full opacity-20 blur-md"
+          style={{ background: "var(--tape-gradient)" }}
+        />
+
+        {/* Back button — solid chalk-white pill on the Ink Navy hero */}
         <button
           type="button"
           onClick={handleBack}
-          className="absolute left-3 top-2 z-10 flex items-center gap-1 rounded-pill bg-chalk-white/20 px-2.5 py-1.5 text-caption font-medium text-chalk-white backdrop-blur-sm transition-colors hover:bg-chalk-white/30"
+          className="absolute left-3 top-2 z-10 flex items-center gap-1 rounded-pill bg-chalk-white px-2.5 py-1.5 text-caption font-medium text-ink-navy shadow-card transition-colors hover:bg-mist-navy"
         >
           <ArrowLeft size={14} />
           Back
@@ -136,20 +144,25 @@ export default function StylePage() {
 
         {/* Expanded layout — heading + CTAs (hidden when collapsed) */}
         {!collapsed && (
-          <div className="flex flex-col items-center gap-3 px-4 pb-4">
+          <div className="relative z-10 flex flex-col items-center gap-3 px-4 pb-4">
             <div className="text-center">
-              <h1 className="font-heading text-h2 font-semibold">
+              {/* Eyebrow badge — Brand Book §hero. Mono uppercase, bright tape
+                  dot prefix, chalk-white text on a translucent white pill so
+                  the 12px label passes AA on the Ink Navy hero. */}
+              <span className="inline-flex items-center gap-1.5 rounded-pill bg-chalk-white/15 px-3 py-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white backdrop-blur-sm">
+                <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-tape" />
+                {strings.style.subheading}
+              </span>
+              <h1 className="mt-2 font-heading text-h1 font-semibold text-chalk-white">
                 {strings.style.topHeading}
               </h1>
-              <p className="mt-1 text-caption text-chalk-white/80">
-                {strings.style.subheading}
-              </p>
             </div>
-            {/* Primary CTA — orange button, icon centered */}
+            {/* Primary CTA — Brand Book §8 .btn-primary exact spec:
+                tape gradient fill, white semibold label, pill, ember glow. */}
             <button
               type="button"
               onClick={handleUpload}
-              className="flex w-full max-w-[280px] items-center justify-center gap-2 rounded-pill bg-draep-orange px-5 py-3 font-heading text-body font-semibold text-chalk-white shadow-brand transition-all hover:brightness-105 active:scale-[0.98]"
+              className="flex w-full max-w-[280px] items-center justify-center gap-2 rounded-pill bg-tape px-5 py-3 font-heading text-body font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98] active:bg-ember active:bg-none"
             >
               <Upload size={18} />
               {strings.style.uploadCta}
@@ -166,11 +179,11 @@ export default function StylePage() {
         )}
       </header>
 
-      {/* ───── Dotted "or" divider (hidden when collapsed) ───── */}
+      {/* ───── Dashed "or" divider (hidden when collapsed) — Brand Book §8 ─ */}
       {!collapsed && (
         <div className="relative flex flex-none items-center justify-center py-2">
           <div className="h-px flex-1 border-t border-dashed border-tape-silver" />
-          <span className="mx-3 text-caption font-medium text-ink-navy/50">
+          <span className="mx-3 font-mono text-caption text-muted">
             {strings.style.or}
           </span>
           <div className="h-px flex-1 border-t border-dashed border-tape-silver" />
@@ -213,7 +226,7 @@ function TemplateCard({
     <button
       type="button"
       onClick={onSelect}
-      className="group overflow-hidden rounded-card border border-tape-silver/50 bg-chalk-white text-left transition-all hover:border-navy-interactive hover:shadow-brand active:scale-[0.98]"
+      className="group overflow-hidden rounded-card border border-hairline bg-chalk-white text-left transition-all hover:border-navy-interactive hover:shadow-card active:scale-[0.98]"
     >
       <div
         className="flex aspect-[3/4] items-center justify-center"

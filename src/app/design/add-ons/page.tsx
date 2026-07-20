@@ -27,11 +27,11 @@ export default function AddOnsPage() {
       title="Material add-ons"
       activeLayerPrefix="addon:"
     >
-      <p className="mt-2 text-body text-ink-navy/85">
+      <p className="mt-2 text-body text-ink/85">
         Pick what you like — every add-on shows on your blouse preview as you choose.
       </p>
 
-      <section className="mt-4 rounded-card bg-warm-bg p-4">
+      <section className="mt-4 rounded-card border border-hairline bg-warm-sand p-4">
         <h2 className="font-heading text-h3 text-ink-navy">
           {strings.addonSection.materialHeading}
         </h2>

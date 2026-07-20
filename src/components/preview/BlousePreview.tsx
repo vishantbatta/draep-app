@@ -145,7 +145,7 @@ export function BlousePreview({
   return (
     <section
       className={clsx(
-        "relative overflow-hidden rounded-card bg-warm-bg shadow-brand",
+        "relative overflow-hidden rounded-card bg-mist-navy shadow-brand",
         className,
       )}
       aria-label={ariaLabel}
@@ -162,7 +162,7 @@ export function BlousePreview({
             y={0}
             width={PREVIEW_VIEWBOX.width}
             height={PREVIEW_VIEWBOX.height}
-            fill="var(--warm-bg)"
+            fill="var(--mist-navy)"
           />
 
           {/* Base silhouette */}
@@ -201,7 +201,7 @@ export function BlousePreview({
         type="button"
         onClick={flip}
         aria-label={view === "front" ? strings.preview.flipToBack : strings.preview.flipToFront}
-        className="tap absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-pill bg-chalk-white/95 px-3 py-1.5 text-caption font-medium text-ink-navy shadow-brand"
+        className="tap absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-pill bg-chalk-white px-3 py-1.5 text-caption font-medium text-ink-navy shadow-brand"
       >
         <Flip size={14} />
         {view === "front" ? "Back" : "Front"}

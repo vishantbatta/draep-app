@@ -75,15 +75,16 @@ export default function ConfirmedPage() {
     <ScreenShell className="pt-6">
       {/* Success header — brand handshake: navy + orange */}
       <div className="flex flex-col items-center text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-pill bg-success text-chalk-white shadow-brand">
+        <div className="flex h-16 w-16 items-center justify-center rounded-pill bg-success text-chalk-white shadow-card">
           <Check size={32} strokeWidth={3} />
         </div>
-        <h1 className="mt-4 font-heading text-h1 text-ink-navy">
+        <p className="eyebrow mt-3">Confirmed</p>
+        <h1 className="mt-1 font-heading text-h1 text-ink-navy">
           {strings.confirmed.title}
         </h1>
-        <p className="mt-2 text-body text-ink-navy/85">{strings.confirmed.body}</p>
-        <div className="mt-3 inline-flex items-center gap-2 rounded-pill bg-navy-bg px-3 py-1.5">
-          <span className="text-caption text-ink-navy/70">{strings.confirmed.orderId}</span>
+        <p className="mt-2 text-body text-ink/85">{strings.confirmed.body}</p>
+        <div className="mt-3 inline-flex items-center gap-2 rounded-pill bg-mist-navy px-3 py-1.5">
+          <span className="text-caption text-muted">{strings.confirmed.orderId}</span>
           <MonoNumber className="text-data font-semibold text-ink-navy">
             {orderId}
           </MonoNumber>
@@ -115,16 +116,16 @@ export default function ConfirmedPage() {
       )}
 
       {confirmed && selectedDate && selectedWindow && (
-        <section className="mt-8 rounded-card border border-tape-silver bg-chalk-white p-4">
+        <section className="mt-8 rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
           <h2 className="font-heading text-h3 text-ink-navy">
             {strings.confirmed.summaryTitle}
           </h2>
 
           {/* Slot */}
-          <div className="mt-3 flex items-start gap-3 rounded-card bg-warm-bg p-3">
-            <Calendar size={20} className="mt-1 text-draep-orange" />
+          <div className="mt-3 flex items-start gap-3 rounded-card bg-warm-sand p-3">
+            <Calendar size={20} className="mt-1 text-accent-text" />
             <div className="flex-1">
-              <p className="text-caption text-ink-navy/70">Visit slot</p>
+              <p className="text-caption text-muted">Visit slot</p>
               <p className="font-heading text-h3 text-ink-navy">
                 {strings.confirmed.captainLine(dateLabel, windowLabel)}
               </p>
@@ -133,11 +134,11 @@ export default function ConfirmedPage() {
 
           {/* Address */}
           {address && (
-            <div className="mt-2 flex items-start gap-3 rounded-card bg-warm-bg p-3">
-              <HomeVisit size={20} className="mt-1 text-draep-orange" />
+            <div className="mt-2 flex items-start gap-3 rounded-card bg-warm-sand p-3">
+              <HomeVisit size={20} className="mt-1 text-accent-text" />
               <div className="flex-1">
-                <p className="text-caption text-ink-navy/70">Address</p>
-                <p className="text-body text-ink-navy">{address}</p>
+                <p className="text-caption text-muted">Address</p>
+                <p className="text-body text-ink">{address}</p>
               </div>
             </div>
           )}
@@ -151,7 +152,7 @@ export default function ConfirmedPage() {
         </section>
       )}
 
-      <p className="mt-8 text-center text-caption text-ink-navy/70">
+      <p className="mt-8 text-center text-caption text-muted">
         Need to change something?{" "}
         <Link href="/review" className="text-navy-interactive underline">
           Edit your design
@@ -174,13 +175,13 @@ function Step({
     <li className="flex items-start gap-2">
       <span
         aria-hidden
-        className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-pill bg-orange-fill text-draep-orange"
+        className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-pill bg-accent-fill text-chalk-white"
       >
         {icon}
       </span>
-      <span className="flex-1 text-body text-ink-navy">{body}</span>
+      <span className="flex-1 text-body text-ink">{body}</span>
       {terminal && (
-        <span aria-hidden className="mt-2 h-2 w-2 flex-none rounded-full bg-draep-orange" />
+        <span aria-hidden className="mt-2 h-2 w-2 flex-none rounded-full bg-accent-fill" />
       )}
     </li>
   );

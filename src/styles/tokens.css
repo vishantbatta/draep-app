@@ -1,47 +1,101 @@
 /**
  * Draep brand tokens — source of truth.
- * Mirrors Brand Book §4 (Color System) and Frontend Spec §3.1.
+ * Mirrors Brand Book §4 (Color System), §5 (Typography), §8 (Components).
  * Do NOT introduce hex values anywhere else; Tailwind colors extend from these vars.
  */
 :root {
-  /* Primary palette */
-  --ink-navy: #083068;
-  --draep-orange: #f89010;
-  --ember: #d06010;
-  --tape-silver: #d8d8d8;
-  --chalk-white: #ffffff;
+  /* Primary palette — Brand Book §4 (exact hex from brand_book.html §4) */
+  --ink-navy: #083068;      /* "Wordmark, text, dark surfaces" */
+  --draep-orange: #f89010;  /* "Primary actions, the tape" */
+  --ember: #d06010;         /* "Hover / pressed, gradient depth" */
+  --deep-ember: #a85010;    /* Deepest gradient stop */
+  --tape-silver: #d8d8d8;   /* "Tick marks" */
+  --chalk-white: #ffffff;   /* "Cards, inputs, surfaces" */
+
+  /**
+   * ACCENT ORANGE for text/icons on light backgrounds.
+   *
+   * Brand Book §4 defines Draep Orange #F89010 as "primary actions + the tape".
+   * The brand book's .b-orange badge spec uses ember (#D06010) — but that's for
+   * LARGE badge headlines. For body/caption-size orange text (eyebrows, edit
+   * links, small icons), use deep-ember (#A85010) — the deepest brand-book
+   * gradient stop — which passes WCAG AA at 5.5:1 on white and 5.14:1 on
+   * warm-sand. Draep-orange itself is reserved for the tape gradient and
+   * large decorative fills.
+   */
+  --accent-text: var(--deep-ember);  /* AA-passing orange for text/icons on light */
+  --accent-fill: var(--deep-ember);  /* AA-passing orange fill behind white text */
+
+  /* Body + muted text — Brand Book §4/§5 (typography spec) */
+  --ink: #0d2036; /* Body copy, primary text */
+  --muted: #5b6b82; /* Secondary text, captions */
+
+  /* Surface tints — Brand Book §4 "Surface tints" */
+  --warm-sand: #fff6ea; /* Page backgrounds */
+  --mist-navy: #eaf0f8; /* Secondary sections */
+
+  /* Legacy aliases — keep so existing utility classes (bg-navy-bg / bg-warm-bg)
+     continue to work. New code should prefer the brand-book names. */
+  --navy-bg: var(--mist-navy);
+  --warm-bg: var(--warm-sand);
 
   /* Navy tints */
   --navy-interactive: #3a5c8f;
   --navy-disabled: #9fb3cf;
-  --navy-bg: #eaf0f8;
 
-  /* Orange tints */
+  /* Orange tints — Brand Book §4 badge spec uses #FDECD3 */
   --orange-highlight: #fbb95e;
   --orange-fill: #fde3bf;
-  --warm-bg: #fff6ea;
+  --orange-badge-bg: #fdecd3; /* Brand Book §4 .b-orange */
 
-  /* Semantic */
+  /* Hairline borders — Brand Book §8 (1px borders use navy @ 8%) */
+  --hairline: rgba(8, 48, 104, 0.08);
+  --hairline-strong: rgba(8, 48, 104, 0.15);
+
+  /* Semantic — Brand Book §4 + §4 "in context" (alert/ok rules)
+     Saturated values are for BADGES (white text on saturated fill).
+     Text on light tints uses the -text variants per Brand Book §4:
+       .ok   { color:#1c7a48 }   ← success body text
+       .alert{ color:#b3382c }   ← error body text
+     These match the brand book exactly. */
   --success: #16a34a;
+  --success-text: #1c7a48;       /* Brand Book §4 .ok color */
+  --success-bg: #e8f1ec;
+  --success-border: #b8d8c4;
   --warning: #eab308;
   --error: #dc2626;
+  --error-text: #b3382c;         /* Brand Book §4 .alert color */
+  --error-bg: #fce9e7;
+  --error-border: #f2c4bd;
   --info: #2563eb;
 
-  /* Tape Gradient — used only on hero, primary buttons, progress fill, symbol */
+  /* Tape Gradient — exact Brand Book §4 spec.
+     Used on primary CTAs (.btn-primary{background:var(--grad)}), hero stripes,
+     and decorative fills per the brand book. */
   --tape-gradient: linear-gradient(
     135deg,
     #f89010 0%,
-    #e87810 33%,
-    #d06010 66%,
+    #e87810 40%,
+    #d06010 75%,
     #a85010 100%
   );
 
-  /* Single elevation — navy at 8% opacity, soft and warm */
+  /* Elevation — Brand Book §8 (single warm elevation system) */
+  /* Card surface — two-layer soft lift */
+  --shadow-card: 0 1px 2px rgba(8, 48, 104, 0.04),
+    0 8px 24px rgba(8, 48, 104, 0.05);
+  /* Floating surface — sticky bars, sheets, toasts */
   --shadow-brand: 0 6px 20px -8px rgba(8, 48, 104, 0.18),
     0 2px 6px -2px rgba(8, 48, 104, 0.08);
+  /* Primary CTA — ember-tinted glow under tape buttons (Brand Book §8) */
+  --shadow-primary: 0 4px 12px rgba(208, 96, 16, 0.28);
 
-  /* Radii — no sharp corners anywhere */
+  /* Focus ring — Brand Book §8 (.inp:focus) */
+  --focus-ring: 0 0 0 3px rgba(248, 144, 16, 0.2);
+
+  /* Radii — no sharp corners anywhere (Brand Book §8) */
   --radius-card: 12px;
+  --radius-sheet: 16px; /* Bottom sheets, modals */
   --radius-pill: 9999px;
 
   /* Container */

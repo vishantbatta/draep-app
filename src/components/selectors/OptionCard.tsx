@@ -63,8 +63,8 @@ export const OptionCard = forwardRef<HTMLButtonElement, OptionCardProps>(
             "block w-full rounded-card p-3 text-left transition-all duration-200 ease-brand",
             "min-h-[160px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-interactive",
             selected
-              ? "bg-orange-fill border-[1.5px] border-draep-orange"
-              : "bg-chalk-white border border-tape-silver hover:border-navy-interactive",
+              ? "bg-orange-fill border-[1.5px] border-draep-orange shadow-card"
+              : "bg-chalk-white border border-hairline hover:border-navy-interactive hover:shadow-card",
             "active:border-ember",
           )}
         >
@@ -74,14 +74,13 @@ export const OptionCard = forwardRef<HTMLButtonElement, OptionCardProps>(
           <div className="mt-2">
             <p
               className={clsx(
-                "font-heading text-h3",
-                selected ? "text-ink-navy" : "text-ink-navy",
+                "font-heading text-h3 text-ink-navy",
               )}
             >
               {label}
             </p>
             {priceLabel && (
-              <p className="mt-0.5 font-mono text-caption text-ink-navy/70">
+              <p className="mt-0.5 font-mono text-caption text-muted">
                 {priceLabel}
               </p>
             )}
@@ -91,7 +90,7 @@ export const OptionCard = forwardRef<HTMLButtonElement, OptionCardProps>(
         {selected && (
           <span
             aria-hidden
-            className="absolute right-3 top-3 inline-flex h-6 w-6 items-center justify-center rounded-pill bg-draep-orange text-chalk-white shadow-brand"
+            className="absolute right-3 top-3 inline-flex h-6 w-6 items-center justify-center rounded-pill bg-tape text-chalk-white shadow-primary"
           >
             <Check size={14} strokeWidth={2.5} />
           </span>

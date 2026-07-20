@@ -57,7 +57,7 @@ export function BottomSheet({ open, onClose, title, children, className, footer 
             aria-modal="true"
             aria-label={title}
             className={clsx(
-              "relative w-full max-w-column rounded-t-card bg-chalk-white shadow-brand",
+              "relative w-full max-w-column rounded-t-sheet bg-chalk-white shadow-brand",
               "flex max-h-[85dvh] flex-col",
               className,
             )}
@@ -76,7 +76,7 @@ export function BottomSheet({ open, onClose, title, children, className, footer 
               {children}
             </div>
             {footer && (
-              <div className="border-t border-tape-silver/60 bg-chalk-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+              <div className="border-t border-hairline bg-chalk-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
                 {footer}
               </div>
             )}

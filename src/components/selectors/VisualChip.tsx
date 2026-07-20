@@ -55,8 +55,8 @@ export function VisualChip({
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-interactive",
         "disabled:opacity-50 disabled:cursor-not-allowed",
         selected
-          ? "bg-draep-orange text-chalk-white"
-          : "bg-chalk-white border border-tape-silver text-ink-navy hover:border-navy-interactive",
+          ? "bg-tape text-chalk-white border border-draep-orange"
+          : "bg-chalk-white border border-hairline-strong text-ink hover:border-navy-interactive",
         className,
       )}
     >
@@ -73,7 +73,7 @@ export function VisualChip({
         <span
           className={clsx(
             "ml-1 font-mono",
-            selected ? "text-chalk-white/90" : "text-ink-navy/70",
+            selected ? "text-chalk-white/90" : "text-muted",
           )}
         >
           {priceLabel}
