@@ -199,7 +199,7 @@ export default function LandingPage() {
           </div>
 
           {/* Hero visual */}
-          <div className="relative h-[440px] max-[860px]:order-[-1] max-[860px]:h-[360px]">
+          <div className="relative h-[440px] max-[860px]:h-[360px]">
             <div
               className="absolute inset-0 overflow-hidden rounded-[28px]"
               style={{
