@@ -1,15 +1,18 @@
 "use client";
 
 /**
- * Contact details — spec §6.10.
+ * Contact details — spec §6.10 + API integration.
  *
- * Phone first, then name + address, then map pin.
- * RHF + Zod validation. Out-of-area blocks progression.
- * CTA `Continue to payment` enabled only when all validations pass — the one
- * exception to the always-enabled rule.
+ * Flow:
+ *   1. User fills name, address, pincode, map pin
+ *   2. Service area checked via GET /service-area/check (server-side polygon)
+ *   3. On submit:
+ *      a. If not authenticated (anonymous session) → redirect to /otp?phone=XX
+ *      b. If authenticated → PUT /orders/{orderId}/contact (saves to backend)
+ *   4. On success → navigate to /pay
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,10 +24,12 @@ import { Button } from "@/components/ui/Button";
 import { Banner } from "@/components/ui/Banner";
 import { MapPinPicker } from "@/components/contact/MapPinPicker";
 import { useBookingStore } from "@/lib/booking-store";
+import { useAuthStore } from "@/lib/auth-store";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
-import { checkServiceArea } from "@/lib/service-area";
+import { serviceAreaApi } from "@/lib/api";
 import { BANGALORE_PINCODE_PREFIXES } from "@/lib/service-area";
+import type { ServiceAreaCheckOut } from "@/types/api";
 
 const schema = z.object({
   phone: z.string().regex(/^[6-9]\d{9}$/, strings.contact.validation.phone),
@@ -41,16 +46,24 @@ export default function ContactPage() {
   const draft = useBookingStore((s) => s.draft);
   const hydrated = useBookingStore((s) => s.hydrated);
   const setContact = useBookingStore((s) => s.setContact);
+  const sessionType = useAuthStore((s) => s.sessionType);
+  const user = useAuthStore((s) => s.user);
+
   const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null);
   const [pinTouched, setPinTouched] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [serverAreaCheck, setServerAreaCheck] = useState<ServiceAreaCheckOut | null>(null);
+  const [areaChecking, setAreaChecking] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const existingContact = draft?.contact;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      phone: existingContact?.phone ?? "",
-      name: existingContact?.name ?? "",
+      phone: existingContact?.phone ?? user?.phone ?? "",
+      name: existingContact?.name ?? user?.name ?? "",
       address1: existingContact?.address1 ?? "",
       address2: existingContact?.address2 ?? "",
       pincode: existingContact?.pincode ?? "",
@@ -64,35 +77,90 @@ export default function ContactPage() {
     }
   }, [existingContact?.lat, existingContact?.lng]);
 
-  const area = useMemo(() => {
-    if (!pin) return null;
-    return checkServiceArea(pin.lat, pin.lng);
-  }, [pin]);
+  // Debounced server-side service area check
+  const checkArea = useCallback((lat: number, lng: number) => {
+    setAreaChecking(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const result = await serviceAreaApi.checkServiceability(lat, lng);
+        setServerAreaCheck(result);
+      } catch {
+        setServerAreaCheck(null);
+      } finally {
+        setAreaChecking(false);
+      }
+    }, 500);
+  }, []);
 
-  // Heuristic pincode pre-check: outside Bangalore prefix → out of area.
+  const handlePinChange = (lat: number, lng: number) => {
+    setPin({ lat, lng });
+    setPinTouched(true);
+    checkArea(lat, lng);
+  };
+
   const pincodeValue = form.watch("pincode");
   const pincodeInBangalore = BANGALORE_PINCODE_PREFIXES.some((p) =>
     pincodeValue?.startsWith(p),
   );
 
-  const outOfArea = (area && !area.serviceable) || (pincodeValue?.length === 6 && !pincodeInBangalore);
+  const outOfArea =
+    (serverAreaCheck && !serverAreaCheck.serviceable) ||
+    (pincodeValue?.length === 6 && !pincodeInBangalore);
 
-  const onSubmit = (values: FormValues) => {
+  const onSubmit = async (values: FormValues) => {
+    setSubmitError(null);
+
     if (outOfArea) {
-      track({ event: "serviceability_failed", areaResult: area?.areaName ?? "pincode" });
+      track({ event: "serviceability_failed", areaResult: serverAreaCheck?.reason ?? "pincode" });
       return;
     }
     if (!pin) {
       setPinTouched(true);
       return;
     }
+
+    // Save to local store optimistically
     setContact({
       ...values,
       lat: pin.lat,
       lng: pin.lng,
     });
-    track({ event: "contact_submitted" });
-    router.push("/pay");
+
+    // Check if user is authenticated (OTP-verified)
+    if (sessionType !== "user") {
+      track({ event: "contact_submitted" });
+      router.push(`/otp?phone=${encodeURIComponent(values.phone)}`);
+      return;
+    }
+
+    // User is authenticated → save contact to backend
+    if (!draft?.orderId) {
+      setSubmitError("Your session isn't ready yet. Please try again.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await serviceAreaApi.updateOrderContact(draft.orderId, {
+        name: values.name,
+        address_line_1: values.address1,
+        address_line_2: values.address2,
+        city: "Bengaluru",
+        state: "Karnataka",
+        pincode: values.pincode,
+        lat: pin.lat,
+        lng: pin.lng,
+      });
+      track({ event: "contact_submitted" });
+      router.push("/pay");
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "Failed to save your details. Try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!hydrated || !draft) {
@@ -113,6 +181,22 @@ export default function ContactPage() {
         <h1 className="font-heading text-h1 text-ink-navy">
           {strings.contact.title}
         </h1>
+
+        {sessionType !== "user" && (
+          <div className="mt-3">
+            <Banner variant="info" title="Verify your number">
+              <p>You&apos;ll receive an OTP to confirm your booking.</p>
+            </Banner>
+          </div>
+        )}
+
+        {submitError && (
+          <div className="mt-3">
+            <Banner variant="error" title="Couldn't save">
+              <p>{submitError}</p>
+            </Banner>
+          </div>
+        )}
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="mt-5 space-y-5">
           {/* Phone */}
@@ -191,13 +275,13 @@ export default function ContactPage() {
             <MapPinPicker
               lat={pin?.lat ?? existingContact?.lat}
               lng={pin?.lng ?? existingContact?.lng}
-              onPinChange={(lat, lng) => {
-                setPin({ lat, lng });
-                setPinTouched(true);
-              }}
+              onPinChange={handlePinChange}
             />
             {pinTouched && !pin && (
               <p className="mt-1 text-caption text-error-text">{strings.contact.validation.pin}</p>
+            )}
+            {areaChecking && (
+              <p className="mt-1 text-caption text-muted">Checking service area…</p>
             )}
           </Field>
 
@@ -207,8 +291,15 @@ export default function ContactPage() {
             </Banner>
           )}
 
-          <Button type="submit" fullWidth disabled={Boolean(outOfArea)}>
-            {strings.contact.continue}
+          <Button
+            type="submit"
+            fullWidth
+            disabled={Boolean(outOfArea) || submitting || areaChecking}
+            loading={submitting}
+          >
+            {sessionType === "user"
+              ? strings.contact.continue
+              : "Verify & continue"}
           </Button>
         </form>
       </ScreenShell>
@@ -217,8 +308,6 @@ export default function ContactPage() {
 }
 
 function inputClass(hasError: boolean): string {
-  // Brand Book §8 — 1px hairline border, ink body text, orange focus ring
-  // (the orange ring is applied globally on input:focus in globals.css).
   return [
     "w-full rounded-card border px-3 py-2.5 min-h-[44px] text-body bg-chalk-white",
     "focus-visible:outline-none",

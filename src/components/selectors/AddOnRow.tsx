@@ -37,6 +37,7 @@ interface AddOnRowProps {
   state: AddOnState | undefined;
   route: string | null;
   source: "context" | "addons_screen" | "review_sheet";
+  sleeveOptionId?: string;
   onToggle: (enabled: boolean) => void;
   onChoose: (choiceId: string) => void;
   onTogglePlacement: (placementId: string, on: boolean) => void;
@@ -51,6 +52,7 @@ export function AddOnRow({
   state,
   route,
   source,
+  sleeveOptionId,
   onToggle,
   onChoose,
   onTogglePlacement,
@@ -62,8 +64,8 @@ export function AddOnRow({
   const enabled = state?.enabled ?? false;
   const priceLabel = addOn.priceKey ? `+ ${formatPrice(priceFor(addOn))}` : undefined;
   const placements = useMemo(
-    () => visiblePlacementsFor(addOn.id, route),
-    [addOn.id, route],
+    () => visiblePlacementsFor(addOn.id, route, sleeveOptionId),
+    [addOn.id, route, sleeveOptionId],
   );
 
   const ghostLayerId = enabled

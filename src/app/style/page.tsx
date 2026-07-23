@@ -77,9 +77,9 @@ export default function StylePage() {
   }, []);
 
   /** Build from scratch → go to the full custom design flow. */
-  const handleBuildFromScratch = useCallback(() => {
-    clearDraft();
-    initDraft();
+  const handleBuildFromScratch = useCallback(async () => {
+    await clearDraft();
+    await initDraft();
     track({ event: "landing_cta_tapped", resumed: false });
     router.push(DESIGN_ROUTES[0]);
   }, [clearDraft, initDraft, router]);
@@ -89,19 +89,19 @@ export default function StylePage() {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    clearDraft();
-    initDraft();
+    await clearDraft();
+    await initDraft();
     track({ event: "landing_cta_tapped", resumed: false });
     router.replace(REVIEW_ROUTE);
   };
 
   /** Template tap → go straight to review. */
-  const handleTemplateSelect = () => {
-    clearDraft();
-    initDraft();
+  const handleTemplateSelect = async () => {
+    await clearDraft();
+    await initDraft();
     track({ event: "landing_cta_tapped", resumed: false });
     router.replace(REVIEW_ROUTE);
   };

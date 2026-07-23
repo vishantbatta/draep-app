@@ -35,6 +35,7 @@ const NECK_SIDE: Category = CATEGORY_BY_ID["neck_side"];
 export default function FitPage() {
   const draft = useBookingStore((s) => s.draft);
   const setSelectionInStore = useBookingStore((s) => s.setSelection);
+  const removeAddOn = useBookingStore((s) => s.removeAddOn);
 
   if (!draft) return null;
 
@@ -48,6 +49,23 @@ export default function FitPage() {
       to: optionId,
       subOptionId,
     });
+
+    // When switching to a sleeveless style, remove "sleeves" placement
+    // from any placement-based add-ons (tassels, net_work, latkan)
+    if (categoryId === "sleeve" && (optionId === "sleeveless" || optionId === "cap")) {
+      for (const addOnId of ["tassels", "net_work", "latkan"]) {
+        const addOnState = draft.addOns[addOnId];
+        if (addOnState?.placements?.["sleeves"]) {
+          const nextPlacements = { ...addOnState.placements };
+          delete nextPlacements["sleeves"];
+          if (Object.keys(nextPlacements).length === 0) {
+            removeAddOn(addOnId);
+          } else {
+            useBookingStore.getState().updateAddOn(addOnId, { placements: nextPlacements });
+          }
+        }
+      }
+    }
   };
 
   return (

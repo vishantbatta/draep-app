@@ -346,18 +346,41 @@ export function addOnsForRoute(route: string): AddOn[] {
 }
 
 /**
+ * Sleeve options that have no sleeve surface to attach placement-based add-ons to.
+ */
+const SLEEVELESS_OPTION_IDS = new Set(["sleeveless", "cap"]);
+
+/**
  * Per spec §7 note: the Tassels row exposes only the relevant placement on each
  * contextual screen (length → bottom, back → back_neck, fit → sleeves, front-neck → front_neck).
+ *
+ * When the current sleeve selection is sleeveless (or cap), the "sleeves" placement
+ * is hidden for all placement-based add-ons — there's no sleeve to attach to.
  */
-export function visiblePlacementsFor(addOnId: string, route: string | null) {
+export function visiblePlacementsFor(
+  addOnId: string,
+  route: string | null,
+  sleeveOptionId?: string,
+) {
   const addOn = ADDON_BY_ID[addOnId];
   if (!addOn?.placements) return addOn?.placements ?? [];
-  if (!route) return addOn.placements;
-  if (addOnId === "tassels") {
-    if (route === "/design/length") return addOn.placements.filter((p) => p.id === "bottom");
-    if (route === "/design/back") return addOn.placements.filter((p) => p.id === "back_neck");
-    if (route === "/design/fit") return addOn.placements.filter((p) => p.id === "sleeves");
-    if (route === "/design/front-neck") return addOn.placements.filter((p) => p.id === "front_neck");
+
+  // Filter out "sleeves" placement when sleeve style has no sleeves
+  const hasNoSleeves = sleeveOptionId
+    ? SLEEVELESS_OPTION_IDS.has(sleeveOptionId)
+    : false;
+
+  let placements = addOn.placements;
+  if (hasNoSleeves) {
+    placements = placements.filter((p) => p.id !== "sleeves");
   }
-  return addOn.placements;
+
+  if (!route) return placements;
+  if (addOnId === "tassels") {
+    if (route === "/design/length") return placements.filter((p) => p.id === "bottom");
+    if (route === "/design/back") return placements.filter((p) => p.id === "back_neck");
+    if (route === "/design/fit") return placements.filter((p) => p.id === "sleeves");
+    if (route === "/design/front-neck") return placements.filter((p) => p.id === "front_neck");
+  }
+  return placements;
 }

@@ -24,6 +24,7 @@ import { computePrice, formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
 import { nextRouteAfter } from "@/lib/routing";
 import { track } from "@/lib/analytics";
+import { useBookingStore } from "@/lib/booking-store";
 import type { BookingDraft } from "@/types/booking";
 
 interface PriceBarProps {
@@ -36,6 +37,8 @@ export function PriceBar({ draft, currentRoute, ctaLabel }: PriceBarProps) {
   const router = useRouter();
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [navigating, startTransition] = useTransition();
+  const [flushing, setFlushing] = useState(false);
+  const flushPendingChanges = useBookingStore((s) => s.flushPendingChanges);
   const price = computePrice(draft);
 
   const next = nextRouteAfter(currentRoute);
@@ -46,8 +49,17 @@ export function PriceBar({ draft, currentRoute, ctaLabel }: PriceBarProps) {
     if (next) router.prefetch(next);
   }, [next, router]);
 
-  const goNext = () => {
+  const goNext = async () => {
     if (!next) return;
+    // Flush all pending selection/add-on changes to server before navigating
+    setFlushing(true);
+    try {
+      await flushPendingChanges();
+    } catch {
+      // Best effort — navigate even if flush fails
+    }
+    setFlushing(false);
+
     if (next === "/review") track({ event: "review_viewed" });
     startTransition(() => {
       router.push(next);
@@ -83,7 +95,7 @@ export function PriceBar({ draft, currentRoute, ctaLabel }: PriceBarProps) {
               </span>
             </span>
           </button>
-          <Button onClick={goNext} loading={navigating} className="min-w-[120px]">
+          <Button onClick={goNext} loading={navigating || flushing} className="min-w-[120px]">
             {label}
           </Button>
         </div>

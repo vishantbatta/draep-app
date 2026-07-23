@@ -35,6 +35,7 @@ export function stepNumber(route: string): number {
 }
 
 export function nextRouteAfter(route: string): string | null {
+  if (route === REVIEW_ROUTE) return CONTACT_ROUTE;
   const idx = DESIGN_ROUTES.indexOf(route as (typeof DESIGN_ROUTES)[number]);
   if (idx === -1) return null;
   if (idx === DESIGN_ROUTES.length - 1) return REVIEW_ROUTE;

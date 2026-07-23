@@ -29,6 +29,8 @@ export function ContextualAddOns({ route }: ContextualAddOnsProps) {
   const addOns = addOnsForRoute(route);
   if (!addOns.length || !draft) return null;
 
+  const sleeveOptionId = draft.selections["sleeve"]?.optionId;
+
   return (
     <section className="mt-6 rounded-card border border-hairline-strong bg-chalk-white p-4 shadow-card">
       <h3 className="font-heading text-h3 text-ink-navy">
@@ -47,6 +49,7 @@ export function ContextualAddOns({ route }: ContextualAddOnsProps) {
               state={state}
               route={route}
               source="context"
+              sleeveOptionId={sleeveOptionId}
               onToggle={(enabled) => {
                 if (enabled) {
                   setAddOn(addOn.id, {

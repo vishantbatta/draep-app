@@ -81,11 +81,21 @@ export interface SlotSelection {
 
 export interface BookingDraft {
   version: 1;
+  /** Server-side order ID — null until POST /orders succeeds. */
+  orderId: string | null;
+  /** Garment ID from catalog — set on draft init. */
+  garmentId: string | null;
   selections: Record<string, Selection>; // keyed by Category.id
   addOns: Record<string, AddOnState>;
   contact?: ContactDetails;
   payment?: PaymentState;
   slot?: SlotSelection;
+  /** Server-side price breakdown (from last order fetch or pricing compute). */
+  serverPriceBreakdown?: {
+    base: number;
+    lines: { label: string; amount: number }[];
+    total: number;
+  } | null;
   updatedAt: string; // ISO
 }
 

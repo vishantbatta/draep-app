@@ -23,15 +23,43 @@ import { useBookingStore } from "@/lib/booking-store";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
 import { VISIT_SLOT_WINDOWS } from "@/lib/pricing-config";
+import { checkoutApi } from "@/lib/api";
 
 export default function ConfirmedPage() {
   const draft = useBookingStore((s) => s.draft);
   const hydrated = useBookingStore((s) => s.hydrated);
   const setSlot = useBookingStore((s) => s.setSlot);
+  const setPayment = useBookingStore((s) => s.setPayment);
 
   const [selectedDate, setSelectedDate] = useState<string | undefined>(draft?.slot?.date);
   const [selectedWindow, setSelectedWindow] = useState<string | undefined>(draft?.slot?.window);
   const [confirmed, setConfirmed] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+
+  // On mount: if we have an orderId but no payment record, verify the payment
+  // status from the server (handles page refresh mid-payment)
+  const serverOrderId = draft?.orderId;
+  const paymentStatus = draft?.payment?.status;
+  useEffect(() => {
+    if (!hydrated || !serverOrderId || paymentStatus === "paid") return;
+    let cancelled = false;
+    setVerifying(true);
+    checkoutApi
+      .getOrderStatus(serverOrderId)
+      .then((status) => {
+        if (cancelled) return;
+        if (status.payment_status === "paid") {
+          setPayment({ orderId: serverOrderId, status: "paid" });
+        }
+      })
+      .catch(() => {
+        // Non-fatal — user can retry
+      })
+      .finally(() => {
+        if (!cancelled) setVerifying(false);
+      });
+    return () => { cancelled = true; };
+  }, [hydrated, serverOrderId, paymentStatus, setPayment]);
 
   useEffect(() => {
     if (hydrated && draft?.slot) {

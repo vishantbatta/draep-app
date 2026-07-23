@@ -80,6 +80,19 @@ function addOnLines(addOnId: string, state: AddOnState): PriceLine[] {
 }
 
 export function computePrice(draft: BookingDraft): PriceComputation {
+  // Prefer server-side price breakdown when available (from order API)
+  if (draft.serverPriceBreakdown) {
+    return {
+      base: draft.serverPriceBreakdown.base,
+      lines: [
+        { label: "Base stitching", amount: draft.serverPriceBreakdown.base },
+        ...draft.serverPriceBreakdown.lines,
+      ],
+      total: draft.serverPriceBreakdown.total,
+    };
+  }
+
+  // Fallback: client-side computation (for instant UI before server responds)
   const lines: PriceLine[] = [];
 
   lines.push({ label: "Base stitching", amount: BASE_STITCHING });

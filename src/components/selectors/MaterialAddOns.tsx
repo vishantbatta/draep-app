@@ -34,6 +34,7 @@ export function MaterialAddOns({
   if (!draft) return null;
 
   const materialAddOns = ADD_ONS.filter((a) => a.group === "addon_material");
+  const sleeveOptionId = draft.selections["sleeve"]?.optionId;
 
   return (
     <div className="space-y-2">
@@ -46,6 +47,7 @@ export function MaterialAddOns({
             state={state}
             route={route}
             source={source}
+            sleeveOptionId={sleeveOptionId}
             onToggle={(enabled) => {
               if (enabled) {
                 setAddOn(addOn.id, {

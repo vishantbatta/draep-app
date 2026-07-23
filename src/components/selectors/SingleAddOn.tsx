@@ -35,6 +35,7 @@ export function SingleAddOn({
 
   const resolvedRoute = route ?? addOn.contextRoutes?.[0] ?? null;
   const state = draft.addOns[addOnId];
+  const sleeveOptionId = draft.selections["sleeve"]?.optionId;
 
   return (
     <AddOnRow
@@ -42,6 +43,7 @@ export function SingleAddOn({
       state={state}
       route={resolvedRoute}
       source={source}
+      sleeveOptionId={sleeveOptionId}
       onToggle={(enabled) => {
         if (enabled) {
           setAddOn(addOn.id, {
