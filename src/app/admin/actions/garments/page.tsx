@@ -290,7 +290,7 @@ export default function GarmentsActionPage() {
           </table>
         ) : (
           <div className="flex h-48 items-center justify-center">
-            <span className="text-caption text-muted">No garments yet. Click "Add Garment" to create one.</span>
+            <span className="text-caption text-muted">No garments yet. Click &quot;Add Garment&quot; to create one.</span>
           </div>
         )}
       </div>
