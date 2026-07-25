@@ -377,7 +377,6 @@ export default function MeasureJobPage() {
       alert(e instanceof Error ? e.message : "PDF generation failed");
     } finally {
       setPdfLoading(false);
-      setPdfProgress(null);
     }
   }
 
