@@ -9,6 +9,12 @@
  */
 
 import { useEffect } from "react";
+import {
+  Calendar,
+  Ruler,
+  Scissors,
+  HomeVisit,
+} from "@/components/ui/icons";
 
 // WhatsApp booking constants (mirror draep.html).
 const WA_PHONE = "918147497006";
@@ -103,13 +109,13 @@ export default function LandingPage() {
           borderBottom: "1px solid rgba(8, 48, 104, 0.07)",
         }}
       >
-        <div className="lp-wrap flex h-[70px] items-center justify-between">
+        <div className="lp-wrap flex h-[76px] items-center justify-between">
           <a href="#top" className="block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo-lockup.png"
               alt="draep"
-              className="block h-[34px] w-auto"
+              className="block h-[46px] w-auto"
             />
           </a>
           <nav className="flex items-center gap-[30px]">
@@ -351,41 +357,53 @@ export default function LandingPage() {
                 num: "01",
                 title: "Book a visit",
                 body: "Tap Book now and pick a 3-hour slot. The home visit is free, always.",
+                Icon: Calendar,
               },
               {
                 num: "02",
                 title: "Get measured",
                 body: "Your Style Captain measures you by SOP and helps you design your blouse.",
+                Icon: Ruler,
               },
               {
                 num: "03",
                 title: "We tailor it",
                 body: "A master tailor stitches your fabric to spec, with quality checks at every stage.",
+                Icon: Scissors,
               },
               {
                 num: "04",
                 title: "Trial & deliver",
                 body: "We deliver for trial. Not perfect? We alter until the fit is right.",
+                Icon: HomeVisit,
               },
-            ].map((s) => (
-              <div key={s.num} className="lp-reveal relative z-[1]">
-                <div
-                  className="mb-[20px] grid h-[54px] w-[54px] place-items-center rounded-full border-2 border-[var(--draep-orange)] bg-white font-mono text-[18px] font-semibold text-[var(--ember)]"
-                  style={{
-                    boxShadow:
-                      "0 1px 2px rgba(8,48,104,.05), 0 6px 18px rgba(8,48,104,.06)",
-                  }}
-                >
-                  {s.num}
+            ].map((s) => {
+              const StepIcon = s.Icon;
+              return (
+                <div key={s.num} className="lp-reveal relative z-[1]">
+                  <div className="mb-[20px] flex items-center gap-[14px]">
+                    <div
+                      className="grid h-[54px] w-[54px] shrink-0 place-items-center rounded-full border-2 border-[var(--draep-orange)] bg-white text-[var(--ember)]"
+                      style={{
+                        boxShadow:
+                          "0 1px 2px rgba(8,48,104,.05), 0 6px 18px rgba(8,48,104,.06)",
+                      }}
+                    >
+                      <StepIcon size={24} />
+                    </div>
+                    <span className="font-mono text-[15px] font-semibold text-[var(--draep-orange)]">
+                      {s.num}
+                    </span>
+                  </div>
+                  <h3 className="mb-[8px] font-heading text-[18px] font-semibold text-[var(--ink-navy)]">
+                    {s.title}
+                  </h3>
+                  <p className="text-[14.5px] leading-[1.55] text-[#5A6B87]">
+                    {s.body}
+                  </p>
                 </div>
-                <h3 className="mb-[8px] font-heading text-[18px] font-semibold text-[var(--ink-navy)]">
-                  {s.title}
-                </h3>
-                <p className="text-[14.5px] leading-[1.55] text-[#5A6B87]">
-                  {s.body}
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>

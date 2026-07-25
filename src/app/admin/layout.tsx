@@ -42,6 +42,53 @@ const PRIMARY_TABS: PrimaryTab[] = [
       </svg>
     ),
   },
+  {
+    label: "Catalogue",
+    href: "/admin/catalogue",
+    matchPrefix: "/admin/catalogue",
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
+        <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="11" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="3" y="11" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="11" y="11" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    ),
+  },
+  {
+    label: "Orders",
+    href: "/admin/orders",
+    matchPrefix: "/admin/orders",
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
+        <path d="M4 5h12l-1 10H5L4 5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M7 5V3.5a3 3 0 0 1 6 0V5" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    ),
+  },
+  {
+    label: "Measure",
+    href: "/admin/measurements",
+    matchPrefix: "/admin/measurements",
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
+        <rect x="2.5" y="6" width="15" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M5.5 6v2.5M8.5 6v3.5M11.5 6v2.5M14.5 6v3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        <path d="M5.5 14v-2.5M8.5 14v-3.5M11.5 14v-2.5M14.5 14v-3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    label: "Users",
+    href: "/admin/users",
+    matchPrefix: "/admin/users",
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="7" r="3" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M3.5 17c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
 ];
 
 // ─── Layout component ─────────────────────────────────────────────────────────
@@ -155,8 +202,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   onClick={() => router.push(tab.href)}
                   className={`tap flex w-full flex-col items-center gap-1 rounded-lg px-1 py-2 transition ${
                     activeTab.label === tab.label
-                      ? "bg-white/15 text-chalk-white"
-                      : "text-chalk-white/80 hover:bg-white/10 hover:text-chalk-white"
+                      ? "bg-white/15 text-white"
+                      : "text-white/50 hover:bg-white/10 hover:text-white/90"
                   }`}
                 >
                   {tab.icon}
@@ -189,33 +236,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </nav>
 
-        {/* ── Column 2: Secondary nav ──────────────────────────────────── */}
-        <aside className="flex w-52 shrink-0 flex-col border-r border-hairline bg-chalk-white md:w-56">
-          {/* Header */}
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-hairline px-3 py-3 md:px-4 md:py-4">
-            <div className="min-w-0">
-              <div className="font-heading text-[15px] font-semibold text-ink-navy">
-                {activeTab.label}
-              </div>
-              <div className="truncate text-[11px] leading-tight text-muted">
-                admin@draep.com
-              </div>
-            </div>
-            {/* Close button — mobile only */}
-            <button
-              onClick={() => setDrawerOpen(false)}
-              className="tap flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-mist-navy md:hidden"
-              aria-label="Close navigation"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none">
-                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Scrollable secondary list */}
-          <SecondaryNavSlot />
-        </aside>
+        {/* ── Column 2: Secondary nav (conditional — hidden when no items) ─── */}
+        <ConditionalSecondaryNav activeTabLabel={activeTab.label} onCloseDrawer={() => setDrawerOpen(false)} />
       </div>
 
       {/* ═══ Main content area ════════════════════════════════════════════ */}
@@ -236,7 +258,13 @@ type NavDetail = {
   items: NavItem[];
 } | null;
 
-function SecondaryNavSlot() {
+function ConditionalSecondaryNav({
+  activeTabLabel,
+  onCloseDrawer,
+}: {
+  activeTabLabel: string;
+  onCloseDrawer: () => void;
+}) {
   const [detail, setDetail] = useState<NavDetail>(null);
 
   useEffect(() => {
@@ -247,15 +275,38 @@ function SecondaryNavSlot() {
     return () => window.removeEventListener("admin-sidebar-update", handler);
   }, []);
 
+  // Hide the sidebar entirely when there are no items (or detail is null/empty)
+  const hasItems = detail?.items && detail.items.length > 0;
+  if (!hasItems) return null;
+
   return (
-    <div className="flex-1 overflow-y-auto px-2 py-2">
-      {!detail ? (
-        <div className="px-3 py-2 text-[13px] text-muted">Loading…</div>
-      ) : detail.items.length === 0 ? (
-        <div className="px-3 py-2 text-[13px] text-muted">No items</div>
-      ) : (
+    <aside className="flex w-52 shrink-0 flex-col border-r border-hairline bg-chalk-white md:w-56">
+      {/* Header */}
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-hairline px-3 py-3 md:px-4 md:py-4">
+        <div className="min-w-0">
+          <div className="font-heading text-[15px] font-semibold text-ink-navy">
+            {activeTabLabel}
+          </div>
+          <div className="truncate text-[11px] leading-tight text-muted">
+            admin@draep.com
+          </div>
+        </div>
+        {/* Close button — mobile only */}
+        <button
+          onClick={onCloseDrawer}
+          className="tap flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-mist-navy md:hidden"
+          aria-label="Close navigation"
+        >
+          <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Scrollable secondary list */}
+      <div className="flex-1 overflow-y-auto px-2 py-2">
         <div className="space-y-0.5">
-          {detail.items.map((item) => (
+          {detail!.items.map((item) => (
             <button
               key={item.label}
               onClick={item.onClick}
@@ -269,7 +320,7 @@ function SecondaryNavSlot() {
             </button>
           ))}
         </div>
-      )}
-    </div>
+      </div>
+    </aside>
   );
 }

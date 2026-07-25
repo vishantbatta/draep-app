@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createCondition,
   createGroup,
@@ -70,16 +71,40 @@ function countConditions(node: TypedFilterNode): number {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  URL helpers for table/page/sort state
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function parseSortParam(s: string | null): SortState {
+  if (!s) return { column: null, direction: "desc" };
+  const [col, dir] = s.split(":");
+  if (!col) return { column: null, direction: "desc" };
+  return { column: col, direction: (dir === "asc" ? "asc" : "desc") as SortDirection };
+}
+
+function sortToParam(sort: SortState): string {
+  if (!sort.column) return "";
+  return `${sort.column}:${sort.direction}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  Main dashboard component
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export default function AdminDashboard() {
+function AdminDashboardInner() {
   // ─── State ────────────────────────────────────────────────────────────────
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [tables, setTables] = useState<string[]>([]);
-  const [activeTable, setActiveTable] = useState<string | null>(null);
+
+  const urlTable = searchParams.get("table");
+  const urlPage = parseInt(searchParams.get("page") ?? "1", 10);
+  const urlSort = parseSortParam(searchParams.get("sort"));
+
+  const [activeTable, setActiveTable] = useState<string | null>(urlTable ?? null);
   const [data, setData] = useState<AdminTableData | null>(null);
-  const [page, setPage] = useState(1);
-  const [sort, setSort] = useState<SortState>({ column: null, direction: "desc" });
+  const [page, setPage] = useState<number>(isNaN(urlPage) ? 1 : urlPage);
+  const [sort, setSort] = useState<SortState>(urlSort);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,17 +112,38 @@ export default function AdminDashboard() {
   const [filterRoot, setFilterRoot] = useState<TreeGroup | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
+  // ─── Helper to update the URL ─────────────────────────────────────────────
+  const updateUrl = useCallback((overrides: { table?: string | null; page?: number; sort?: SortState }) => {
+    const params = new URLSearchParams(window.location.search);
+    const newTable = overrides.table !== undefined ? overrides.table : activeTable;
+    const newPage = overrides.page !== undefined ? overrides.page : page;
+    const newSort = overrides.sort !== undefined ? overrides.sort : sort;
+
+    if (newTable) params.set("table", newTable); else params.delete("table");
+    if (newPage > 1) params.set("page", String(newPage)); else params.delete("page");
+    const sortStr = sortToParam(newSort);
+    if (sortStr) params.set("sort", sortStr); else params.delete("sort");
+
+    const qs = params.toString();
+    router.replace(`/admin${qs ? `?${qs}` : ""}`, { scroll: false });
+  }, [router, activeTable, page, sort]);
+
   // ─── Load table list on mount ─────────────────────────────────────────────
   useEffect(() => {
     fetchTables()
       .then((t) => {
         setTables(t);
         if (t.length > 0) {
-          setActiveTable(t[0]);
-          setPage(1);
+          // Only auto-select the first table if no table is set in the URL.
+          if (!activeTable) {
+            setActiveTable(t[0]);
+            setPage(1);
+            updateUrl({ table: t[0], page: 1 });
+          }
         }
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load tables"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─── Push table list + active table to sidebar ───────────────────────────
@@ -150,13 +196,20 @@ export default function AdminDashboard() {
   // ─── Keyboard pagination (←/→) ─────────────────────────────────────────────
   const totalPages = data?.total_pages ?? 1;
 
+  const handlePageChange = useCallback((newPage: number) => {
+    setPage(newPage);
+    updateUrl({ page: newPage });
+  }, [updateUrl]);
+
   const goNext = useCallback(() => {
-    setPage((p) => Math.min(p + 1, totalPages));
-  }, [totalPages]);
+    const next = Math.min(page + 1, totalPages);
+    handlePageChange(next);
+  }, [page, totalPages, handlePageChange]);
 
   const goPrev = useCallback(() => {
-    setPage((p) => Math.max(p - 1, 1));
-  }, []);
+    const next = Math.max(page - 1, 1);
+    handlePageChange(next);
+  }, [page, handlePageChange]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -183,16 +236,18 @@ export default function AdminDashboard() {
     setSort({ column: null, direction: "desc" });
     setFilterRoot(null);
     setShowFilters(false);
+    updateUrl({ table: t, page: 1, sort: { column: null, direction: "desc" } });
   }
 
   function handleSort(col: string) {
     setPage(1);
     setSort((prev) => {
-      if (prev.column === col) {
-        const nextDir: SortDirection = prev.direction === "asc" ? "desc" : "asc";
-        return { column: col, direction: nextDir };
-      }
-      return { column: col, direction: "asc" };
+      const nextDir: SortDirection = prev.column === col && prev.direction === "asc" ? "desc" : "asc";
+      const newSort = prev.column === col
+        ? { column: col, direction: nextDir }
+        : { column: col, direction: "asc" as SortDirection };
+      updateUrl({ page: 1, sort: newSort });
+      return newSort;
     });
   }
 
@@ -390,12 +445,20 @@ export default function AdminDashboard() {
             <PagePills
               current={page}
               total={totalPages}
-              onSelect={setPage}
+              onSelect={handlePageChange}
             />
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+export default function AdminDashboard() {
+  return (
+    <Suspense fallback={<div className="flex min-h-dvh items-center justify-center bg-warm-sand"><span className="text-caption text-muted">Loading…</span></div>}>
+      <AdminDashboardInner />
+    </Suspense>
   );
 }
 

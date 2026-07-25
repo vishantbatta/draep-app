@@ -1,14 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import {
   createStyleComponent,
   deleteStyleComponent,
   fetchTableData,
   updateStyleComponent,
   type AdminTableData,
-  type SortDirection,
   type SortState,
   type StyleComponent,
   type StyleComponentCreateInput,
@@ -40,13 +39,65 @@ const ACTION_TABS = [
 type ActionTabKey = (typeof ACTION_TABS)[number]["key"];
 
 export default function StyleComponentsActionPage() {
+  return (
+    <Suspense fallback={null}>
+      <StyleComponentsActionPageInner />
+    </Suspense>
+  );
+}
+
+function StyleComponentsActionPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
   const [activeActionTab] = useState<ActionTabKey>("style-components");
+
+  // Helper to parse sort from URL
+  function parseSort(sp: URLSearchParams): SortState {
+    const raw = sp.get("sort");
+    if (!raw) return { column: null, direction: "asc" };
+    const [col, dir] = raw.split(":");
+    if (!col) return { column: null, direction: "asc" };
+    return { column: col, direction: (dir as "asc" | "desc") ?? "asc" };
+  }
+
+  // Read from URL, fall back to defaults
+  const pageFromUrl = parseInt(searchParams.get("page") ?? "1", 10);
+  const page = isNaN(pageFromUrl) || pageFromUrl < 1 ? 1 : pageFromUrl;
+  const sort = parseSort(searchParams);
+
+  // Hydration safety
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const effectivePage = mounted ? page : 1;
+  const effectiveSort = mounted ? sort : { column: null, direction: "asc" as const };
+
+  const updateUrl = useCallback(
+    (overrides: { page?: number; sortColumn?: string | null; sortDir?: "asc" | "desc" }) => {
+      const params = new URLSearchParams(window.location.search);
+      const newPage = overrides.page ?? (parseInt(params.get("page") ?? "1", 10) || 1);
+      if (newPage === 1) {
+        params.delete("page");
+      } else {
+        params.set("page", String(newPage));
+      }
+      let col = params.get("sort")?.split(":")[0] ?? null;
+      let dir = params.get("sort")?.split(":")[1] as "asc" | "desc" ?? "asc";
+      if (overrides.sortColumn !== undefined) col = overrides.sortColumn;
+      if (overrides.sortDir !== undefined) dir = overrides.sortDir;
+      if (!col) {
+        params.delete("sort");
+      } else {
+        params.set("sort", `${col}:${dir}`);
+      }
+      const qs = params.toString();
+      router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+    },
+    [router, pathname],
+  );
 
   // ─── Data state ──────────────────────────────────────────────────────────
   const [data, setData] = useState<AdminTableData | null>(null);
-  const [page, setPage] = useState(1);
-  const [sort, setSort] = useState<SortState>({ column: null, direction: "desc" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -114,7 +165,7 @@ export default function StyleComponentsActionPage() {
     setLoading(true);
     setError(null);
 
-    fetchTableData("garment_style_component", page, PER_PAGE, sort)
+    fetchTableData("garment_style_component", effectivePage, PER_PAGE, effectiveSort)
       .then((d) => {
         if (loadRef.current === myLoadId) {
           setData(d);
@@ -127,12 +178,12 @@ export default function StyleComponentsActionPage() {
           setLoading(false);
         }
       });
-  }, [page, sort, reloadKey]);
+  }, [effectivePage, effectiveSort?.column, effectiveSort?.direction, reloadKey]);
 
   // ─── Keyboard pagination ─────────────────────────────────────────────────
   const totalPages = data?.total_pages ?? 1;
-  const goNext = useCallback(() => setPage((p) => Math.min(p + 1, totalPages)), [totalPages]);
-  const goPrev = useCallback(() => setPage((p) => Math.max(p - 1, 1)), []);
+  const goNext = useCallback(() => updateUrl({ page: Math.min(effectivePage + 1, totalPages) }), [updateUrl, effectivePage, totalPages]);
+  const goPrev = useCallback(() => updateUrl({ page: Math.max(effectivePage - 1, 1) }), [updateUrl, effectivePage]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -147,19 +198,13 @@ export default function StyleComponentsActionPage() {
 
   // ─── Handlers ────────────────────────────────────────────────────────────
   function handleSort(col: string) {
-    setPage(1);
-    setSort((prev) => {
-      if (prev.column === col) {
-        const nextDir: SortDirection = prev.direction === "asc" ? "desc" : "asc";
-        return { column: col, direction: nextDir };
-      }
-      return { column: col, direction: "asc" };
-    });
+    const newDir = effectiveSort.column === col && effectiveSort.direction === "asc" ? "desc" : "asc";
+    updateUrl({ page: 1, sortColumn: col, sortDir: newDir });
   }
 
   function handleCreated() {
     setShowForm(false);
-    setPage(1);
+    updateUrl({ page: 1 });
     setReloadKey((k) => k + 1);
   }
 
@@ -274,7 +319,7 @@ export default function StyleComponentsActionPage() {
             <thead>
               <tr className="border-b border-hairline bg-mist-navy">
                 {data.columns.map((col) => (
-                  <SortableTh key={col} column={col} sort={sort} onSort={handleSort} />
+                  <SortableTh key={col} column={col} sort={effectiveSort} onSort={handleSort} />
                 ))}
                 <th className="sticky right-0 z-10 whitespace-nowrap border-l border-hairline bg-mist-navy px-3 py-2.5 font-mono text-eyebrow text-ink-navy shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.1)]">
                   Actions
@@ -386,14 +431,14 @@ export default function StyleComponentsActionPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={goPrev}
-              disabled={page <= 1}
+              disabled={effectivePage <= 1}
               className="tap flex items-center gap-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-2 text-caption font-medium text-ink-navy transition hover:bg-mist-navy disabled:cursor-not-allowed disabled:opacity-40"
             >
               <span aria-hidden>←</span> Prev
             </button>
             <button
               onClick={goNext}
-              disabled={page >= totalPages}
+              disabled={effectivePage >= totalPages}
               className="tap flex items-center gap-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-2 text-caption font-medium text-ink-navy transition hover:bg-mist-navy disabled:cursor-not-allowed disabled:opacity-40"
             >
               Next <span aria-hidden>→</span>

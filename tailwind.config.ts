@@ -96,10 +96,15 @@ const config: Config = {
           "0%": { opacity: "0", transform: "rotate(-2deg) translateY(4px)" },
           "100%": { opacity: "1", transform: "rotate(0) translateY(0)" },
         },
+        slideUp: {
+          "0%": { transform: "translateY(100%)", opacity: "0" },
+          "100%": { transform: "translateY(0)", opacity: "1" },
+        },
       },
       animation: {
         rivet: "rivetPulse 2s ease-in-out infinite",
         "curl-in": "curlIn 500ms ease-in-out both",
+        "slide-up": "slideUp 0.2s ease-out both",
       },
       maxWidth: {
         column: "480px",
