@@ -3,7 +3,9 @@
  * Reads the JWT from localStorage and injects the Authorization header.
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+// Relative so all calls are same-origin (proxied to backend via next.config.mjs
+// rewrites — eliminates all CORS issues).
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 const TOKEN_KEY = "draep_admin_token";
 
 export function getAdminToken(): string | null {
@@ -1193,11 +1195,26 @@ export async function fetchOrderGarmentMaterials(orderId: string): Promise<Garme
 /** Resolve a possibly-relative asset URL (e.g. "/cards/foo.jpg") against the API origin. */
 export function resolveAssetUrl(url: string | null | undefined): string | null {
   if (!url) return null;
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    // Backend stores absolute URLs (e.g. http://localhost:8000/uploads/foo.png).
+    // Rewrite to a same-origin relative path so the browser hits the Next.js
+    // dev/server proxy (configured in next.config.mjs) instead of the backend
+    // directly. This eliminates all CORS issues for <img>/fetch/canvas.
+    try {
+      const u = new URL(url);
+      if (u.pathname.startsWith("/uploads/")) {
+        return u.pathname; // same-origin relative
+      }
+    } catch {
+      // Not a valid absolute URL — fall through.
+    }
+    return url;
+  }
   // Public Next.js assets (/cards/*) are served from the frontend origin,
-  // uploads (/uploads/*) are served from the backend origin.
-  if (url.startsWith("/cards/") || url.startsWith("/_next/")) {
-    return url; // use as-is in <img>; absolute URL needed for PDF (built in job-pdf.ts)
+  // /uploads/* is proxied to the backend via next.config.mjs rewrites —
+  // both stay relative (same-origin).
+  if (url.startsWith("/cards/") || url.startsWith("/_next/") || url.startsWith("/uploads/")) {
+    return url;
   }
   const origin = API_URL.replace(/\/api\/v\d+$/, "");
   return `${origin}${url}`;

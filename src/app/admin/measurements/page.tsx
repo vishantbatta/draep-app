@@ -502,7 +502,7 @@ function MeasurementsPageInner() {
           try {
             const { getAdminToken } = await import("@/lib/admin-api");
             const token = getAdminToken();
-            const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+            const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
             await fetch(`${API_URL}/admin/tables/measurement_metrics/${deleteTarget.id}`, {
               method: "DELETE",
               headers: { Authorization: `Bearer ${token}` },
@@ -1007,7 +1007,7 @@ function MetricFormModal({
     try {
       const { getAdminToken } = await import("@/lib/admin-api");
       const token = getAdminToken();
-      const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+      const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 
       const body: Record<string, unknown> = {
         code: code.trim(),

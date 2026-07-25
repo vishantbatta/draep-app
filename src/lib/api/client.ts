@@ -11,8 +11,10 @@
 
 import type { ApiErrorEnvelope } from "@/types/api";
 
+// Relative so all calls are same-origin (proxied to backend via next.config.mjs
+// rewrites — eliminates all CORS issues).
 const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+  process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 
 // ─── Token management ────────────────────────────────────────────────────────
 

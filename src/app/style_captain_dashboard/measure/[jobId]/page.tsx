@@ -430,6 +430,10 @@ export default function MeasureJobPage() {
           onDownloadPdf={(onProgress) =>
             handleDownloadPdf(job, metrics, onProgress)
           }
+          onEdit={() => {
+            setStep(0);
+            setPhase("capture");
+          }}
           onBackToJobs={() => router.push("/style_captain_dashboard")}
         />
       ) : isClosed ? (
@@ -885,11 +889,13 @@ function SuccessScreen({
   job,
   metrics,
   onDownloadPdf,
+  onEdit,
   onBackToJobs,
 }: {
   job: SCJob;
   metrics: SCMetric[];
   onDownloadPdf: (onProgress?: PdfProgressFn) => Promise<void>;
+  onEdit: () => void;
   onBackToJobs: () => void;
 }) {
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -1001,14 +1007,38 @@ function SuccessScreen({
         </button>
       </div>
 
-      {/* ─── Back to jobs ───────────────────────────────────────────────── */}
-      <button
-        onClick={onBackToJobs}
-        disabled={pdfLoading}
-        className="tap w-full rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy disabled:opacity-50"
-      >
-        Back to job list
-      </button>
+      {/* ─── Edit + Back row ─────────────────────────────────────────────── */}
+      <div className="flex gap-2">
+        <button
+          onClick={onEdit}
+          disabled={pdfLoading}
+          className="tap flex-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy disabled:opacity-50"
+        >
+          <span className="flex items-center justify-center gap-1.5">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+            Edit
+          </span>
+        </button>
+        <button
+          onClick={onBackToJobs}
+          disabled={pdfLoading}
+          className="tap flex-[2] rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy disabled:opacity-50"
+        >
+          Back to job list
+        </button>
+      </div>
     </div>
   );
 }
@@ -1211,7 +1241,8 @@ function CompletedView({
 
 // ─── Garment phase (Section 2) ──────────────────────────────────────────────
 
-const BE_ORIGIN = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1")
+// Same-origin via Next.js proxy (next.config.mjs rewrites). No CORS.
+const BE_ORIGIN = (process.env.NEXT_PUBLIC_API_URL ?? "/api/v1")
   .replace(/\/api\/v\d+$/, "");
 
 function resolveUrl(url: string): string {

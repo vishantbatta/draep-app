@@ -4,8 +4,10 @@
  * the Authorization header.
  */
 
+// Relative so all calls are same-origin (proxied to backend via next.config.mjs
+// rewrites — eliminates all CORS issues).
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+  process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 const TOKEN_KEY = "draep_sc_token";
 const USER_KEY = "draep_sc_user";
 
@@ -247,7 +249,7 @@ export interface SCMaterialInput {
   color?: string | null;
   length?: number | null;
   breadth?: number | null;
-  unit?: "in" | "cm" | null;
+  unit?: "m" | "in" | "cm" | null;
   asset_urls?: string[] | null;
   comment?: string | null;
 }

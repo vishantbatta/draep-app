@@ -166,7 +166,7 @@ function bodyMeasurementsPage(
           <div class="metric-image">
             ${
               imageUrl
-                ? `<img src="${imageUrl}" crossorigin="anonymous"
+                ? `<img src="${imageUrl}"
                         data-pdf-src="${esc(metric.asset_urls?.[0] ?? "")}"
                         alt="${esc(labels.en ?? metric.code ?? "metric")}" />`
                 : `<div class="img-placeholder">No image</div>`
@@ -245,13 +245,13 @@ function garmentDetailsPages(
                  <span class="color-banner-label">No color recorded</span>
                </div>`;
 
-          // Material photos — use crossorigin + a data-pdf-src marker so we
-          // can inline them as data URLs before html2canvas runs (avoids CORS
-          // taint, which is what was making the last page's image disappear).
+          // Material photos — use data-pdf-src marker so we can inline them
+          // as pre-rasterized <canvas> before html2canvas runs (avoids any
+          // html2canvas image-loader quirks). Same-origin via Next.js proxy.
           const photoImgs = (m.asset_urls ?? [])
             .map(
               (u) =>
-                `<img src="${absUrl(u)}" crossorigin="anonymous"
+                `<img src="${absUrl(u)}"
                        data-pdf-src="${esc(u)}"
                        alt="${esc(m.name ?? m.type ?? "material photo")}" />`,
             )
