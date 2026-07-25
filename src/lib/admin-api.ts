@@ -807,8 +807,11 @@ export async function fetchTableRows<T = Record<string, unknown>>(
   params.set("page", String(opts.page ?? 1));
   params.set("per_page", String(opts.perPage ?? 50));
   if (opts.sortColumn && opts.sortDirection) {
-    params.set("sort_by", opts.sortColumn);
-    params.set("sort_dir", opts.sortDirection);
+    // Backend FastAPI route declares `sort_column` and `sort_direction` query
+    // params — do NOT rename to sort_by/sort_dir (they get silently ignored
+    // and the query falls back to created_at DESC).
+    params.set("sort_column", opts.sortColumn);
+    params.set("sort_direction", opts.sortDirection);
   }
   if (opts.filters) {
     const children = Object.entries(opts.filters)
@@ -1071,3 +1074,142 @@ export function catalogLabel(labels: Record<string, string> | null | undefined, 
   if (!labels) return fallback;
   return labels.en ?? Object.values(labels).find((v) => v?.trim()) ?? fallback;
 }
+
+// ─── Measurement Job Detail (body + garment measurements) ───────────────────
+
+/** A row in the measurement_metrics catalog. */
+export interface MeasurementMetricRow {
+  id: string;
+  code: string | null;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  descriptions: Record<string, string> | null;
+  asset_urls: string[] | null;
+  unit: string | null;
+  priority_order: number | null;
+}
+
+/** A single reading taken during a measurement visit. */
+export interface MeasurementReadingRow {
+  id: string;
+  measurement_job_id: string | null;
+  measurement_metric_id: string | null;
+  value_numeric: number | null;
+  value_text: string | null;
+  unit: string | null;
+  captured_at: string | null;
+}
+
+/** Cloth / addon material captured for a garment_order (the "garment measurement"). */
+export interface GarmentOrderMaterialRow {
+  id: string;
+  garment_order_id: string;
+  type: string | null; // "cloth" | "addon"
+  name: string | null;
+  color: string | null;
+  length: number | null;
+  breadth: number | null;
+  unit: string | null;
+  asset_urls: string[] | null;
+  comment: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** A body metric paired with its reading (if any) for a given job. */
+export interface BodyMeasurementWithMetric {
+  metric: MeasurementMetricRow;
+  reading: MeasurementReadingRow | null;
+}
+
+/** A garment order paired with its materials. */
+export interface GarmentMeasurementGroup {
+  garmentOrderId: string;
+  garmentId: string | null;
+  garmentSlug: string | null;
+  garmentLabels: Record<string, string> | null;
+  status: string | null;
+  userNote: string | null;
+  materials: GarmentOrderMaterialRow[];
+}
+
+/** Fetch the full metric catalog, ordered by priority_order then code. */
+export async function fetchMeasurementMetrics(): Promise<MeasurementMetricRow[]> {
+  const { rows } = await fetchTableRows<MeasurementMetricRow>("measurement_metrics", {
+    perPage: 100, // backend caps at le=100 — fetch in one page
+    sortColumn: "priority_order",
+    sortDirection: "asc",
+  });
+  return rows;
+}
+
+/** Fetch all readings for a measurement job. */
+export async function fetchJobReadings(jobId: string): Promise<MeasurementReadingRow[]> {
+  const { rows } = await fetchTableRows<MeasurementReadingRow>("measurements", {
+    filters: { measurement_job_id: jobId },
+    perPage: 100, // backend caps at le=100
+  });
+  return rows;
+}
+
+/** A garment order row (the per-order instance of a garment). */
+export interface GarmentOrderInstanceRow {
+  id: string;
+  order_id: string | null;
+  garment_id: string | null;
+  status: string | null;
+  user_note: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** Fetch all garment orders that belong to a given order (with garment catalog join done client-side). */
+export async function fetchOrderGarmentOrders(orderId: string): Promise<GarmentOrderInstanceRow[]> {
+  const { rows } = await fetchTableRows<GarmentOrderInstanceRow>("garment_orders", {
+    filters: { order_id: orderId },
+    perPage: 100,
+  });
+  return rows;
+}
+
+/** Fetch all garment_order_materials rows for the garment_orders under an order. */
+export async function fetchOrderGarmentMaterials(orderId: string): Promise<GarmentOrderMaterialRow[]> {
+  // First get the garment_order IDs for this order
+  const garmentOrders = await fetchOrderGarmentOrders(orderId);
+  if (garmentOrders.length === 0) return [];
+
+  // Then get materials for each garment_order in parallel
+  const materialBatches = await Promise.all(
+    garmentOrders.map((go) =>
+      fetchTableRows<GarmentOrderMaterialRow>("garment_order_materials", {
+        filters: { garment_order_id: go.id },
+        perPage: 100,
+      }).then(({ rows }) => rows),
+    ),
+  );
+  return materialBatches.flat();
+}
+
+/** Resolve a possibly-relative asset URL (e.g. "/cards/foo.jpg") against the API origin. */
+export function resolveAssetUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  // Public Next.js assets (/cards/*) are served from the frontend origin,
+  // uploads (/uploads/*) are served from the backend origin.
+  if (url.startsWith("/cards/") || url.startsWith("/_next/")) {
+    return url; // use as-is in <img>; absolute URL needed for PDF (built in job-pdf.ts)
+  }
+  const origin = API_URL.replace(/\/api\/v\d+$/, "");
+  return `${origin}${url}`;
+}
+
+/** Build the front-of-store absolute URL for a public asset. */
+export function publicAssetAbsoluteUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}${url}`;
+  }
+  return url;
+}
+

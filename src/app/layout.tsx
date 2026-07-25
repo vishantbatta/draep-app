@@ -27,13 +27,18 @@ const plexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: `${strings.brand.name} — ${strings.brand.tagline}`,
+    default: "Draep - Stitch Your Wish",
     template: `%s · ${strings.brand.name}`,
   },
   description:
     "Design your custom blouse on the phone. A Style Captain visits your home to measure, then delivers and trials — fixes included.",
   applicationName: strings.brand.name,
   authors: [{ name: "Draep" }],
+  icons: {
+    icon: [{ url: "/tape-symbol.png", type: "image/png" }],
+    shortcut: ["/tape-symbol.png"],
+    apple: [{ url: "/tape-symbol.png", type: "image/png" }],
+  },
 };
 
 export const viewport: Viewport = {

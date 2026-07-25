@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   fetchTableRows,
@@ -9,11 +9,24 @@ import {
   updateMeasurementJob,
   deleteMeasurementJob,
   formatOrderSlot,
+  fetchMeasurementMetrics,
+  fetchJobReadings,
+  fetchOrderGarmentOrders,
+  fetchOrderGarmentMaterials,
+  resolveAssetUrl,
+  publicAssetAbsoluteUrl,
   type MeasurementJobRow,
   type OrderRow,
   type UserRow,
   type JobStatus,
+  type MeasurementMetricRow,
+  type MeasurementReadingRow,
+  type GarmentOrderInstanceRow,
+  type GarmentOrderMaterialRow,
+  type BodyMeasurementWithMetric,
+  type GarmentMeasurementGroup,
 } from "@/lib/admin-api";
+import { downloadMeasurementJobPdf } from "@/lib/job-pdf";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -86,11 +99,20 @@ export default function MeasurementJobDetailPage() {
   const [captains, setCaptains] = useState<UserRow[]>([]);
   const [order, setOrder] = useState<OrderRow | null>(null);
 
+  // Measurements (body + garment) for this job
+  const [metrics, setMetrics] = useState<MeasurementMetricRow[]>([]);
+  const [readings, setReadings] = useState<MeasurementReadingRow[]>([]);
+  const [garmentOrders, setGarmentOrders] = useState<GarmentOrderInstanceRow[]>([]);
+  const [materials, setMaterials] = useState<GarmentOrderMaterialRow[]>([]);
+  const [measurementsError, setMeasurementsError] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingField, setSavingField] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState<string | null>(null);
 
   // Local edit buffers (only for fields that need draft-then-save)
   const [scheduledDraft, setScheduledDraft] = useState<string>("");
@@ -183,6 +205,38 @@ export default function MeasurementJobDetailPage() {
         );
       }
 
+      // 4. Measurement data: metric catalog + this job's readings
+      // These failures are surfaced (not silently swallowed) so that 422s
+      // and schema drift don't leave the page looking empty for no reason.
+      const measureErr = (label: string) => (e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        setMeasurementsError((prev) => prev ?? `${label}: ${msg}`);
+      };
+      tasks.push(
+        fetchMeasurementMetrics()
+          .then(setMetrics)
+          .catch(measureErr("Failed to load body measurement catalog")),
+      );
+      tasks.push(
+        fetchJobReadings(jobId)
+          .then(setReadings)
+          .catch(measureErr("Failed to load readings for this job")),
+      );
+
+      // 5. Garment measurements: garment_orders + their materials
+      if (j.order_id) {
+        tasks.push(
+          fetchOrderGarmentOrders(j.order_id)
+            .then(setGarmentOrders)
+            .catch(measureErr("Failed to load garment orders")),
+        );
+        tasks.push(
+          fetchOrderGarmentMaterials(j.order_id)
+            .then(setMaterials)
+            .catch(measureErr("Failed to load garment materials")),
+        );
+      }
+
       await Promise.all(tasks);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load job");
@@ -261,6 +315,115 @@ export default function MeasurementJobDetailPage() {
     }
   }
 
+  // ── Derived: pair metrics with their readings ─────────────────────────────
+  const bodyMeasurements: BodyMeasurementWithMetric[] = useMemo(() => {
+    const byMetricId = new Map(readings.map((r) => [r.measurement_metric_id, r]));
+    return metrics.map((metric) => ({
+      metric,
+      reading: byMetricId.get(metric.id) ?? null,
+    }));
+  }, [metrics, readings]);
+
+  // ── Derived: garment orders grouped with their materials ──────────────────
+  const garmentMeasurements: GarmentMeasurementGroup[] = useMemo(() => {
+    return garmentOrders.map((go) => ({
+      garmentOrderId: go.id,
+      garmentId: go.garment_id,
+      garmentSlug: null,
+      garmentLabels: null,
+      status: go.status,
+      userNote: go.user_note,
+      materials: materials.filter((m) => m.garment_order_id === go.id),
+    }));
+  }, [garmentOrders, materials]);
+
+  // ── PDF download ──────────────────────────────────────────────────────────
+  async function handleDownloadPdf() {
+    if (!job) return;
+    setPdfLoading(true);
+    setPdfProgress("Preparing…");
+    try {
+      // Pre-load any missing data if needed
+      let enrichedMetrics = metrics;
+      let enrichedReadings = readings;
+      let enrichedGarmentOrders = garmentOrders;
+      let enrichedMaterials = materials;
+      let enrichedOrder = order;
+
+      if (enrichedMetrics.length === 0) {
+        setPdfProgress("Loading measurement catalog…");
+        enrichedMetrics = await fetchMeasurementMetrics();
+      }
+      if (enrichedReadings.length === 0) {
+        setPdfProgress("Loading measurements…");
+        enrichedReadings = await fetchJobReadings(job.id);
+      }
+      if (job.order_id) {
+        if (enrichedOrder === null) {
+          const { rows } = await fetchTableRows<OrderRow>("orders", {
+            filters: { id: job.order_id },
+            perPage: 1,
+          });
+          enrichedOrder = rows[0] ?? null;
+        }
+        if (enrichedGarmentOrders.length === 0) {
+          setPdfProgress("Loading garment orders…");
+          enrichedGarmentOrders = await fetchOrderGarmentOrders(job.order_id);
+        }
+        if (enrichedMaterials.length === 0) {
+          setPdfProgress("Loading garment materials…");
+          enrichedMaterials = await fetchOrderGarmentMaterials(job.order_id);
+        }
+      }
+
+      const body: BodyMeasurementWithMetric[] = (() => {
+        const byMetricId = new Map(
+          enrichedReadings.map((r) => [r.measurement_metric_id, r]),
+        );
+        return enrichedMetrics.map((metric) => ({
+          metric,
+          reading: byMetricId.get(metric.id) ?? null,
+        }));
+      })();
+
+      const garments: GarmentMeasurementGroup[] = enrichedGarmentOrders.map(
+        (go) => ({
+          garmentOrderId: go.id,
+          garmentId: go.garment_id,
+          garmentSlug: null,
+          garmentLabels: null,
+          status: go.status,
+          userNote: go.user_note,
+          materials: enrichedMaterials.filter(
+            (m) => m.garment_order_id === go.id,
+          ),
+        }),
+      );
+
+      await downloadMeasurementJobPdf(
+        {
+          job,
+          customer,
+          order: enrichedOrder,
+          bodyMeasurements: body,
+          garmentMeasurements: garments,
+        },
+        (current, total, label) => {
+          if (total > 1) {
+            setPdfProgress(`${label} (${current + 1}/${total})`);
+          } else {
+            setPdfProgress(label);
+          }
+        },
+      );
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "PDF generation failed");
+    } finally {
+      setPdfLoading(false);
+      setPdfProgress(null);
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -323,6 +486,16 @@ export default function MeasurementJobDetailPage() {
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge value={job.status} />
+            <button
+              onClick={handleDownloadPdf}
+              disabled={pdfLoading}
+              className="rounded-lg border border-ink-navy bg-ink-navy px-3 py-1.5 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
+              title="Download a PDF with body measurements, garment details, and photos"
+            >
+              {pdfLoading
+                ? pdfProgress ?? "Preparing…"
+                : "Download PDF"}
+            </button>
             <button
               onClick={handleDelete}
               disabled={deleting}
@@ -553,6 +726,288 @@ export default function MeasurementJobDetailPage() {
             )}
           </div>
         </div>
+      </section>
+
+      {/* ─── Body Measurements ──────────────────────────────────────────── */}
+      <section className="mb-6">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-heading text-lg font-semibold text-ink-navy">
+            Body Measurements
+          </h2>
+          <span className="text-[11px] text-muted">
+            {bodyMeasurements.filter((b) => b.reading).length}/
+            {bodyMeasurements.length} recorded
+          </span>
+        </div>
+
+        {measurementsError && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            {measurementsError}
+          </div>
+        )}
+
+        {bodyMeasurements.length === 0 ? (
+          <div className="rounded-xl border border-hairline bg-chalk-white p-4 text-sm text-muted">
+            No metric catalog loaded.
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-hairline bg-chalk-white">
+            <ul className="divide-y divide-hairline">
+              {bodyMeasurements.map((b, idx) => {
+                const m = b.metric;
+                const labelEn = m.labels?.en ?? m.code ?? m.id;
+                const labelHi = m.labels?.hi ?? undefined;
+                const labelKn = m.labels?.kn ?? undefined;
+                const descEn = m.descriptions?.en ?? undefined;
+                const descHi = m.descriptions?.hi ?? undefined;
+                const descKn = m.descriptions?.kn ?? undefined;
+                const imgUrl =
+                  Array.isArray(m.asset_urls) && m.asset_urls.length > 0
+                    ? publicAssetAbsoluteUrl(m.asset_urls[0])
+                    : null;
+                return (
+                  <li
+                    key={m.id ?? m.code ?? idx}
+                    className="flex items-start gap-3 p-3 sm:gap-4 sm:p-4"
+                  >
+                    {/* Index */}
+                    <div className="w-6 shrink-0 pt-1 text-right font-mono text-xs text-muted">
+                      {m.priority_order ?? idx + 1}
+                    </div>
+
+                    {/* Image */}
+                    <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-hairline bg-ink-navy/5 sm:h-20 sm:w-20">
+                      {imgUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={imgUrl}
+                          alt={labelEn ?? "metric image"}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[10px] text-muted">
+                          no img
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Names + descriptions */}
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-ink-navy">
+                        {labelEn}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-muted">
+                        {labelHi && <span lang="hi">हिन्दी: {labelHi}</span>}
+                        {labelKn && <span lang="kn">ಕನ್ನಡ: {labelKn}</span>}
+                      </div>
+
+                      {(descEn || descHi || descKn) && (
+                        <div className="mt-1 space-y-0.5 text-[11px] text-muted">
+                          {descEn && <div>{descEn}</div>}
+                          {descHi && (
+                            <div lang="hi">हिन्दी: {descHi}</div>
+                          )}
+                          {descKn && (
+                            <div lang="kn">ಕನ್ನಡ: {descKn}</div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="mt-1 font-mono text-[10px] text-muted/70">
+                        {m.code}
+                        {m.unit ? ` · ${m.unit}` : ""}
+                      </div>
+                    </div>
+
+                    {/* Value */}
+                    <div className="shrink-0 text-right">
+                      {b.reading ? (
+                        <div className="font-heading text-xl font-semibold text-ink-navy">
+                          {b.reading.value_numeric != null
+                            ? b.reading.value_numeric
+                            : (b.reading.value_text ?? "—")}
+                          <span className="ml-1 text-xs font-normal text-muted">
+                            {b.reading.unit ?? m.unit ?? ""}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] italic text-muted/60">
+                          not recorded
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      {/* ─── Garment Measurements ───────────────────────────────────────── */}
+      <section className="mb-6">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-heading text-lg font-semibold text-ink-navy">
+            Garment Measurements
+          </h2>
+          <span className="text-[11px] text-muted">
+            {garmentMeasurements.length} garment
+            {garmentMeasurements.length === 1 ? "" : "s"}
+          </span>
+        </div>
+
+        {garmentMeasurements.length === 0 ? (
+          <div className="rounded-xl border border-hairline bg-chalk-white p-4 text-sm text-muted">
+            No garments linked to this job
+            {job?.order_id ? "" : " (no order associated)"}.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {garmentMeasurements.map((g) => (
+              <div
+                key={g.garmentOrderId}
+                className="overflow-hidden rounded-xl border border-hairline bg-chalk-white"
+              >
+                {/* Header */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline bg-ink-navy/[0.02] px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="font-medium text-ink-navy">
+                      Garment
+                      {g.garmentId ? (
+                        <span className="font-mono text-xs text-muted">
+                          {" "}
+                          · {truncateId(g.garmentId)}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="font-mono text-[10px] text-muted/70">
+                      order {truncateId(g.garmentOrderId)}
+                    </div>
+                  </div>
+                  {g.status && (
+                    <span className="rounded-full border border-hairline bg-chalk-white px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                      {g.status}
+                    </span>
+                  )}
+                </div>
+
+                {/* User note */}
+                {g.userNote && (
+                  <div className="border-b border-hairline px-4 py-2 text-xs italic text-muted">
+                    “{g.userNote}”
+                  </div>
+                )}
+
+                {/* Materials */}
+                {g.materials.length === 0 ? (
+                  <div className="px-4 py-3 text-xs text-muted">
+                    No cloth / addon captures recorded.
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-hairline">
+                    {g.materials.map((mat, mi) => {
+                      const photos: string[] = Array.isArray(mat.asset_urls)
+                        ? mat.asset_urls.filter((p): p is string => Boolean(p))
+                        : [];
+                      return (
+                        <li key={mat.id ?? mi} className="p-4">
+                          <div className="flex flex-wrap items-start gap-3">
+                            <div className="min-w-0 flex-1">
+                              {/* Kind */}
+                              {mat.type && (
+                                <div className="inline-block rounded border border-hairline bg-chalk-white px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                                  {mat.type}
+                                </div>
+                              )}
+
+                              {/* Name */}
+                              {mat.name && (
+                                <div className="mt-1.5 text-sm font-medium text-ink-navy">
+                                  {mat.name}
+                                </div>
+                              )}
+
+                              {/* Color */}
+                              {mat.color && (
+                                <div className="mt-1.5 flex items-center gap-2">
+                                  <span
+                                    className="inline-block h-4 w-4 shrink-0 rounded border border-hairline"
+                                    style={{
+                                      backgroundColor: mat.color.startsWith("#")
+                                        ? mat.color
+                                        : `#${mat.color.replace(/^#/, "")}`,
+                                    }}
+                                    aria-hidden
+                                  />
+                                  <span className="font-mono text-xs text-ink-navy">
+                                    {mat.color}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Dimensions */}
+                              {(mat.length != null || mat.breadth != null) && (
+                                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted">
+                                  {mat.length != null && (
+                                    <span>L: {mat.length}</span>
+                                  )}
+                                  {mat.breadth != null && (
+                                    <span>W: {mat.breadth}</span>
+                                  )}
+                                  {mat.unit && (
+                                    <span className="lowercase">({mat.unit})</span>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Comments */}
+                              {mat.comment && (
+                                <div className="mt-1.5 text-xs text-muted">
+                                  {mat.comment}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Photos */}
+                            {photos.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {photos.slice(0, 6).map((p, pi) => {
+                                  const url = publicAssetAbsoluteUrl(p);
+                                  if (!url) return null;
+                                  return (
+                                    <a
+                                      key={pi}
+                                      href={url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="block h-14 w-14 overflow-hidden rounded border border-hairline sm:h-16 sm:w-16"
+                                    >
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={url}
+                                        alt={`Material photo ${pi + 1}`}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    </a>
+                                  );
+                                })}
+                                {photos.length > 6 && (
+                                  <div className="flex h-14 w-14 items-center justify-center rounded border border-hairline bg-ink-navy/5 text-[10px] text-muted sm:h-16 sm:w-16">
+                                    +{photos.length - 6}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );

@@ -31,6 +31,20 @@ import {
 import { EditMetricSheet } from "@/components/style-captain/EditMetricSheet";
 import { ColorPickerCamera } from "@/components/style-captain/ColorPickerCamera";
 import { BottomSheet } from "@/components/style-captain/BottomSheet";
+import {
+  downloadMeasurementJobPdf,
+  type PdfProgressFn,
+} from "@/lib/job-pdf";
+import type {
+  BodyMeasurementWithMetric,
+  GarmentMeasurementGroup,
+  GarmentOrderMaterialRow,
+  MeasurementJobRow,
+  MeasurementMetricRow,
+  MeasurementReadingRow,
+  OrderRow,
+  UserRow,
+} from "@/lib/admin-api";
 
 // ─── Phase state ────────────────────────────────────────────────────────────
 //
@@ -40,7 +54,7 @@ import { BottomSheet } from "@/components/style-captain/BottomSheet";
 //   Section 2 = Garment materials (cloth/addon capture)
 //     "garment" → "notes" (final checkpoint + complete)
 
-type Phase = "capture" | "checkpoint" | "garment" | "notes";
+type Phase = "capture" | "checkpoint" | "garment" | "notes" | "success";
 
 // Languages for the checkpoint review toggle
 const LANG_ORDER = ["en", "hi", "kn", "ta", "te"];
@@ -69,6 +83,7 @@ export default function MeasureJobPage() {
   const [saving, setSaving] = useState(false);
   const [editingMetricId, setEditingMetricId] = useState<string | null>(null);
   const [hasInitialized, setHasInitialized] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -218,11 +233,151 @@ export default function MeasureJobPage() {
     setError(null);
     try {
       await scCompleteJob(job.id, notes);
-      router.push("/style_captain_dashboard");
+      // Reload to pick up the completed status, then show success screen
+      await load();
+      setPhase("success");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to complete job");
     } finally {
       setSaving(false);
+    }
+  }
+
+  /**
+   * Map SCJob data into the admin-api types expected by downloadMeasurementJobPdf,
+   * then trigger the same client-side PDF generation used in the admin panel.
+   */
+  async function handleDownloadPdf(
+    scJob: SCJob,
+    scMetrics: SCMetric[],
+    onProgress?: PdfProgressFn,
+  ) {
+    if (pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      // Build a minimal MeasurementJobRow
+      const pdfJob: MeasurementJobRow = {
+        id: scJob.id,
+        user_id: scJob.customer_id,
+        order_id: scJob.order_id,
+        style_captain_id: null,
+        status: scJob.status as MeasurementJobRow["status"],
+        scheduled_at: scJob.scheduled_at,
+        performed_at: scJob.performed_at,
+        notes: scJob.notes,
+        created_at: scJob.created_at ?? undefined,
+        updated_at: undefined,
+      };
+
+      // Build a minimal UserRow from SCJob customer fields
+      const customer: UserRow | null = scJob.customer_id
+        ? {
+            id: scJob.customer_id,
+            name: scJob.customer_name,
+            phone: scJob.customer_phone,
+            email: null,
+            role: "user",
+            gender: null,
+            country_code: scJob.customer_country_code,
+          }
+        : null;
+
+      // Build OrderRow from SCJob order fields
+      const order: OrderRow | null = scJob.order_id
+        ? {
+            id: scJob.order_id,
+            user_id: scJob.customer_id,
+            address_id: scJob.address_id,
+            total_price: null,
+            advance_amount: null,
+            payment_status: null,
+            fulfillment_status: null,
+            comments: scJob.order_comments,
+            style_captain_id: null,
+            order_number: scJob.order_number,
+            slot: scJob.slot as OrderRow["slot"],
+          }
+        : null;
+
+      // Map metrics + measurements into BodyMeasurementWithMetric
+      const metricById = new Map(scMetrics.map((m) => [m.id, m]));
+      const readingsByMetric = new Map(
+        scJob.measurements
+          .filter((r) => r.measurement_metric_id)
+          .map((r) => [r.measurement_metric_id as string, r]),
+      );
+
+      const bodyMeasurements: BodyMeasurementWithMetric[] = scMetrics.map(
+        (m): BodyMeasurementWithMetric => {
+          const metricRow: MeasurementMetricRow = {
+            id: m.id,
+            code: m.code,
+            slug: m.slug,
+            labels: m.labels,
+            descriptions: m.descriptions,
+            asset_urls: m.asset_urls,
+            unit: m.unit,
+            priority_order: null,
+          };
+          const reading = readingsByMetric.get(m.id);
+          const readingRow: MeasurementReadingRow | null = reading
+            ? {
+                id: reading.id,
+                measurement_job_id: scJob.id,
+                measurement_metric_id: reading.measurement_metric_id,
+                value_numeric: reading.value_numeric,
+                value_text: reading.value_text,
+                unit: reading.unit,
+                captured_at: reading.captured_at ?? null,
+              }
+            : null;
+          return { metric: metricRow, reading: readingRow };
+        },
+      );
+
+      void metricById; // (kept for reference; not strictly needed)
+
+      // Map garment orders + materials
+      const garmentMeasurements: GarmentMeasurementGroup[] = scJob.garment_orders.map(
+        (go): GarmentMeasurementGroup => ({
+          garmentOrderId: go.id,
+          garmentId: go.garment_id,
+          garmentSlug: go.garment_slug,
+          garmentLabels: go.garment_labels,
+          status: go.status,
+          userNote: go.user_note,
+          materials: go.materials.map(
+            (mat): GarmentOrderMaterialRow => ({
+              id: mat.id,
+              garment_order_id: mat.garment_order_id,
+              type: mat.type,
+              name: mat.name,
+              color: mat.color,
+              length: mat.length,
+              breadth: mat.breadth,
+              unit: mat.unit,
+              asset_urls: mat.asset_urls,
+              comment: mat.comment,
+            }),
+          ),
+        }),
+      );
+
+      await downloadMeasurementJobPdf(
+        {
+          job: pdfJob,
+          customer,
+          order,
+          bodyMeasurements,
+          garmentMeasurements,
+        },
+        onProgress,
+      );
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "PDF generation failed");
+    } finally {
+      setPdfLoading(false);
+      setPdfProgress(null);
     }
   }
 
@@ -268,8 +423,24 @@ export default function MeasureJobPage() {
         </div>
       )}
 
-      {isClosed ? (
-        <CompletedView job={job} metrics={metrics} onReload={load} />
+      {phase === "success" ? (
+        <SuccessScreen
+          job={job}
+          metrics={metrics}
+          onDownloadPdf={(onProgress) =>
+            handleDownloadPdf(job, metrics, onProgress)
+          }
+          onBackToJobs={() => router.push("/style_captain_dashboard")}
+        />
+      ) : isClosed ? (
+        <CompletedView
+          job={job}
+          metrics={metrics}
+          onReload={load}
+          onDownloadPdf={(onProgress) =>
+            handleDownloadPdf(job, metrics, onProgress)
+          }
+        />
       ) : phase === "capture" && currentMetric && currentDraft ? (
         <>
           {/* ─── Step indicator (no progress bar) ──────────────────────────── */}
@@ -708,17 +879,173 @@ function JobSummaryStrip({ job }: { job: SCJob }) {
   );
 }
 
+// ─── Success screen (shown after completing a job) ─────────────────────────
+
+function SuccessScreen({
+  job,
+  metrics,
+  onDownloadPdf,
+  onBackToJobs,
+}: {
+  job: SCJob;
+  metrics: SCMetric[];
+  onDownloadPdf: (onProgress?: PdfProgressFn) => Promise<void>;
+  onBackToJobs: () => void;
+}) {
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState<string | null>(null);
+
+  async function handleDownload() {
+    setPdfLoading(true);
+    setPdfProgress("Preparing…");
+    try {
+      await onDownloadPdf((current, total, label) => {
+        if (total > 1) {
+          setPdfProgress(`${label} (${current + 1}/${total})`);
+        } else {
+          setPdfProgress(label);
+        }
+      });
+    } finally {
+      setPdfLoading(false);
+      setPdfProgress(null);
+    }
+  }
+
+  const customerName = job.customer_name ?? "the customer";
+  const measurementsCount = job.measurements.length;
+  const garmentCount = job.garment_orders.length;
+
+  return (
+    <div className="space-y-5">
+      {/* ─── Big green tick ──────────────────────────────────────────────── */}
+      <div className="flex flex-col items-center pt-6 text-center">
+        <div className="flex h-24 w-24 items-center justify-center rounded-full bg-success/15 ring-8 ring-success/10">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-12 w-12 text-success-text"
+            aria-hidden="true"
+          >
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+        <h1 className="mt-4 font-heading text-h3 font-bold text-ink-navy">
+          Job complete!
+        </h1>
+        <p className="mt-1 max-w-xs text-body text-muted">
+          Measurements for{" "}
+          <span className="font-semibold text-ink-navy">{customerName}</span>{" "}
+          have been saved successfully.
+        </p>
+      </div>
+
+      {/* ─── Summary stats ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-card border border-hairline bg-chalk-white px-4 py-3 text-center shadow-card">
+          <p className="font-heading text-h3 font-bold text-ink-navy">
+            {measurementsCount}
+          </p>
+          <p className="text-caption text-muted">Body measurements</p>
+        </div>
+        <div className="rounded-card border border-hairline bg-chalk-white px-4 py-3 text-center shadow-card">
+          <p className="font-heading text-h3 font-bold text-ink-navy">
+            {garmentCount}
+          </p>
+          <p className="text-caption text-muted">Garments captured</p>
+        </div>
+      </div>
+
+      {/* ─── Download PDF card ──────────────────────────────────────────── */}
+      <div className="rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
+        <p className="font-heading text-body font-semibold text-ink-navy">
+          Download report
+        </p>
+        <p className="mt-0.5 text-caption text-muted">
+          Full measurement report (PDF) with body readings, garment materials,
+          and photos.
+        </p>
+        <button
+          onClick={handleDownload}
+          disabled={pdfLoading}
+          className="tap mt-3 w-full rounded-pill bg-ink-navy px-4 py-3 text-body font-semibold text-chalk-white shadow-card disabled:opacity-50"
+        >
+          {pdfLoading ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-chalk-white border-t-transparent" />
+              {pdfProgress ?? "Preparing…"}
+            </span>
+          ) : (
+            <span className="flex items-center justify-center gap-2">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Download PDF
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* ─── Back to jobs ───────────────────────────────────────────────── */}
+      <button
+        onClick={onBackToJobs}
+        disabled={pdfLoading}
+        className="tap w-full rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy disabled:opacity-50"
+      >
+        Back to job list
+      </button>
+    </div>
+  );
+}
+
 // ─── Completed / cancelled view ────────────────────────────────────────────
 
 function CompletedView({
   job,
   metrics,
   onReload,
+  onDownloadPdf,
 }: {
   job: SCJob;
   metrics: SCMetric[];
   onReload: () => void;
+  onDownloadPdf: (onProgress?: PdfProgressFn) => Promise<void>;
 }) {
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState<string | null>(null);
+
+  async function handleDownload() {
+    setPdfLoading(true);
+    setPdfProgress("Preparing…");
+    try {
+      await onDownloadPdf((current, total, label) => {
+        if (total > 1) {
+          setPdfProgress(`${label} (${current + 1}/${total})`);
+        } else {
+          setPdfProgress(label);
+        }
+      });
+    } finally {
+      setPdfLoading(false);
+      setPdfProgress(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-card border border-success-border bg-success-bg px-4 py-4 text-center">
@@ -862,12 +1189,22 @@ function CompletedView({
         </div>
       )}
 
-      <button
-        onClick={onReload}
-        className="tap w-full rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy"
-      >
-        Refresh
-      </button>
+      <div className="flex gap-2">
+        <button
+          onClick={handleDownload}
+          disabled={pdfLoading}
+          className="tap flex-1 rounded-pill bg-ink-navy px-4 py-3 text-body font-semibold text-chalk-white shadow-card disabled:opacity-50"
+        >
+          {pdfLoading ? (pdfProgress ?? "Preparing…") : "Download PDF"}
+        </button>
+        <button
+          onClick={onReload}
+          disabled={pdfLoading}
+          className="tap rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy disabled:opacity-50"
+        >
+          Refresh
+        </button>
+      </div>
     </div>
   );
 }

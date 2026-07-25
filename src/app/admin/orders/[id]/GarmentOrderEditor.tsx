@@ -758,7 +758,9 @@ function ComponentEditor({
                   key={v.id}
                   variation={v}
                   selected={isSel}
-                  selectedTypeId={isSel ? selection?.variationTypeId : undefined}
+                  selectedTypeId={
+                    isSel ? selection?.variationTypeId ?? undefined : undefined
+                  }
                   onSelectVariation={() => onSelectVariation(v.id)}
                   onSelectVariationType={(vtid) =>
                     onSelectVariationType(v.id, vtid)
