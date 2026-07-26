@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   fetchAll,
   getLabel,
@@ -207,6 +208,8 @@ export default function MeasurementsPage() {
 }
 
 function MeasurementsPageInner() {
+  const router = useRouter();
+
   // ─── State ────────────────────────────────────────────────────────────────
   const [metrics, setMetrics] = useState<Metric[]>([]);
   const [garmentMetrics, setGarmentMetrics] = useState<GarmentMetric[]>([]);
@@ -259,13 +262,30 @@ function MeasurementsPageInner() {
     );
   }, []);
 
-  // ─── Clear secondary sidebar (no subtabs) ─────────────────────────────────
+  // ─── Emit secondary sidebar items — Catalogue sub-tabs ─────────────────────
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent("admin-sidebar-update", { detail: null }));
+    window.dispatchEvent(
+      new CustomEvent("admin-sidebar-update", {
+        detail: {
+          items: [
+            {
+              label: "Catalogue",
+              active: false,
+              onClick: () => router.push("/admin/catalogue"),
+            },
+            {
+              label: "Measurements",
+              active: true,
+              onClick: () => router.push("/admin/measurements"),
+            },
+          ],
+        },
+      }),
+    );
     return () => {
       window.dispatchEvent(new CustomEvent("admin-sidebar-update", { detail: null }));
     };
-  }, []);
+  }, [router]);
 
   // ─── Load all data ────────────────────────────────────────────────────────
   useEffect(() => {

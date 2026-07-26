@@ -24,11 +24,24 @@
 import type {
   BodyMeasurementWithMetric,
   GarmentMeasurementGroup,
+  GarmentOrderItemRow,
+  GarmentOrderRow,
   MeasurementJobRow,
   OrderRow,
   UserRow,
 } from "./admin-api";
 import { publicAssetAbsoluteUrl, resolveAssetUrl } from "./admin-api";
+
+// ─── Style selections (optional extension) ─────────────────────────────────
+
+/** A garment order paired with its design items, for the PDF style pages. */
+export interface StyleSelectionGroup {
+  garmentOrder: GarmentOrderRow;
+  /** A display label for the garment (resolved by the caller). */
+  garmentLabel: string;
+  basePrice: number | null;
+  items: GarmentOrderItemRow[];
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -316,6 +329,138 @@ function garmentDetailsPages(
     .join("");
 }
 
+// ─── Style selections (component → variation → variation_type, add-ons) ────
+
+/** Format INR currency for the PDF, falls back to "—" for null/undefined. */
+function fmtINR(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
+    }).format(v);
+  } catch {
+    return String(v);
+  }
+}
+
+/**
+ * Build one or more "Style Selections" pages — one per garment order.
+ *
+ * Each page shows:
+ *   - Garment name + GO ID + base price
+ *   - Component-style selections (type=variation), one row each
+ *   - Add-on selections (type=add_on), one row each, with placement
+ *   - Computed total (base + items)
+ *
+ * The page re-uses the existing `.garment-page` / `.material-card` /
+ * `.kv` styles for visual consistency with the rest of the report.
+ */
+function styleSelectionsPages(
+  groups: StyleSelectionGroup[],
+  startPageNum: number,
+  totalPageCount: number,
+): string {
+  if (groups.length === 0) return "";
+
+  let pageNum = startPageNum;
+  return groups
+    .map((g) => {
+      const variations = g.items.filter((it) => it.type === "variation");
+      const addons = g.items.filter((it) => it.type === "add_on");
+      const itemsTotal = g.items.reduce(
+        (sum, it) => sum + (it.price ?? 0),
+        0,
+      );
+      const base = g.basePrice ?? 0;
+      const grandTotal = base + itemsTotal;
+
+      const variationRows = variations
+        .map((it) => {
+          return `
+            <tr>
+              <td class="style-cell-label">${esc(it.label_snapshot ?? "—")}</td>
+              <td>${esc(it.placement ?? "—")}</td>
+              <td class="style-cell-price">${fmtINR(it.price)}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      const addonRows = addons
+        .map((it) => {
+          return `
+            <tr>
+              <td class="style-cell-label">
+                <span class="meta-pill addon-pill">Add-on</span>
+                ${esc(it.label_snapshot ?? "—")}
+              </td>
+              <td>${esc(it.placement ?? "—")}</td>
+              <td class="style-cell-price">${fmtINR(it.price)}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      const allRows = (variationRows + addonRows).trim();
+      const tableHtml = allRows
+        ? `
+          <table class="style-table">
+            <thead>
+              <tr>
+                <th>Selection</th>
+                <th>Placement</th>
+                <th class="style-th-price">Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allRows}
+            </tbody>
+            <tfoot>
+              <tr class="style-base-row">
+                <td colspan="2">Base garment price</td>
+                <td class="style-cell-price">${fmtINR(g.basePrice)}</td>
+              </tr>
+              <tr class="style-total-row">
+                <td colspan="2">Total</td>
+                <td class="style-cell-price">${fmtINR(grandTotal)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        `
+        : `<p class="muted">No style selections recorded for this garment order.</p>`;
+
+      const userNote = g.garmentOrder.user_note
+        ? `<div class="user-note"><strong>Customer note:</strong> ${esc(g.garmentOrder.user_note)}</div>`
+        : "";
+
+      const currentPageNum = pageNum++;
+      return `
+        <section class="page garment-page style-page">
+          <header class="page-header">
+            <h2>Style Selections: ${esc(g.garmentLabel)}</h2>
+            <div class="page-num">Page ${currentPageNum} of ${totalPageCount}</div>
+          </header>
+
+          <div class="style-meta">
+            <span class="meta-pill">Garment Order</span>
+            <span class="meta-name">${esc(g.garmentLabel)}</span>
+            <span class="meta-dim">GO ID: ${esc(g.garmentOrder.id.slice(0, 8))}</span>
+            ${g.garmentOrder.status ? `<span class="meta-dim">Status: ${esc(g.garmentOrder.status.replace(/_/g, " "))}</span>` : ""}
+          </div>
+
+          ${tableHtml}
+
+          ${userNote}
+
+          <footer class="report-footer">DRAEP Measurement Report • Page ${currentPageNum} of ${totalPageCount}</footer>
+        </section>
+      `;
+    })
+    .join("");
+}
+
 // ─── Public entry point ──────────────────────────────────────────────────
 
 export interface JobPdfInput {
@@ -324,6 +469,12 @@ export interface JobPdfInput {
   order: OrderRow | null;
   bodyMeasurements: BodyMeasurementWithMetric[];
   garmentMeasurements: GarmentMeasurementGroup[];
+  /**
+   * Optional per-garment-order style selections (component → variation →
+   * variation_type, add-ons, prices). When provided, a "Style Selections"
+   * page is rendered for each garment order.
+   */
+  styleSelections?: StyleSelectionGroup[];
 }
 
 /**
@@ -347,7 +498,14 @@ export async function downloadMeasurementJobPdf(
   onProgress?: PdfProgressFn,
 ): Promise<void> {
   if (typeof window === "undefined") return;
-  const { job, customer, order, bodyMeasurements, garmentMeasurements } = input;
+  const {
+    job,
+    customer,
+    order,
+    bodyMeasurements,
+    garmentMeasurements,
+    styleSelections,
+  } = input;
 
   // Lazily import the heavy libraries so they don't bloat the main bundle
   // (Next.js code-splits dynamic imports automatically).
@@ -364,7 +522,10 @@ export async function downloadMeasurementJobPdf(
   const bodyPerPage = 4;
   const bodyPages = Math.max(1, Math.ceil(bodyMeasurements.length / bodyPerPage));
   const garmentPages = Math.max(1, garmentMeasurements.length);
-  const totalPages = 1 /* cover */ + bodyPages + garmentPages;
+  const styleGroups = styleSelections ?? [];
+  const stylePages = styleGroups.length;
+  const totalPages =
+    1 /* cover */ + bodyPages + garmentPages + stylePages;
 
   // Slice body measurements into pages of 4
   const bodySections: string[] = [];
@@ -376,6 +537,12 @@ export async function downloadMeasurementJobPdf(
   const garmentSections = garmentDetailsPages(
     garmentMeasurements,
     2 + bodyPages,
+    totalPages,
+  );
+
+  const styleSections = styleSelectionsPages(
+    styleGroups,
+    2 + bodyPages + garmentPages,
     totalPages,
   );
 
@@ -392,6 +559,7 @@ export async function downloadMeasurementJobPdf(
   ${coverPage(job, customer, order)}
   ${bodySections.join("")}
   ${garmentSections}
+  ${styleSections}
 </body>
 </html>`;
 
@@ -454,7 +622,9 @@ export async function downloadMeasurementJobPdf(
           ? "Cover page"
           : i <= bodyPages
             ? `Body measurements page ${i}`
-            : `Garment details page ${i - bodyPages}`;
+            : i <= bodyPages + garmentPages
+              ? `Garment details page ${i - bodyPages}`
+              : `Style selections page ${i - bodyPages - garmentPages}`;
       onProgress?.(i, pageEls.length, `Rendering ${label}…`);
 
       // Allow the browser to paint the progress update before the
@@ -975,5 +1145,69 @@ const PRINT_CSS = `
     font-size: 8.5pt;
     color: #94a3b8;
     text-align: center;
+  }
+
+  /* ─── Style selections page ───────────────────────────────────────────── */
+
+  .style-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8pt;
+    margin-bottom: 14pt;
+    font-size: 10.5pt;
+  }
+  .addon-pill {
+    background: #6d28d9 !important; /* purple, distinguishes from black */
+    margin-right: 6pt;
+  }
+  .style-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10.5pt;
+    margin-top: 4pt;
+  }
+  .style-table thead th {
+    background: #f1f5f9;
+    color: #475569;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8pt;
+    font-size: 9pt;
+    text-align: left;
+    padding: 6pt 8pt;
+    border-bottom: 1px solid #cbd5e1;
+  }
+  .style-table tbody td {
+    padding: 6pt 8pt;
+    border-bottom: 1px solid #e2e8f0;
+    color: #0f172a;
+    vertical-align: top;
+  }
+  .style-cell-label {
+    font-weight: 500;
+  }
+  .style-cell-price,
+  .style-th-price {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .style-table tfoot td {
+    padding: 6pt 8pt;
+    border-top: 1px solid #cbd5e1;
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .style-base-row td {
+    background: #f8fafc;
+    color: #475569;
+    font-weight: 500;
+    font-size: 10pt;
+  }
+  .style-total-row td {
+    background: #0f172a;
+    color: #ffffff !important;
+    font-size: 12pt;
+    font-weight: 700;
   }
 `;

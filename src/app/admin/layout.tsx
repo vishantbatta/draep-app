@@ -11,18 +11,44 @@ interface PrimaryTab {
   href: string;
   icon: React.ReactNode;
   matchPrefix: string;
+  /** Additional path prefixes that should also activate this tab */
+  altPrefixes?: string[];
 }
 
 const PRIMARY_TABS: PrimaryTab[] = [
   {
-    label: "Data",
-    href: "/admin",
-    matchPrefix: "/admin",
+    label: "Orders",
+    href: "/admin/orders",
+    matchPrefix: "/admin/orders",
     icon: (
       <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
-        <ellipse cx="10" cy="5" rx="6" ry="2.5" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M4 5v5c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M4 10v5c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M4 5h12l-1 10H5L4 5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M7 5V3.5a3 3 0 0 1 6 0V5" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    ),
+  },
+  {
+    label: "Users",
+    href: "/admin/users",
+    matchPrefix: "/admin/users",
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="7" r="3" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M3.5 17c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    label: "Catalogue",
+    href: "/admin/catalogue",
+    matchPrefix: "/admin/catalogue",
+    altPrefixes: ["/admin/measurements"],
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
+        <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="11" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="3" y="11" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="11" y="11" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
       </svg>
     ),
   },
@@ -43,49 +69,14 @@ const PRIMARY_TABS: PrimaryTab[] = [
     ),
   },
   {
-    label: "Catalogue",
-    href: "/admin/catalogue",
-    matchPrefix: "/admin/catalogue",
+    label: "Data",
+    href: "/admin",
+    matchPrefix: "/admin",
     icon: (
       <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
-        <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
-        <rect x="11" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
-        <rect x="3" y="11" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
-        <rect x="11" y="11" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
-      </svg>
-    ),
-  },
-  {
-    label: "Orders",
-    href: "/admin/orders",
-    matchPrefix: "/admin/orders",
-    icon: (
-      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
-        <path d="M4 5h12l-1 10H5L4 5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-        <path d="M7 5V3.5a3 3 0 0 1 6 0V5" stroke="currentColor" strokeWidth="1.4" />
-      </svg>
-    ),
-  },
-  {
-    label: "Measure",
-    href: "/admin/measurements",
-    matchPrefix: "/admin/measurements",
-    icon: (
-      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
-        <rect x="2.5" y="6" width="15" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M5.5 6v2.5M8.5 6v3.5M11.5 6v2.5M14.5 6v3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-        <path d="M5.5 14v-2.5M8.5 14v-3.5M11.5 14v-2.5M14.5 14v-3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    label: "Users",
-    href: "/admin/users",
-    matchPrefix: "/admin/users",
-    icon: (
-      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
-        <circle cx="10" cy="7" r="3" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M3.5 17c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <ellipse cx="10" cy="5" rx="6" ry="2.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M4 5v5c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M4 10v5c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-5" stroke="currentColor" strokeWidth="1.4" />
       </svg>
     ),
   },
@@ -144,7 +135,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     PRIMARY_TABS.find((t) =>
       t.href === "/admin"
         ? pathname === "/admin"
-        : pathname.startsWith(t.matchPrefix),
+        : pathname.startsWith(t.matchPrefix) ||
+          (t.altPrefixes?.some((p) => pathname.startsWith(p)) ?? false),
     ) ?? PRIMARY_TABS[0];
 
   return (

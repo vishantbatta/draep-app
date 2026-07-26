@@ -89,9 +89,17 @@ export function ColorPickerCamera({
     rafRef.current = requestAnimationFrame(sampleCenter);
   }, []);
 
-  // Boot the camera
+  // Boot the camera whenever we (re-)enter capture mode (captured === null).
+  // The cleanup runs when captured is set OR component unmounts, stopping the
+  // stream + RAF so the next time captured returns to null, the camera boots
+  // fresh.
   useEffect(() => {
+    if (captured !== null) return; // Only boot when in capture phase
     let cancelled = false;
+
+    // Reset state from any previous capture cycle
+    setReady(false);
+    setError(null);
 
     async function start() {
       try {
@@ -133,15 +141,6 @@ export function ColorPickerCamera({
     void start();
     return () => {
       cancelled = true;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      const s = streamRef.current;
-      if (s) s.getTracks().forEach((t) => t.stop());
-    };
-  }, [sampleCenter]);
-
-  // Stop the sampling loop + camera once we've captured
-  useEffect(() => {
-    if (captured) {
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -151,8 +150,8 @@ export function ColorPickerCamera({
         s.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
       }
-    }
-  }, [captured]);
+    };
+  }, [captured, sampleCenter]);
 
   // ─── Phase 2: CONFIRM — full screen captured color ───
   if (captured) {
@@ -202,7 +201,7 @@ export function ColorPickerCamera({
               color: light ? "#1a1a2e" : "#ffffff",
             }}
           >
-            Re-capture
+            Retake
           </button>
           <button
             onClick={() => onPick(captured)}

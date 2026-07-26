@@ -229,11 +229,13 @@ export async function scSaveMeasurements(
 export async function scCompleteJob(
   jobId: string,
   notes?: string,
+  voiceNoteAssetUrl?: string,
 ): Promise<void> {
   await scFetch(`/style-captain/jobs/${jobId}/complete`, {
     method: "POST",
     body: JSON.stringify({
       notes: notes ?? "",
+      voice_note_asset_url: voiceNoteAssetUrl ?? null,
     }),
   });
 }
@@ -329,6 +331,38 @@ export async function scUploadPhotos(
   }
 
   return res.json() as Promise<SCPhotoUploadResult[]>;
+}
+
+export async function scUploadVoiceNote(
+  jobId: string,
+  file: Blob,
+): Promise<SCPhotoUploadResult> {
+  const token = getSCToken();
+  if (!token) throw new Error("No style-captain token");
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(
+    `${API_URL}/style-captain/jobs/${jobId}/voice-note`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    },
+  );
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const message =
+      (body as { error?: { message?: string } })?.error?.message ??
+      `Upload failed (${res.status})`;
+    throw new Error(message);
+  }
+
+  return res.json() as Promise<SCPhotoUploadResult>;
 }
 
 export interface SCWalkInResult {

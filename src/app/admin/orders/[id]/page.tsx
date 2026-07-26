@@ -11,15 +11,21 @@ import {
   fetchJobsForOrder,
   fetchTransactionsForOrder,
   fetchGarments,
+  fetchMeasurementMetrics,
+  fetchJobReadings,
+  fetchOrderGarmentOrders,
+  fetchOrderGarmentMaterials,
   garmentLabel,
   updateOrder,
   updateGarmentOrder,
   updateMeasurementJob,
   updateTableRow,
+  createTableRow,
   createGarmentOrder,
   createMeasurementJob,
   deleteGarmentOrder,
   deleteGarmentOrderItem,
+  deleteTableRow,
   formatOrderSlot,
   type OrderRow,
   type GarmentOrderRow,
@@ -32,7 +38,12 @@ import {
   type PaymentStatus,
   type GarmentOrderStatus,
   type JobStatus,
+  type MeasurementMetricRow,
+  type MeasurementReadingRow,
+  type BodyMeasurementWithMetric,
+  type GarmentMeasurementGroup,
 } from "@/lib/admin-api";
+import { downloadMeasurementJobPdf, type StyleSelectionGroup } from "@/lib/job-pdf";
 import { GarmentOrderEditor } from "./GarmentOrderEditor";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -238,6 +249,27 @@ export default function OrderDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [savingCaptain, setSavingCaptain] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
+  // ── PDF download state ─────────────────────────────────────────────────────
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState<string | null>(null);
+
+  // ── Manage-Measurements override state ─────────────────────────────────────
+  // Per-job editable measurement map: keyed by jobId → metricId → draft value
+  const [measurementsJobId, setMeasurementsJobId] = useState<string | null>(null);
+  const [metricCatalog, setMetricCatalog] = useState<MeasurementMetricRow[]>([]);
+  const [jobReadings, setJobReadings] = useState<MeasurementReadingRow[]>([]);
+  // Draft readings: metricId → draft (we edit a local copy and Save commits)
+  const [draftReadings, setDraftReadings] = useState<
+    Map<string, { value_numeric: string; value_text: string; unit: string; rowId?: string }>
+  >(new Map());
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [savingMeasurements, setSavingMeasurements] = useState(false);
+  const [newMetricId, setNewMetricId] = useState("");
+  // For "Reset design" pending state
+  const [resettingGOId, setResettingGOId] = useState<string | null>(null);
+  // For admin total_price override toggle
+  const [priceOverrideGOId, setPriceOverrideGOId] = useState<string | null>(null);
 
   function flash(msg: string) {
     setSaveMsg(msg);
@@ -567,6 +599,364 @@ export default function OrderDetailPage() {
     return `Garment ${truncateId(garmentId)}`;
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // PDF DOWNLOAD — assembles cover + body + garment + style-selections pages
+  // ──────────────────────────────────────────────────────────────────────────
+  async function handleDownloadPdf() {
+    if (!order) return;
+    setPdfLoading(true);
+    setPdfProgress("Preparing…");
+    try {
+      // The measurement_jobs table has a unique constraint on order_id, so
+      // there's at most one job for this order. If none exists, we synthesize
+      // a minimal "no-job" job so the cover page renders and the style pages
+      // still come through.
+      const jobForPdf: MeasurementJobRow =
+        jobs[0] ?? {
+          id: `order-${order.id}`,
+          user_id: order.user_id,
+          order_id: order.id,
+          style_captain_id: order.style_captain_id,
+          status: null,
+          scheduled_at: null,
+          performed_at: null,
+          notes: "(No measurement job created yet)",
+        };
+
+      setPdfProgress("Loading measurement catalog…");
+      const metricsList = await fetchMeasurementMetrics();
+      setPdfProgress("Loading measurements…");
+      const readingsList = await fetchJobReadings(jobForPdf.id);
+
+      setPdfProgress("Loading garment details…");
+      // Fetch fresh GO list + materials (use the order-id-scoped helpers so we
+      // also pick up GOs whose items haven't been expanded on the page yet).
+      const [goList, materialsList] = await Promise.all([
+        fetchOrderGarmentOrders(order.id),
+        fetchOrderGarmentMaterials(order.id),
+      ]);
+
+      // Items per garment order (for style pages)
+      setPdfProgress("Loading style selections…");
+      const itemsByGOId = new Map<string, GarmentOrderItemRow[]>();
+      // Use cached items if present, otherwise fetch.
+      await Promise.all(
+        goList.map(async (go) => {
+          const cached = itemsByGO.get(go.id);
+          if (cached) {
+            itemsByGOId.set(go.id, cached);
+          } else {
+            try {
+              const items = await fetchGarmentOrderItems(go.id);
+              itemsByGOId.set(go.id, items);
+            } catch {
+              itemsByGOId.set(go.id, []);
+            }
+          }
+        }),
+      );
+
+      // Body measurements paired with readings
+      const body: BodyMeasurementWithMetric[] = (() => {
+        const byMetricId = new Map(
+          readingsList.map((r) => [r.measurement_metric_id, r]),
+        );
+        return metricsList.map((metric) => ({
+          metric,
+          reading: byMetricId.get(metric.id) ?? null,
+        }));
+      })();
+
+      // Garment measurement groups (materials) — match the PDF shape
+      const garments: GarmentMeasurementGroup[] = goList.map((go) => ({
+        garmentOrderId: go.id,
+        garmentId: go.garment_id,
+        garmentSlug: null,
+        garmentLabels: null,
+        status: go.status,
+        userNote: go.user_note,
+        materials: materialsList.filter((m) => m.garment_order_id === go.id),
+      }));
+
+      // Style selections per garment order
+      const styleGroups: StyleSelectionGroup[] = goList.map((go) => {
+        const liveGO = garmentOrders.find((g) => g.id === go.id);
+        return {
+          garmentOrder: {
+            // Map GarmentOrderInstanceRow → GarmentOrderRow shape expected by PDF
+            id: go.id,
+            order_id: go.order_id ?? order.id,
+            garment_id: liveGO?.garment_id ?? "",
+            total_price: liveGO?.total_price ?? null,
+            status: (go.status as GarmentOrderStatus | null) ?? null,
+            user_note: go.user_note,
+            assets_shared: null,
+          },
+          garmentLabel: garmentDisplayLabel(liveGO?.garment_id ?? go.garment_id),
+          basePrice: (liveGO?.garment_id
+            ? garmentMap.get(liveGO.garment_id)?.base_price
+            : null) ?? null,
+          items: itemsByGOId.get(go.id) ?? [],
+        };
+      });
+
+      await downloadMeasurementJobPdf(
+        {
+          job: jobForPdf,
+          customer,
+          order,
+          bodyMeasurements: body,
+          garmentMeasurements: garments,
+          styleSelections: styleGroups,
+        },
+        (current, total, label) => {
+          if (total > 1) {
+            setPdfProgress(`${label} (${current + 1}/${total})`);
+          } else {
+            setPdfProgress(label);
+          }
+        },
+      );
+      flash("PDF downloaded");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "PDF generation failed");
+    } finally {
+      setPdfLoading(false);
+      setPdfProgress(null);
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ADMIN MEASUREMENT OVERRIDE — open / save inline-editable grid
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** Open the measurements override panel for a specific job. Loads the
+   *  metric catalog and the job's existing readings, then seeds the draft. */
+  async function openMeasurements(jobId: string) {
+    setMeasurementsJobId(jobId);
+    setMetricsLoading(true);
+    setDraftReadings(new Map());
+    try {
+      const [metricsList, readingsList] = await Promise.all([
+        metricCatalog.length > 0
+          ? Promise.resolve(metricCatalog)
+          : fetchMeasurementMetrics(),
+        fetchJobReadings(jobId),
+      ]);
+      if (metricCatalog.length === 0) setMetricCatalog(metricsList);
+      setJobReadings(readingsList);
+
+      // Seed draft from existing readings
+      const draft = new Map<
+        string,
+        { value_numeric: string; value_text: string; unit: string; rowId?: string }
+      >();
+      for (const r of readingsList) {
+        if (!r.measurement_metric_id) continue;
+        draft.set(r.measurement_metric_id, {
+          value_numeric: r.value_numeric !== null ? String(r.value_numeric) : "",
+          value_text: r.value_text ?? "",
+          unit: r.unit ?? "",
+          rowId: r.id,
+        });
+      }
+      setDraftReadings(draft);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to load measurements");
+    } finally {
+      setMetricsLoading(false);
+    }
+  }
+
+  function closeMeasurements() {
+    setMeasurementsJobId(null);
+    setDraftReadings(new Map());
+    setNewMetricId("");
+  }
+
+  function setDraftField(
+    metricId: string,
+    field: "value_numeric" | "value_text" | "unit",
+    value: string,
+  ) {
+    setDraftReadings((prev) => {
+      const next = new Map(prev);
+      const cur =
+        next.get(metricId) ??
+        { value_numeric: "", value_text: "", unit: "" };
+      next.set(metricId, { ...cur, [field]: value });
+      return next;
+    });
+  }
+
+  function addMetricToDraft(metricId: string) {
+    if (!metricId) return;
+    setDraftReadings((prev) => {
+      const next = new Map(prev);
+      if (!next.has(metricId)) {
+        next.set(metricId, { value_numeric: "", value_text: "", unit: "" });
+      }
+      return next;
+    });
+    setNewMetricId("");
+  }
+
+  function removeMetricFromDraft(metricId: string) {
+    setDraftReadings((prev) => {
+      const next = new Map(prev);
+      next.delete(metricId);
+      return next;
+    });
+  }
+
+  /** Persist all draft readings to the `measurements` table via the generic
+   *  CRUD API. Creates new rows, updates existing ones, and deletes rows
+   *  that were removed from the draft. */
+  async function saveMeasurements() {
+    if (!measurementsJobId) return;
+    setSavingMeasurements(true);
+    try {
+      const jobId = measurementsJobId;
+      // Index existing readings by metric id for diff
+      const existingByMetric = new Map(
+        jobReadings
+          .filter((r) => r.measurement_metric_id)
+          .map((r) => [r.measurement_metric_id as string, r]),
+      );
+
+      // 1. Upsert all draft rows
+      type UpsertResult = {
+        metricId: string;
+        created?: boolean;
+        updated?: boolean;
+        deleted?: boolean;
+      };
+      const upserts: Promise<UpsertResult | null>[] = Array.from(
+        draftReadings.entries(),
+      ).map(async ([metricId, draft]) => {
+        const trimmedNum = draft.value_numeric.trim();
+        const trimmedText = draft.value_text.trim();
+        // Enforce exactly-one-value rule (BE CHECK constraint)
+        const valueNumeric = trimmedNum === "" ? null : Number(trimmedNum);
+        const valueText = trimmedText === "" ? null : trimmedText;
+        // Skip if both empty and no existing row — nothing to write
+        if (valueNumeric === null && valueText === null && !draft.rowId) {
+          return null;
+        }
+        // If both are now null but there IS an existing row → delete it
+        if (valueNumeric === null && valueText === null && draft.rowId) {
+          await deleteTableRow("measurements", draft.rowId);
+          return { metricId, deleted: true as const };
+        }
+        if (valueNumeric === null && valueText === null) return null;
+
+        const payload: Record<string, unknown> = {
+          measurement_job_id: jobId,
+          measurement_metric_id: metricId,
+          value_numeric: valueNumeric,
+          value_text: valueText,
+          unit: draft.unit.trim() || null,
+          captured_at: new Date().toISOString(),
+        };
+
+        if (draft.rowId) {
+          await updateTableRow("measurements", draft.rowId, payload);
+          return { metricId, updated: true as const };
+        } else {
+          await createTableRow("measurements", payload);
+          return { metricId, created: true as const };
+        }
+      });
+      const results = (await Promise.all(upserts)).filter(
+        (r): r is UpsertResult => r !== null,
+      );
+
+      // 2. Delete rows for metrics that were in jobReadings but no longer
+      //    in draftReadings (i.e. the admin removed them)
+      const removedMetrics = Array.from(existingByMetric.entries()).filter(
+        ([mId]) => !draftReadings.has(mId),
+      );
+      await Promise.all(
+        removedMetrics.map(async ([, r]) => {
+          await deleteTableRow("measurements", r.id);
+        }),
+      );
+
+      // 3. Reload job readings + refresh draft
+      const fresh = await fetchJobReadings(jobId);
+      setJobReadings(fresh);
+      const redrafted = new Map<
+        string,
+        { value_numeric: string; value_text: string; unit: string; rowId?: string }
+      >();
+      for (const r of fresh) {
+        if (!r.measurement_metric_id) continue;
+        redrafted.set(r.measurement_metric_id, {
+          value_numeric: r.value_numeric !== null ? String(r.value_numeric) : "",
+          value_text: r.value_text ?? "",
+          unit: r.unit ?? "",
+          rowId: r.id,
+        });
+      }
+      setDraftReadings(redrafted);
+
+      const createdCount = results.filter((r) => r.created).length;
+      const updatedCount = results.filter((r) => r.updated).length;
+      const deletedCount =
+        results.filter((r) => r.deleted).length + removedMetrics.length;
+      const summary = [
+        createdCount > 0 && `${createdCount} created`,
+        updatedCount > 0 && `${updatedCount} updated`,
+        deletedCount > 0 && `${deletedCount} deleted`,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      flash(summary ? `Measurements saved (${summary})` : "No changes");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to save measurements");
+    } finally {
+      setSavingMeasurements(false);
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // RESET DESIGN — delete all garment_orders_items for a garment order
+  // ──────────────────────────────────────────────────────────────────────────
+  async function handleResetDesign(goId: string) {
+    const items = itemsByGO.get(goId) ?? [];
+    if (items.length === 0) {
+      flash("No design items to reset");
+      return;
+    }
+    if (
+      !confirm(
+        `Reset design? This will delete all ${items.length} style selections for this garment order and set the total to the base price.`,
+      )
+    ) {
+      return;
+    }
+    setResettingGOId(goId);
+    try {
+      await Promise.all(items.map((it) => deleteTableRow("garment_orders_items", it.id)));
+      const go = garmentOrders.find((g) => g.id === goId);
+      const garment = go?.garment_id ? garmentMap.get(go.garment_id) : null;
+      const basePrice = garment?.base_price ?? null;
+      if (go && basePrice !== null) {
+        await updateGarmentOrder(goId, { total_price: basePrice });
+      }
+      setItemsByGO((prev) => {
+        const next = new Map(prev);
+        next.set(goId, []);
+        return next;
+      });
+      flash("Design reset to base");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to reset design");
+    } finally {
+      setResettingGOId(null);
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -629,6 +1019,14 @@ export default function OrderDetailPage() {
           <div className="flex flex-wrap gap-2">
             <StatusBadge value={order.fulfillment_status} />
             <StatusBadge value={order.payment_status} />
+            <button
+              onClick={handleDownloadPdf}
+              disabled={pdfLoading}
+              className="rounded-lg border border-ink-navy bg-ink-navy px-3 py-1.5 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
+              title="Download a PDF with measurements, garment details, and style selections"
+            >
+              {pdfLoading ? (pdfProgress ?? "Generating…") : "⤓ Download PDF"}
+            </button>
           </div>
         </div>
 
@@ -991,10 +1389,70 @@ export default function OrderDetailPage() {
                             Total Price
                           </div>
                           <div className="mt-0.5 font-mono text-sm text-ink">
-                            {formatPrice(go.total_price)}
+                            {priceOverrideGOId === go.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  step="any"
+                                  defaultValue={go.total_price ?? ""}
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      const v = (e.target as HTMLInputElement).value;
+                                      handleUpdateGarmentOrder(go.id, {
+                                        total_price: v === "" ? null : Number(v),
+                                      });
+                                      setPriceOverrideGOId(null);
+                                    } else if (e.key === "Escape") {
+                                      setPriceOverrideGOId(null);
+                                    }
+                                  }}
+                                  className="w-28 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-sm focus:border-ink-navy focus:outline-none"
+                                />
+                                <button
+                                  onClick={() => {
+                                    const el = document.querySelector<HTMLInputElement>(
+                                      `input[type="number"][autofocus]`,
+                                    );
+                                    const v = el?.value ?? "";
+                                    handleUpdateGarmentOrder(go.id, {
+                                      total_price: v === "" ? null : Number(v),
+                                    });
+                                    setPriceOverrideGOId(null);
+                                  }}
+                                  className="rounded-md bg-ink-navy px-2 py-1 text-xs font-medium text-chalk-white"
+                                >
+                                  Set
+                                </button>
+                                <button
+                                  onClick={() => setPriceOverrideGOId(null)}
+                                  className="rounded-md border border-hairline-strong px-2 py-1 text-xs text-muted"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setPriceOverrideGOId(go.id)}
+                                title="Click to override (default is auto-calculated)"
+                                className="font-mono hover:text-tape hover:underline"
+                              >
+                                {formatPrice(go.total_price)}
+                              </button>
+                            )}
                           </div>
                           <div className="mt-0.5 text-[10px] text-muted">
-                            Auto-calculated from style selections.
+                            Click price to override.{" "}
+                            <button
+                              onClick={() => handleResetDesign(go.id)}
+                              disabled={resettingGOId === go.id}
+                              className="font-medium text-red-600 underline hover:text-red-700 disabled:opacity-50"
+                              title="Delete all style selections and reset total to base price"
+                            >
+                              {resettingGOId === go.id
+                                ? "Resetting…"
+                                : "Reset design"}
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -1264,7 +1722,7 @@ export default function OrderDetailPage() {
             {jobs.map((job) => (
               <div
                 key={job.id}
-                className="rounded-lg border border-hairline bg-chalk-white px-4 py-3"
+                className="overflow-hidden rounded-lg border border-hairline bg-chalk-white px-4 py-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -1280,7 +1738,7 @@ export default function OrderDetailPage() {
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge value={job.status} />
                     <select
                       value={job.status ?? ""}
@@ -1298,11 +1756,213 @@ export default function OrderDetailPage() {
                         </option>
                       ))}
                     </select>
+                    <button
+                      onClick={() =>
+                        measurementsJobId === job.id
+                          ? closeMeasurements()
+                          : openMeasurements(job.id)
+                      }
+                      className="rounded-md border border-ink-navy px-2 py-1 text-xs font-medium text-ink-navy transition hover:bg-mist-navy"
+                    >
+                      {measurementsJobId === job.id
+                        ? "Close"
+                        : "Manage Measurements"}
+                    </button>
                   </div>
                 </div>
                 {job.notes && (
                   <div className="mt-2 text-xs text-ink">
                     <span className="font-medium">Notes:</span> {job.notes}
+                  </div>
+                )}
+
+                {/* ── Admin measurement override panel ─────────────────────── */}
+                {measurementsJobId === job.id && (
+                  <div className="mt-3 rounded-lg border border-tape/40 bg-tape/5 p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                        Admin Measurement Override
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={saveMeasurements}
+                          disabled={
+                            savingMeasurements || metricsLoading
+                          }
+                          className="rounded-md bg-green-700 px-3 py-1 text-xs font-medium text-white transition hover:bg-green-800 disabled:opacity-50"
+                        >
+                          {savingMeasurements ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          onClick={closeMeasurements}
+                          className="rounded-md border border-hairline-strong px-3 py-1 text-xs text-muted hover:bg-mist-navy"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-muted">
+                      Exactly one of <code>value_numeric</code> or{" "}
+                      <code>value_text</code> must be set per row (DB CHECK
+                      constraint). Blank both to delete.
+                    </div>
+
+                    {metricsLoading ? (
+                      <div className="py-3 text-xs text-muted">
+                        Loading metrics…
+                      </div>
+                    ) : metricCatalog.length === 0 ? (
+                      <div className="py-3 text-xs text-muted">
+                        No measurement metrics found in catalog.
+                      </div>
+                    ) : (
+                      <>
+                        {/* Draft grid */}
+                        <div className="mt-2 overflow-x-auto">
+                          <table className="w-full min-w-[600px] text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-hairline text-[10px] uppercase tracking-wide text-muted">
+                                <th className="py-2 pr-2 font-medium">Metric</th>
+                                <th className="py-2 pr-2 font-medium">Numeric</th>
+                                <th className="py-2 pr-2 font-medium">Text</th>
+                                <th className="py-2 pr-2 font-medium">Unit</th>
+                                <th className="py-2"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Array.from(draftReadings.entries()).map(
+                                ([metricId, draft]) => {
+                                  const metric = metricCatalog.find(
+                                    (m) => m.id === metricId,
+                                  );
+                                  const label =
+                                    metric?.labels?.en ??
+                                    metric?.code ??
+                                    truncateId(metricId);
+                                  return (
+                                    <tr
+                                      key={metricId}
+                                      className="border-b border-hairline last:border-0"
+                                    >
+                                      <td className="py-2 pr-2 text-ink">
+                                        {label}
+                                      </td>
+                                      <td className="py-2 pr-2">
+                                        <input
+                                          type="number"
+                                          step="any"
+                                          value={draft.value_numeric}
+                                          onChange={(e) =>
+                                            setDraftField(
+                                              metricId,
+                                              "value_numeric",
+                                              e.target.value,
+                                            )
+                                          }
+                                          className="w-24 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-xs focus:border-ink-navy focus:outline-none"
+                                        />
+                                      </td>
+                                      <td className="py-2 pr-2">
+                                        <input
+                                          type="text"
+                                          value={draft.value_text}
+                                          onChange={(e) =>
+                                            setDraftField(
+                                              metricId,
+                                              "value_text",
+                                              e.target.value,
+                                            )
+                                          }
+                                          className="w-32 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-xs focus:border-ink-navy focus:outline-none"
+                                        />
+                                      </td>
+                                      <td className="py-2 pr-2">
+                                        <input
+                                          type="text"
+                                          value={draft.unit}
+                                          onChange={(e) =>
+                                            setDraftField(
+                                              metricId,
+                                              "unit",
+                                              e.target.value,
+                                            )
+                                          }
+                                          className="w-16 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-xs focus:border-ink-navy focus:outline-none"
+                                        />
+                                      </td>
+                                      <td className="py-2">
+                                        <button
+                                          onClick={() =>
+                                            removeMetricFromDraft(metricId)
+                                          }
+                                          title="Remove"
+                                          className="flex h-6 w-6 items-center justify-center rounded text-red-500 transition hover:bg-red-50"
+                                        >
+                                          <svg
+                                            className="h-3.5 w-3.5"
+                                            viewBox="0 0 16 16"
+                                            fill="none"
+                                          >
+                                            <path
+                                              d="M3 5h10M6 5V3.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V5M5 5l.5 8a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1l.5-8"
+                                              stroke="currentColor"
+                                              strokeWidth="1.3"
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                            />
+                                          </svg>
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                },
+                              )}
+                              {draftReadings.size === 0 && (
+                                <tr>
+                                  <td
+                                    colSpan={5}
+                                    className="py-3 text-center text-muted"
+                                  >
+                                    No metrics yet — add one below.
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Add metric row */}
+                        <div className="mt-2 flex items-center gap-2">
+                          <select
+                            value={newMetricId}
+                            onChange={(e) => setNewMetricId(e.target.value)}
+                            className="flex-1 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-xs focus:border-ink-navy focus:outline-none"
+                          >
+                            <option value="">— Add metric to override —</option>
+                            {metricCatalog
+                              .filter(
+                                (m) =>
+                                  !draftReadings.has(m.id) &&
+                                  !jobReadings.some(
+                                    (r) => r.measurement_metric_id === m.id,
+                                  ),
+                              )
+                              .map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.labels?.en ?? m.code ?? truncateId(m.id)}
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            onClick={() => addMetricToDraft(newMetricId)}
+                            disabled={!newMetricId}
+                            className="rounded-md bg-ink-navy px-3 py-1 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
+                          >
+                            + Add
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

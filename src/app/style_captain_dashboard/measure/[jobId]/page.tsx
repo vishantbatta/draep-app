@@ -31,6 +31,7 @@ import {
 import { EditMetricSheet } from "@/components/style-captain/EditMetricSheet";
 import { ColorPickerCamera } from "@/components/style-captain/ColorPickerCamera";
 import { BottomSheet } from "@/components/style-captain/BottomSheet";
+import { VoiceNoteRecorder } from "@/components/style-captain/VoiceNoteRecorder";
 import {
   downloadMeasurementJobPdf,
   type PdfProgressFn,
@@ -80,6 +81,7 @@ export default function MeasureJobPage() {
   const [step, setStep] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, MetricDraft>>({});
   const [notes, setNotes] = useState("");
+  const [voiceNoteUrl, setVoiceNoteUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [editingMetricId, setEditingMetricId] = useState<string | null>(null);
   const [hasInitialized, setHasInitialized] = useState(false);
@@ -232,7 +234,7 @@ export default function MeasureJobPage() {
     setSaving(true);
     setError(null);
     try {
-      await scCompleteJob(job.id, notes);
+      await scCompleteJob(job.id, notes, voiceNoteUrl ?? undefined);
       // Reload to pick up the completed status, then show success screen
       await load();
       setPhase("success");
@@ -511,6 +513,8 @@ export default function MeasureJobPage() {
         <FinalNotesPhase
           notes={notes}
           setNotes={setNotes}
+          voiceNoteUrl={voiceNoteUrl}
+          onVoiceNoteChange={setVoiceNoteUrl}
           saving={saving}
           onBack={() => setPhase("garment")}
           onComplete={handleComplete}
@@ -782,6 +786,8 @@ function CheckpointScreen({
 function FinalNotesPhase({
   notes,
   setNotes,
+  voiceNoteUrl,
+  onVoiceNoteChange,
   saving,
   onBack,
   onComplete,
@@ -789,6 +795,8 @@ function FinalNotesPhase({
 }: {
   notes: string;
   setNotes: (v: string) => void;
+  voiceNoteUrl: string | null;
+  onVoiceNoteChange: (url: string | null) => void;
   saving: boolean;
   onBack: () => void;
   onComplete: () => void;
@@ -812,20 +820,33 @@ function FinalNotesPhase({
         </p>
       </div>
 
+      {/* ─── Text notes ────────────────────────────────────────────────── */}
       <div className="rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
         <label className="mb-1 block text-caption font-medium text-ink-navy">
-          Final notes (optional)
+          Comment (optional)
         </label>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          rows={6}
+          rows={4}
           placeholder="e.g. Customer prefers looser fit. Right shoulder slightly higher."
           className="w-full resize-none rounded-card border border-hairline-strong bg-chalk-white px-4 py-3 text-body text-ink outline-none focus:border-accent-text focus:ring-2 focus:ring-accent-text/30"
         />
         <p className="mt-2 text-[11px] text-muted">
           {notes.length}/2000 characters
         </p>
+      </div>
+
+      {/* ─── Voice note ────────────────────────────────────────────────── */}
+      <div className="rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
+        <label className="mb-2 block text-caption font-medium text-ink-navy">
+          Voice note (optional)
+        </label>
+        <VoiceNoteRecorder
+          jobId={job.id}
+          onUploaded={onVoiceNoteChange}
+          uploadedUrl={voiceNoteUrl}
+        />
       </div>
 
       {job.order_comments && (
@@ -1720,7 +1741,6 @@ function MaterialForm({
   const [unit, setUnit] = useState<"m" | "in" | "cm">(
     initial?.unit === "in" ? "in" : initial?.unit === "cm" ? "cm" : "m",
   );
-  const [comment, setComment] = useState(initial?.comment ?? "");
   const [assetUrls, setAssetUrls] = useState<string[]>(
     initial?.asset_urls ?? [],
   );
@@ -1781,7 +1801,6 @@ function MaterialForm({
         breadth: brd,
         unit,
         asset_urls: assetUrls,
-        comment: comment.trim() || null,
       };
       void onSubmit(payload);
       return;
@@ -1793,7 +1812,6 @@ function MaterialForm({
       name: name.trim() || null,
       color: color.trim(),
       asset_urls: assetUrls,
-      comment: comment.trim() || null,
     };
     void onSubmit(payload);
   }
@@ -1923,20 +1941,6 @@ function MaterialForm({
           </div>
         </div>
       )}
-
-      {/* Comment */}
-      <div>
-        <label className="mb-1 block text-[11px] font-medium text-ink-navy">
-          Comment (optional)
-        </label>
-        <textarea
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          rows={2}
-          placeholder="e.g. Zari border along hem"
-          className="w-full resize-none rounded-card border border-hairline-strong bg-chalk-white px-3 py-2 text-body text-ink outline-none focus:border-accent-text focus:ring-2 focus:ring-accent-text/30"
-        />
-      </div>
 
       {/* Photos */}
       <div>

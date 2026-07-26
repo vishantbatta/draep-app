@@ -424,13 +424,30 @@ function CataloguePageInner() {
     [],
   );
 
-  // Clear the secondary sidebar — catalogue manages its own navigation in-page
+  // Emit secondary sidebar items — Catalogue sub-tabs
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent("admin-sidebar-update", { detail: { items: [] } }));
+    window.dispatchEvent(
+      new CustomEvent("admin-sidebar-update", {
+        detail: {
+          items: [
+            {
+              label: "Catalogue",
+              active: true,
+              onClick: () => navigateToView(router, { level: "garments" }),
+            },
+            {
+              label: "Measurements",
+              active: false,
+              onClick: () => router.push("/admin/measurements"),
+            },
+          ],
+        },
+      }),
+    );
     return () => {
       window.dispatchEvent(new CustomEvent("admin-sidebar-update", { detail: null }));
     };
-  }, []);
+  }, [router]);
 
   // ─── Breadcrumbs ──────────────────────────────────────────────────────────
 
