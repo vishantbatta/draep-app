@@ -28,6 +28,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
 import { serviceAreaApi } from "@/lib/api";
+import { geocodePincode } from "@/lib/api/geocode";
 import { BANGALORE_PINCODE_PREFIXES } from "@/lib/service-area";
 import type { ServiceAreaCheckOut } from "@/types/api";
 
@@ -56,6 +57,18 @@ export default function ContactPage() {
   const [serverAreaCheck, setServerAreaCheck] = useState<ServiceAreaCheckOut | null>(null);
   const [areaChecking, setAreaChecking] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Pincode → map geocode. `flyToNonce` bumps each time we resolve a new
+  // pincode so the map picker knows to fly there even if the lat/lng is the
+  // same as a previous one.
+  const [pincodeLookup, setPincodeLookup] = useState<{
+    lat: number;
+    lng: number;
+    nonce: number;
+  } | null>(null);
+  const [pincodeLooking, setPincodeLooking] = useState(false);
+  const pincodeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flyNonceRef = useRef(0);
 
   const existingContact = draft?.contact;
 
@@ -103,6 +116,33 @@ export default function ContactPage() {
   const pincodeInBangalore = BANGALORE_PINCODE_PREFIXES.some((p) =>
     pincodeValue?.startsWith(p),
   );
+
+  // Pincode → map fly-to (debounced geocode via OSM Nominatim).
+  // Fires when the user enters a complete 6-digit pincode. On success, hands
+  // a fresh nonce + lat/lng to the map picker, which animates there. On
+  // failure (invalid pincode, network), silently no-ops — the user can still
+  // drag the pin or hit "Use my location".
+  useEffect(() => {
+    const code = (pincodeValue ?? "").trim();
+    if (pincodeDebounceRef.current) clearTimeout(pincodeDebounceRef.current);
+    if (!/^\d{6}$/.test(code)) {
+      setPincodeLooking(false);
+      return;
+    }
+    setPincodeLooking(true);
+    let cancelled = false;
+    pincodeDebounceRef.current = setTimeout(async () => {
+      const result = await geocodePincode(code);
+      if (cancelled) return;
+      setPincodeLooking(false);
+      if (!result) return;
+      flyNonceRef.current += 1;
+      setPincodeLookup({ lat: result.lat, lng: result.lng, nonce: flyNonceRef.current });
+    }, 600);
+    return () => {
+      cancelled = true;
+    };
+  }, [pincodeValue]);
 
   const outOfArea =
     (serverAreaCheck && !serverAreaCheck.serviceable) ||
@@ -276,7 +316,11 @@ export default function ContactPage() {
               lat={pin?.lat ?? existingContact?.lat}
               lng={pin?.lng ?? existingContact?.lng}
               onPinChange={handlePinChange}
+              flyTo={pincodeLookup ?? undefined}
             />
+            {pincodeLooking && (
+              <p className="mt-1 text-caption text-muted">Locating pincode on map…</p>
+            )}
             {pinTouched && !pin && (
               <p className="mt-1 text-caption text-error-text">{strings.contact.validation.pin}</p>
             )}

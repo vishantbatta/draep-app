@@ -29,6 +29,20 @@ export interface CatalogMapping {
   addOnId: Record<string, string>;
   /** Maps `${addOnId}:${choiceId}` → backend add-on variation UUID */
   addOnVariationId: Record<string, string>;
+
+  // ─── Reverse maps (UUID → frontend slug) ────────────────────────────────
+  // Used by hydrateFromLibraryOrder to translate server-side draft order
+  // selections back into the slug-based shape the FE configurator uses.
+  /** component UUID → frontend category.id */
+  componentIdRev: Record<string, string>;
+  /** variation UUID → { categoryId, optionId } */
+  variationIdRev: Record<string, { categoryId: string; optionId: string }>;
+  /** variation_type UUID → { categoryId, optionId, subOptionId } */
+  variationTypeIdRev: Record<string, { categoryId: string; optionId: string; subOptionId: string }>;
+  /** add-on UUID → frontend addOn.id */
+  addOnIdRev: Record<string, string>;
+  /** add-on variation UUID → { addOnId, choiceId } */
+  addOnVariationIdRev: Record<string, { addOnId: string; choiceId: string }>;
 }
 
 let cachedMapping: CatalogMapping | null = null;
@@ -46,6 +60,11 @@ function buildMapping(tree: GarmentTreeOut): CatalogMapping {
   const variationTypeId: Record<string, string> = {};
   const addOnId: Record<string, string> = {};
   const addOnVariationId: Record<string, string> = {};
+  const componentIdRev: Record<string, string> = {};
+  const variationIdRev: Record<string, { categoryId: string; optionId: string }> = {};
+  const variationTypeIdRev: Record<string, { categoryId: string; optionId: string; subOptionId: string }> = {};
+  const addOnIdRev: Record<string, string> = {};
+  const addOnVariationIdRev: Record<string, { addOnId: string; choiceId: string }> = {};
 
   // Map selection components
   for (const cat of CATALOG) {
@@ -55,6 +74,7 @@ function buildMapping(tree: GarmentTreeOut): CatalogMapping {
     );
     if (!component) continue;
     componentId[cat.id] = component.id;
+    componentIdRev[component.id] = cat.id;
 
     for (const opt of cat.options) {
       const optLabel = norm(opt.label);
@@ -63,6 +83,7 @@ function buildMapping(tree: GarmentTreeOut): CatalogMapping {
       );
       if (!variation) continue;
       variationId[`${cat.id}:${opt.id}`] = variation.id;
+      variationIdRev[variation.id] = { categoryId: cat.id, optionId: opt.id };
 
       if (opt.subOptions && variation.variation_types.length > 0) {
         for (const sub of opt.subOptions) {
@@ -72,6 +93,11 @@ function buildMapping(tree: GarmentTreeOut): CatalogMapping {
           );
           if (varType) {
             variationTypeId[`${cat.id}:${opt.id}:${sub.id}`] = varType.id;
+            variationTypeIdRev[varType.id] = {
+              categoryId: cat.id,
+              optionId: opt.id,
+              subOptionId: sub.id,
+            };
           }
         }
       }
@@ -87,6 +113,7 @@ function buildMapping(tree: GarmentTreeOut): CatalogMapping {
     );
     if (!backendAo) continue;
     addOnId[fa.id] = backendAo.id;
+    addOnIdRev[backendAo.id] = fa.id;
 
     // Map choice variations (e.g., Lining Full/Half, Keyhole shapes)
     if (fa.choices && backendAo.variations) {
@@ -97,6 +124,7 @@ function buildMapping(tree: GarmentTreeOut): CatalogMapping {
         );
         if (backendVar) {
           addOnVariationId[`${fa.id}:${choice.id}`] = backendVar.id;
+          addOnVariationIdRev[backendVar.id] = { addOnId: fa.id, choiceId: choice.id };
         }
       }
     }
@@ -110,6 +138,7 @@ function buildMapping(tree: GarmentTreeOut): CatalogMapping {
         );
         if (backendVar) {
           addOnVariationId[`${fa.id}:${size.id}`] = backendVar.id;
+          addOnVariationIdRev[backendVar.id] = { addOnId: fa.id, choiceId: size.id };
         }
       }
     }
@@ -122,6 +151,11 @@ function buildMapping(tree: GarmentTreeOut): CatalogMapping {
     variationTypeId,
     addOnId,
     addOnVariationId,
+    componentIdRev,
+    variationIdRev,
+    variationTypeIdRev,
+    addOnIdRev,
+    addOnVariationIdRev,
   };
 }
 

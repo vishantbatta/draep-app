@@ -28,11 +28,13 @@ export function verifyOtp(
   phone: string,
   otp: string,
   countryCode = "+91",
+  orderId?: string | null,
 ): Promise<OtpVerifyOut> {
   return apiPost<OtpVerifyOut>("/auth/otp/verify", {
     phone,
     country_code: countryCode,
     otp,
+    order_id: orderId ?? null,
   });
 }
 

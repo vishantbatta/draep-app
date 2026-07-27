@@ -161,19 +161,35 @@ export interface SelectionOut {
   variation_type_id: string | null;
   label: Record<string, string> | null;
   price: number | null;
+  /**
+   * Provenance (Design Library spec C4):
+   *   - `library_default`  copied from a library design via /library/:id/draft-order
+   *   - `user_modified`    user changed this row via review-screen PUT/PATCH/DELETE
+   *   - `custom`           added by the from-scratch configurator (default)
+   */
+  source: "library_default" | "user_modified" | "custom" | null;
 }
 
 export interface AddOnStateOut {
   add_on_id: string;
   add_on_variation_id: string | null;
-  placement: string | null;
+  /**
+   * Placement is now always a JSONB array on the wire (Design Library spec F7).
+   * Backend normalizes single-string inputs to a 1-element array; older code
+   * that passes a scalar string still works through the PUT endpoint.
+   * NULL only when placement doesn't apply (Piping, Boning, Breast cups, etc.).
+   */
+  placement: string[] | null;
   label: Record<string, string> | null;
   price: number | null;
+  source: "library_default" | "user_modified" | "custom" | null;
 }
 
 export interface OrderOut {
   id: string;
   garment_id: string | null;
+  /** Set when this order was drafted from a library design. */
+  library_id: string | null;
   payment_status: string | null;
   fulfillment_status: string | null;
   selections: SelectionOut[];
@@ -289,4 +305,84 @@ export interface CheckoutVerifyIn {
   cashfree_order_id: string;
   cashfree_payment_id: string;
   cashfree_signature: string;
+}
+
+// ─── Design Library (be/app/schemas/design_library.py) ────────────────────────
+
+/** A localized label wrapper — same shape the BE uses for component/addon labels. */
+export interface LabelOut {
+  id: string;
+  label: Record<string, string> | null;
+}
+
+/** One card in the browse grid (GET /library). */
+export interface LibraryListItemOut {
+  id: string;
+  labels: Record<string, string> | null;
+  descriptions: Record<string, string> | null;
+  category: string | null;
+  celebrity_name: string | null;
+  famous_for: Record<string, string> | null;
+  occasions: string[] | null;
+  hero_image_url: string | null;
+  /** As-configured price (live). Not a "from" — honest total. */
+  price: number;
+}
+
+export interface LibraryListOut {
+  items: LibraryListItemOut[];
+  next_cursor: string | null;
+}
+
+/** Flat self-describing item, same shape for library and order review. */
+export interface ResolvedItemOut {
+  item_id: string;
+  type: "variation" | "add_on";
+  component: LabelOut | null;
+  variation: LabelOut | null;
+  variation_type: LabelOut | null;
+  add_on: LabelOut | null;
+  add_on_variation: LabelOut | null;
+  placement: string[];
+  price: number | null;
+  /** Only present for order-review items; absent on library-detail items. */
+  source: "library_default" | "user_modified" | "custom" | null;
+}
+
+/** Full design detail (GET /library/:id). */
+export interface LibraryDetailOut {
+  id: string;
+  garment_id: string | null;
+  labels: Record<string, string> | null;
+  descriptions: Record<string, string> | null;
+  category: string | null;
+  celebrity_name: string | null;
+  famous_for: Record<string, string> | null;
+  reference_url: string | null;
+  occasions: string[] | null;
+  styling_notes: Record<string, string> | null;
+  hero_image_url: string | null;
+  front_image_url: string | null;
+  back_image_url: string | null;
+  side_image_url: string | null;
+  items: ResolvedItemOut[];
+  price: number;
+}
+
+/** Returned by POST /library/:id/draft-order. */
+export interface DraftFromLibraryOut {
+  order_id: string;
+  library_id: string;
+  /** Full serialized draft order — same shape as OrderOut, so the FE can
+   *  reuse its existing reconcile logic verbatim. */
+  order: OrderOut;
+}
+
+/** Query params for GET /library. */
+export interface LibraryListParams {
+  occasion?: string[];
+  category?: string[];
+  celebrity?: string[];
+  limit?: number;
+  cursor?: string;
 }

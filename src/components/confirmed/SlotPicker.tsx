@@ -1,80 +1,214 @@
 "use client";
 
 /**
- * SlotPicker — 3-hour home-visit slot picker on /confirmed (spec §6.12).
+ * SlotPicker — real BE-backed slot picker on /confirmed.
  *
- * Date chips for the next 7 days. Slot chips for 3-hour windows.
- * Final windows from ops config — VISIT_SLOT_WINDOWS / VISIT_SLOT_DAYS_AHEAD.
+ * Calls GET /orders/{id}/slots to fetch collapsed availability across all
+ * captains, lets the customer pick date + time, then POST /orders/{id}/booking
+ * which auto-assigns the least-utilized captain.
+ *
+ * Captain names are never shown in the picker (collapsed at the BE). The
+ * assigned captain name is returned in the booking response and surfaced by
+ * the parent on the confirmation card.
+ *
+ * Booking contract: the picker echoes the canonical `start_at` instant that
+ * the BE returned in SlotOption.start_at — it never reconstructs an instant
+ * from a wall-clock string. This removes the entire class of timezone
+ * round-trip bugs.
  */
 
+import { useCallback, useEffect, useState } from "react";
 import { Chip } from "@/components/ui/Chip";
+import { Button } from "@/components/ui/Button";
 import { MonoNumber } from "@/components/ui/MonoNumber";
-import { VISIT_SLOT_WINDOWS, VISIT_SLOT_DAYS_AHEAD } from "@/lib/pricing-config";
+import { bookingApi, ApiError } from "@/lib/api";
+import type { DaySlots, SlotOption, Booking } from "@/types/booking";
 
 interface SlotPickerProps {
-  selectedDate?: string;
-  selectedWindow?: string;
-  onSelectDate: (date: string) => void;
-  onSelectWindow: (window: string) => void;
+  orderId: string;
+  /** Called when the booking is successfully created. */
+  onBooked: (booking: Booking) => void;
 }
 
-export function SlotPicker({
-  selectedDate,
-  selectedWindow,
-  onSelectDate,
-  onSelectWindow,
-}: SlotPickerProps) {
-  const dates = buildNextDays(VISIT_SLOT_DAYS_AHEAD);
+export function SlotPicker({ orderId, onBooked }: SlotPickerProps) {
+  const [days, setDays] = useState<DaySlots[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | undefined>();
+  const [selectedSlot, setSelectedSlot] = useState<SlotOption | undefined>();
+  const [booking, setBooking] = useState(false);
+
+  // Fetch available slots on mount
+  const loadSlots = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await bookingApi.getSlots(orderId);
+      setDays(res.days);
+      if (res.days.length > 0 && !selectedDate) {
+        setSelectedDate(res.days[0].date);
+      }
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Couldn't load available times. Please refresh.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [orderId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    loadSlots();
+  }, [loadSlots]);
+
+  const slots = days.find((d) => d.date === selectedDate)?.slots ?? [];
+
+  const handleConfirm = async () => {
+    if (!selectedSlot) return;
+    setBooking(true);
+    setError(null);
+    try {
+      // Echo the BE-supplied canonical instant verbatim — no client-side
+      // reconstruction. See SlotOption.start_at.
+      const result = await bookingApi.createBooking(orderId, selectedSlot.start_at);
+      onBooked(result);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Couldn't book this slot. Try another time.",
+      );
+    } finally {
+      setBooking(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <div className="h-1 w-24 overflow-hidden rounded-pill bg-tape-silver">
+          <div className="h-full w-1/2 animate-pulse bg-draep-orange" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error && days.length === 0) {
+    return (
+      <div className="space-y-3">
+        <p className="rounded-card border border-error-border bg-error-bg px-4 py-3 text-caption text-error-text">
+          {error}
+        </p>
+        <Button variant="secondary" onClick={loadSlots} fullWidth>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
+  if (days.length === 0) {
+    return (
+      <p className="rounded-card border border-hairline bg-warm-sand px-4 py-6 text-center text-body text-muted">
+        No home-visit slots available in the next two weeks.
+        Please check back soon.
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-4">
+      {/* Date chips */}
       <div>
         <p className="mb-2 text-caption text-muted">Date</p>
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {days.map((d) => {
+            const dt = new Date(d.date + "T00:00:00");
+            return (
+              <Chip
+                key={d.date}
+                selected={selectedDate === d.date}
+                onClick={() => {
+                  setSelectedDate(d.date);
+                  setSelectedSlot(undefined);
+                }}
+                className="flex-col !min-w-[60px]"
+              >
+                <span className="flex flex-col items-center">
+                  <span className="text-[10px] uppercase">
+                    {dt.toLocaleDateString("en-IN", { weekday: "short" })}
+                  </span>
+                  <MonoNumber className="text-data">
+                    {dt.toLocaleDateString("en-IN", {
+                      day: "numeric",
+                      month: "short",
+                    })}
+                  </MonoNumber>
+                </span>
+              </Chip>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Time chips */}
+      <div>
+        <p className="mb-2 text-caption text-muted">
+          {slots.length > 0
+            ? "Available times"
+            : selectedDate
+              ? "No times available on this day — pick another date."
+              : "Pick a date first"}
+        </p>
         <div className="flex flex-wrap gap-2">
-          {dates.map((d) => (
+          {slots.map((s) => (
             <Chip
-              key={d.iso}
-              selected={selectedDate === d.iso}
-              onClick={() => onSelectDate(d.iso)}
+              key={s.start_at}
+              selected={selectedSlot?.start_at === s.start_at}
+              onClick={() => setSelectedSlot(s)}
             >
-              <span className="flex flex-col items-center">
-                <span className="text-caption">{d.weekday}</span>
-                <MonoNumber className="text-data">{d.shortDate}</MonoNumber>
-              </span>
+              {formatTimeLabel(s.label)}
             </Chip>
           ))}
         </div>
       </div>
 
-      <div>
-        <p className="mb-2 text-caption text-muted">3-hour window</p>
-        <div className="flex flex-wrap gap-2">
-          {VISIT_SLOT_WINDOWS.map((w) => (
-            <Chip
-              key={w.id}
-              selected={selectedWindow === w.id}
-              onClick={() => onSelectWindow(w.id)}
-            >
-              {w.label}
-            </Chip>
-          ))}
-        </div>
-      </div>
+      {/* Error message (inline, non-blocking) */}
+      {error && days.length > 0 && (
+        <p className="rounded-card border border-error-border bg-error-bg px-4 py-3 text-caption text-error-text">
+          {error}
+        </p>
+      )}
+
+      {/* Confirm CTA */}
+      <Button
+        onClick={handleConfirm}
+        disabled={!selectedSlot}
+        loading={booking}
+        fullWidth
+        className="mt-2"
+      >
+        Confirm slot
+      </Button>
     </div>
   );
 }
 
-function buildNextDays(count: number) {
-  const out: { iso: string; weekday: string; shortDate: string }[] = [];
-  const today = new Date();
-  for (let i = 0; i < count; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    out.push({
-      iso: d.toISOString().slice(0, 10),
-      weekday: d.toLocaleDateString("en-IN", { weekday: "short" }),
-      shortDate: d.toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
-    });
-  }
-  return out;
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Format a BE-supplied "HH:MM" label for display. The label is already
+ * rendered in the project timezone (Asia/Kolkata); this just converts the
+ * 24-hour format to a friendly 12-hour form.
+ *
+ * "10:00" → "10:00 AM"
+ * "14:00" → "2:00 PM"
+ */
+function formatTimeLabel(hhmm: string): string {
+  const [hStr, m] = hhmm.split(":");
+  const h = parseInt(hStr, 10);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${m} ${ampm}`;
 }

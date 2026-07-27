@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import {
   scFetchJobs,
   scFetchMe,
+  scFetchScheduleOverview,
   type SCJob,
   type SCUser,
+  type SCScheduleOverview,
 } from "@/lib/style-captain-api";
 import {
   formatAddress,
@@ -19,6 +21,7 @@ import {
   statusBadgeClass,
   telLink,
 } from "@/lib/sc-helpers";
+import { SchedulePanel } from "@/components/style-captain/SchedulePanel";
 
 export default function StyleCaptainDashboardPage() {
   const router = useRouter();
@@ -28,19 +31,24 @@ export default function StyleCaptainDashboardPage() {
   const [activeJobs, setActiveJobs] = useState<SCJob[]>([]);
   const [recentJobs, setRecentJobs] = useState<SCJob[]>([]);
   const [tab, setTab] = useState<"active" | "completed">("active");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleOverview, setScheduleOverview] =
+    useState<SCScheduleOverview | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [me, active, completed] = await Promise.all([
+      const [me, active, completed, overview] = await Promise.all([
         scFetchMe().catch(() => null),
         scFetchJobs("scheduled,in_progress"),
         scFetchJobs("completed,cancelled"),
+        scFetchScheduleOverview().catch(() => null),
       ]);
       if (me) setUser(me);
       setActiveJobs(active);
       setRecentJobs(completed);
+      if (overview) setScheduleOverview(overview);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load jobs");
     } finally {
@@ -103,6 +111,13 @@ export default function StyleCaptainDashboardPage() {
         </svg>
       </button>
 
+      {/* ─── Schedule banner ────────────────────────────────────────────── */}
+      <ScheduleBanner
+        overview={scheduleOverview}
+        loading={loading}
+        onOpen={() => setScheduleOpen(true)}
+      />
+
       {/* ─── Tabs ───────────────────────────────────────────────────────── */}
       <div className="flex gap-1 rounded-pill border border-hairline bg-chalk-white p-1">
         {(["active", "completed"] as const).map((t) => (
@@ -150,7 +165,100 @@ export default function StyleCaptainDashboardPage() {
           ))}
         </div>
       )}
+
+      {/* ─── Schedule panel (modal) ────────────────────────────────────── */}
+      {scheduleOpen && (
+        <SchedulePanel
+          onClose={() => {
+            setScheduleOpen(false);
+            load();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── Schedule banner ────────────────────────────────────────────────────────
+
+function ScheduleBanner({
+  overview,
+  loading,
+  onOpen,
+}: {
+  overview: SCScheduleOverview | null;
+  loading: boolean;
+  onOpen: () => void;
+}) {
+  const nextVisit = overview?.next_visit ?? null;
+  const todayCount = overview?.today_bookings_count ?? 0;
+  const blockedCount = overview?.upcoming_exceptions.length ?? 0;
+
+  return (
+    <button
+      onClick={onOpen}
+      className="tap flex w-full items-center justify-between rounded-card border border-hairline bg-chalk-white px-4 py-3 text-left shadow-card transition hover:border-hairline-strong"
+    >
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          {/* Calendar icon */}
+          <svg
+            className="h-5 w-5 shrink-0 text-ink-navy"
+            viewBox="0 0 20 20"
+            fill="none"
+          >
+            <rect
+              x="3"
+              y="4"
+              width="14"
+              height="13"
+              rx="2"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            />
+            <path
+              d="M3 8h14M7 2v3M13 2v3"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+            <circle cx="7" cy="12" r="1" fill="currentColor" />
+            <circle cx="10" cy="12" r="1" fill="currentColor" />
+          </svg>
+          <span className="block font-heading text-body font-semibold text-ink-navy">
+            My Schedule
+          </span>
+        </span>
+
+        <span className="mt-1 block pl-7 text-caption text-muted">
+          {loading
+            ? "Loading…"
+            : nextVisit
+              ? `Next: ${formatDateTime(nextVisit.scheduled_at)}${
+                  nextVisit.customer_name ? ` · ${nextVisit.customer_name}` : ""
+                }`
+              : todayCount === 0 && blockedCount === 0
+                ? "Set your weekly availability"
+                : `${todayCount} visit${todayCount === 1 ? "" : "s"} today${
+                    blockedCount > 0 ? ` · ${blockedCount} block${blockedCount === 1 ? "" : "s"}` : ""
+                  }`}
+        </span>
+      </span>
+
+      <svg
+        className="h-4 w-4 shrink-0 text-muted"
+        viewBox="0 0 20 20"
+        fill="none"
+      >
+        <path
+          d="M7 5l5 5-5 5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
   );
 }
 

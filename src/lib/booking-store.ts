@@ -86,8 +86,25 @@ interface BookingStoreState {
   setPayment: (payment: PaymentState) => void;
   setSlot: (slot: SlotSelection) => void;
 
+  /**
+   * Replace draft.orderId with the authoritative id from the backend
+   * (e.g. after OTP verify, when the backend re-parents a different order).
+   * No-op if there is no draft or the id is unchanged.
+   */
+  setActiveOrderId: (orderId: string) => void;
+
   /** Reconcile local draft with server order response. */
   reconcileFromServer: (order: OrderOut) => void;
+
+  /**
+   * Hydrate the local draft from a library-sourced order. Deletes any
+   * pre-existing draft order, then translates the server's UUID-based
+   * selections/add-ons into the slug-based shape the FE configurator uses.
+   *
+   * Used by the library design detail BottomSheet after a successful
+   * POST /library/:id/draft-order.
+   */
+  hydrateFromLibraryOrder: (order: OrderOut) => Promise<void>;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -405,23 +422,38 @@ export const useBookingStore = create<BookingStoreState>()(
 
       // ── flushPendingChanges: batch-sync all dirty items to server ────
       flushPendingChanges: async () => {
-        const { draft } = get();
-        if (!draft?.orderId) return;
         if (pendingSelections.size === 0 && pendingAddOns.size === 0) return;
+
+        const { draft } = get();
+        if (!draft?.orderId) {
+          // No server order yet — try to create one first
+          await get().initDraft();
+          const updated = get();
+          if (!updated.draft?.orderId) {
+            set({ syncError: "Couldn't connect to the server. Your changes will be saved when you reconnect." });
+            return;
+          }
+        }
 
         // Ensure catalog mapping is available (it may be null after page reload)
         if (!cachedMapping) {
           await get().ensureCatalogMapping();
         }
-        if (!cachedMapping) return;
+        if (!cachedMapping) {
+          set({ syncError: "Couldn't load the design catalog. Your changes will be saved when you reconnect." });
+          return;
+        }
 
         set({ syncing: true, syncError: null });
 
         let hadError = false;
 
+        // Re-read draft after potential initDraft call above
+        const currentDraft = get().draft!;
+
         // Flush dirty selections
         for (const categoryId of pendingSelections) {
-          const sel = draft.selections[categoryId];
+          const sel = currentDraft.selections[categoryId];
           if (!sel) continue;
           const resolved = resolveSelection(
             cachedMapping,
@@ -432,7 +464,7 @@ export const useBookingStore = create<BookingStoreState>()(
           if (!resolved) continue;
           try {
             const updated = await ordersApi.updateSelection(
-              draft.orderId,
+              currentDraft.orderId!,
               resolved.componentId,
               resolved.variationId,
               resolved.variationTypeId,
@@ -445,7 +477,7 @@ export const useBookingStore = create<BookingStoreState>()(
 
         // Flush dirty add-ons
         for (const addOnId of pendingAddOns) {
-          const addOnState = draft.addOns[addOnId];
+          const addOnState = currentDraft.addOns[addOnId];
           const backendAddOnId = resolveAddOnId(cachedMapping, addOnId);
           if (!backendAddOnId) continue;
 
@@ -453,7 +485,7 @@ export const useBookingStore = create<BookingStoreState>()(
             if (!addOnState?.enabled) {
               // Add-on was removed or disabled
               const updated = await ordersApi.removeAddon(
-                draft.orderId,
+                currentDraft.orderId!,
                 backendAddOnId,
               );
               get().reconcileFromServer(updated);
@@ -486,7 +518,7 @@ export const useBookingStore = create<BookingStoreState>()(
                   );
                 }
                 const updated = await ordersApi.upsertAddon(
-                  draft.orderId,
+                  currentDraft.orderId!,
                   backendAddOnId,
                   placementVariation,
                   placementId,
@@ -496,7 +528,7 @@ export const useBookingStore = create<BookingStoreState>()(
             } else {
               // Toggle or choice add-on (Piping, Boning, Lining, Keyhole, etc.)
               const updated = await ordersApi.upsertAddon(
-                draft.orderId,
+                currentDraft.orderId!,
                 backendAddOnId,
                 variationUuid,
                 null,
@@ -544,6 +576,15 @@ export const useBookingStore = create<BookingStoreState>()(
           };
         }),
 
+      setActiveOrderId: (orderId) =>
+        set((state) => {
+          if (!state.draft) return {};
+          if (state.draft.orderId === orderId) return {};
+          return {
+            draft: { ...state.draft, orderId, updatedAt: new Date().toISOString() },
+          };
+        }),
+
       // ── reconcileFromServer: merge server truth into local draft ─────
       reconcileFromServer: (order: OrderOut) => {
         set((state) => {
@@ -559,6 +600,150 @@ export const useBookingStore = create<BookingStoreState>()(
             syncError: null,
           };
         });
+      },
+
+      // ── hydrateFromLibraryOrder: rebuild draft from a library-sourced order
+      //
+      // Called after POST /library/:id/draft-order. Steps:
+      //   1. Delete any existing local draft + server order (so we don't
+      //      orphan a half-configured draft on the backend).
+      //   2. Ensure the catalog mapping is loaded — we need the reverse
+      //      (UUID → FE slug) maps to translate the server's order rows.
+      //   3. Translate every selection + add-on state row back into the
+      //      slug-based shape the FE configurator reads.
+      //   4. Replace the local draft in one shot.
+      //
+      // Notes:
+      //   - Per spec F10, the BE returns the existing draft on re-tap; we
+      //     detect that case by comparing order.id and skip the destructive
+      //     clearDraft() when the IDs match.
+      //   - Unknown UUIDs (e.g. an add-on that exists in BE but not in the
+      //     FE catalog) are silently skipped — they'll still be on the
+      //     server order, the FE just won't render their toggles.
+      hydrateFromLibraryOrder: async (order) => {
+        const state = get();
+
+        // If the user is re-tapping the SAME design that's already drafted,
+        // the BE returned the existing order unchanged. Don't tear down local
+        // state — just navigate the FE to /review.
+        if (state.draft?.orderId === order.id) {
+          return;
+        }
+
+        // Tear down any prior draft. clearDraft() also clears the catalog
+        // mapping cache, so we must re-fetch it below.
+        await get().clearDraft();
+
+        // Reload catalog mapping (cleared by clearDraft).
+        if (!cachedMapping) {
+          try {
+            if (!cachedGarmentId) {
+              const garments = await catalogApi.listGarments();
+              const blouse = garments.items.find(
+                (g) => g.slug === DEFAULT_GARMENT_SLUG,
+              );
+              if (blouse) cachedGarmentId = blouse.id;
+            }
+            if (cachedGarmentId) {
+              cachedMapping = await getCatalogMapping(cachedGarmentId);
+            }
+          } catch {
+            // Without the mapping we can't translate UUIDs — bail out
+            // leaving the user on the library screen with an error toast.
+            set({
+              syncError:
+                "Couldn't load the design catalog. Please try again.",
+            });
+            return;
+          }
+        }
+
+        const mapping = cachedMapping;
+        if (!mapping) {
+          set({
+            syncError:
+              "Couldn't load the design catalog. Please try again.",
+          });
+          return;
+        }
+
+        // Translate selections (server UUID → FE slugs).
+        const selections: Record<string, Selection> = {};
+        for (const sel of order.selections) {
+          if (!sel.variation_id) continue;
+          // Resolve variation → (categoryId, optionId) via reverse map.
+          const varInfo = mapping.variationIdRev[sel.variation_id];
+          if (!varInfo) continue;
+          // Resolve variation_type → subOptionId if present.
+          let subOptionId: string | undefined;
+          if (sel.variation_type_id) {
+            const vtInfo = mapping.variationTypeIdRev[sel.variation_type_id];
+            if (vtInfo) subOptionId = vtInfo.subOptionId;
+          }
+          selections[varInfo.categoryId] = {
+            optionId: varInfo.optionId,
+            subOptionId,
+          };
+        }
+
+        // Translate add-ons (server UUID → FE AddOnState).
+        // Strategy: look up the FE AddOn definition to know its kind
+        // (toggle | choice | placements) and build the appropriate shape.
+        const addOns: Record<string, AddOnState> = {};
+        for (const ao of order.add_on_states) {
+          if (!ao.add_on_id) continue;
+          const feId = mapping.addOnIdRev[ao.add_on_id];
+          if (!feId) continue;
+
+          const feDef = ADD_ONS.find((a) => a.id === feId);
+          if (!feDef) continue;
+
+          // Resolve choice/size variation back to FE slug.
+          let choiceId: string | undefined;
+          if (ao.add_on_variation_id) {
+            const avInfo = mapping.addOnVariationIdRev[ao.add_on_variation_id];
+            if (avInfo) choiceId = avInfo.choiceId;
+          }
+
+          // Normalize placement: server is string[] | null per spec F7.
+          const placements = ao.placement ?? [];
+
+          if (feDef.kind === "toggle") {
+            addOns[feId] = { enabled: true };
+          } else if (feDef.kind === "choice") {
+            addOns[feId] = { enabled: true, choiceId };
+          } else if (feDef.kind === "placements") {
+            // Build a placements record keyed by placement id.
+            // For Latkan the choiceId maps to a per-placement size.
+            const placementsRecord: Record<string, { sizeId?: string }> = {};
+            for (const p of placements) {
+              placementsRecord[p] = feDef.perPlacementSizes
+                ? { sizeId: choiceId }
+                : {};
+            }
+            addOns[feId] = {
+              enabled: true,
+              placements: placementsRecord,
+            };
+          }
+        }
+
+        // Compose the new draft in one shot. Mark every selection as clean
+        // (pendingSelections is empty after clearDraft) — the server is the
+        // source of truth here.
+        const newDraft: BookingDraft = {
+          version: DRAFT_VERSION,
+          orderId: order.id,
+          garmentId: order.garment_id,
+          libraryId: order.library_id,
+          selections,
+          addOns,
+          serverPriceBreakdown: extractPriceBreakdown(order),
+          updatedAt: new Date().toISOString(),
+        };
+
+        syncCookie(true);
+        set({ draft: newDraft, syncing: false, syncError: null });
       },
     }),
     {

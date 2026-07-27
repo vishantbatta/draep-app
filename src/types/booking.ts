@@ -79,12 +79,50 @@ export interface SlotSelection {
   window: string; // e.g. "18:00-21:00"
 }
 
+// ─── Booking API types (mirror be/app/api/booking.py schemas) ───────────────
+
+/**
+ * A single bookable slot. `start_at` is the canonical ISO instant — the FE
+ * echoes it back on POST /booking verbatim. `label` is for display only.
+ * Never reconstruct an instant on the client from a wall-clock string.
+ */
+export interface SlotOption {
+  start_at: string; // ISO datetime, e.g. "2026-07-28T04:30:00Z"
+  label: string; // "HH:MM" in the project scheduling zone, e.g. "10:00"
+}
+
+/** GET /orders/{id}/slots → a single day's available times. */
+export interface DaySlots {
+  date: string; // ISO yyyy-mm-dd
+  slots: SlotOption[];
+}
+
+/** GET /orders/{id}/slots response. */
+export interface SlotsResponse {
+  days: DaySlots[];
+}
+
+/** POST/PATCH /orders/{id}/booking response. */
+export interface Booking {
+  job_id: string;
+  captain_id: string;
+  captain_name: string | null;
+  scheduled_at: string; // ISO datetime
+  status: string; // "scheduled" | "in_progress" | etc.
+}
+
 export interface BookingDraft {
   version: 1;
   /** Server-side order ID — null until POST /orders succeeds. */
   orderId: string | null;
   /** Garment ID from catalog — set on draft init. */
   garmentId: string | null;
+  /**
+   * Set when this draft was created from a library design via
+   * POST /library/:id/draft-order. Used to badge the design attribution
+   * on the review screen and to short-circuit re-tapping the same design.
+   */
+  libraryId?: string | null;
   selections: Record<string, Selection>; // keyed by Category.id
   addOns: Record<string, AddOnState>;
   contact?: ContactDetails;

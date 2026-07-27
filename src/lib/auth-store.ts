@@ -37,6 +37,7 @@ interface AuthStoreState {
     phone: string,
     otp: string,
     countryCode?: string,
+    orderId?: string | null,
   ) => Promise<OtpVerifyOut>;
 
   // Session
@@ -109,8 +110,13 @@ export const useAuthStore = create<AuthStoreState>()(
         await authApi.sendOtp(phone, countryCode);
       },
 
-      verifyOtp: async (phone: string, otp: string, countryCode = "+91") => {
-        const result = await authApi.verifyOtp(phone, otp, countryCode);
+      verifyOtp: async (
+        phone: string,
+        otp: string,
+        countryCode = "+91",
+        orderId?: string | null,
+      ) => {
+        const result = await authApi.verifyOtp(phone, otp, countryCode, orderId);
         setToken(result.session_token);
         set({
           token: result.session_token,

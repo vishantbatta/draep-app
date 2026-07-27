@@ -1,4 +1,5 @@
 @import "./tokens.css";
+@import "leaflet/dist/leaflet.css";
 
 @tailwind base;
 @tailwind components;
@@ -184,3 +185,41 @@
     }
   }
 }
+
+/* ─── Leaflet overrides (MapPinPicker) ──────────────────────────────────────
+ * Keep the map inside the rounded container, hide the attribution flag's
+ * drop shadow, and make sure controls sit above the tiles. Also style the
+ * custom Draep pin so it gets a subtle lift.
+ */
+.leaflet-container {
+  font: inherit;
+  background: var(--navy-bg, #083068);
+}
+
+.leaflet-container a {
+  color: var(--navy-interactive, #1e40af);
+}
+
+.leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.7) !important;
+  font-size: 10px;
+  line-height: 1.2;
+  padding: 1px 6px;
+  border-top-left-radius: 6px;
+}
+
+/* Custom Draep pin */
+.draep-pin {
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.35));
+  transition: transform 120ms ease;
+}
+.draep-pin:hover {
+  transform: translateY(-1px);
+}
+
+/* Ensure map renders at proper height inside aspect-[4/3] wrapper */
+.leaflet-container .leaflet-pane,
+.leaflet-container .leaflet-control {
+  z-index: 1;
+}
+

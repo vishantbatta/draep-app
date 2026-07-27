@@ -21,6 +21,7 @@ import { ScreenShell } from "@/components/layout/ScreenShell";
 import { Button } from "@/components/ui/Button";
 import { Banner } from "@/components/ui/Banner";
 import { useAuthStore } from "@/lib/auth-store";
+import { useBookingStore } from "@/lib/booking-store";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
 
@@ -33,6 +34,12 @@ function OtpContent() {
   const sendOtp = useAuthStore((s) => s.sendOtp);
   const authHydrated = useAuthStore((s) => s.hydrated);
   const authToken = useAuthStore((s) => s.token);
+
+  // Order ID from the booking draft — passed to /auth/otp/verify so the backend
+  // re-parents THIS specific anonymous order, not whichever unparented draft
+  // happens to be most recent in the DB.
+  const draftOrderId = useBookingStore((s) => s.draft?.orderId);
+  const setActiveOrderId = useBookingStore((s) => s.setActiveOrderId);
 
   const [phone, setPhone] = useState(phoneFromQuery);
   const [otp, setOtp] = useState("");
@@ -88,6 +95,8 @@ function OtpContent() {
     }
   };
 
+  const clearDraft = useBookingStore((s) => s.clearDraft);
+
   const handleVerify = async () => {
     if (otp.length < 4) {
       setError("Enter the OTP you received");
@@ -96,7 +105,21 @@ function OtpContent() {
     setLoading(true);
     setError(null);
     try {
-      await verifyOtp(phone, otp);
+      const result = await verifyOtp(phone, otp, "+91", draftOrderId);
+
+      if (result.active_order_id) {
+        // Backend has an active draft for this user. Sync the store so
+        // subsequent PUT /orders/{id}/contact calls hit the correct order.
+        if (result.active_order_id !== draftOrderId) {
+          setActiveOrderId(result.active_order_id);
+        }
+      } else {
+        // Backend returned NO active draft. The order_id we sent was stale
+        // (cancelled, owned by another user, etc.). Clear the local draft
+        // so /contact will create a fresh order on mount.
+        await clearDraft();
+      }
+
       // OTP verified — redirect back to contact to save address
       router.push("/contact");
     } catch (err) {

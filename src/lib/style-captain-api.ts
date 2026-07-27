@@ -381,3 +381,206 @@ export async function scCreateWalkInJob(
     body: JSON.stringify({ name, phone, notes: notes ?? null }),
   });
 }
+
+// ─── Scheduling (availability rules, exceptions, slots, preview) ───────────
+// These hit the /captain/* router (different from /style-captain/* jobs router
+// above). Same JWT, different prefix.
+
+export interface SCRule {
+  id: string;
+  style_captain_id: string | null;
+  weekday: number | null; // null = daily, 0..6 (0 = Sunday)
+  is_closed: boolean | null;
+  start_time: string | null; // "HH:MM:SS"
+  end_time: string | null;
+  valid_from: string | null; // ISO date
+  valid_until: string | null;
+  is_active: boolean | null;
+}
+
+export interface SCException {
+  id: string;
+  style_captain_id: string | null;
+  date: string | null; // ISO date
+  type: string | null; // "block"
+  start_time: string | null;
+  end_time: string | null;
+  reason: string | null;
+}
+
+export interface SCManualSlot {
+  id: string;
+  style_captain_id: string | null;
+  start_at: string | null; // ISO timestamp
+  end_at: string | null;
+  status: string | null;
+  source: string | null;
+}
+
+export interface SCScheduleConfig {
+  slot_minutes: number;
+  lead_time_minutes: number;
+  reschedule_cutoff_minutes: number;
+  booking_horizon_days: number;
+}
+
+export interface SCNextVisit {
+  job_id: string;
+  status: string | null;
+  scheduled_at: string | null;
+  customer_name: string | null;
+  order_number: string | null;
+}
+
+export interface SCScheduleOverview {
+  rules: SCRule[];
+  upcoming_exceptions: SCException[];
+  upcoming_manual_slots: SCManualSlot[];
+  today_bookings_count: number;
+  next_visit: SCNextVisit | null;
+  config: SCScheduleConfig;
+}
+
+export interface SCPreviewSlot {
+  start_at: string;
+  end_at: string | null;
+  status: "open" | "booked" | "manual" | "blocked";
+}
+
+export interface SCSchedulePreview {
+  from_date: string;
+  to_date: string;
+  slot_minutes: number;
+  slots: SCPreviewSlot[];
+}
+
+// — Rule inputs
+export interface SCRuleInput {
+  weekday: number | null;
+  is_closed: boolean;
+  start_time?: string | null;
+  end_time?: string | null;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  is_active?: boolean;
+}
+
+// — Exception inputs
+export interface SCExceptionInput {
+  date: string; // ISO date
+  type?: string; // default "block"
+  start_time?: string | null;
+  end_time?: string | null;
+  reason?: string | null;
+}
+
+// — Manual slot inputs
+export interface SCManualSlotInput {
+  start_at: string; // ISO timestamp
+  end_at: string;
+}
+
+// — Overview
+export async function scFetchScheduleOverview(): Promise<SCScheduleOverview> {
+  return scFetch<SCScheduleOverview>("/captain/schedule/overview");
+}
+
+// — Preview
+export async function scFetchSchedulePreview(
+  fromDate?: string,
+  toDate?: string,
+): Promise<SCSchedulePreview> {
+  const qs = new URLSearchParams();
+  if (fromDate) qs.set("from_date", fromDate);
+  if (toDate) qs.set("to_date", toDate);
+  const q = qs.toString() ? `?${qs.toString()}` : "";
+  return scFetch<SCSchedulePreview>(`/captain/schedule/preview${q}`);
+}
+
+// — Rules CRUD
+export async function scListRules(): Promise<SCRule[]> {
+  return scFetch<SCRule[]>("/captain/schedule/rules");
+}
+
+export async function scCreateRule(input: SCRuleInput): Promise<SCRule> {
+  return scFetch<SCRule>("/captain/schedule/rules", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function scUpdateRule(
+  ruleId: string,
+  input: SCRuleInput,
+): Promise<SCRule> {
+  return scFetch<SCRule>(`/captain/schedule/rules/${ruleId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function scDeleteRule(ruleId: string): Promise<void> {
+  await scFetch(`/captain/schedule/rules/${ruleId}`, { method: "DELETE" });
+}
+
+// — Exceptions CRUD
+export async function scListExceptions(
+  fromDate?: string,
+  toDate?: string,
+): Promise<SCException[]> {
+  const qs = new URLSearchParams();
+  if (fromDate) qs.set("from_date", fromDate);
+  if (toDate) qs.set("to_date", toDate);
+  const q = qs.toString() ? `?${qs.toString()}` : "";
+  return scFetch<SCException[]>(`/captain/schedule/exceptions${q}`);
+}
+
+export async function scCreateException(
+  input: SCExceptionInput,
+): Promise<SCException> {
+  return scFetch<SCException>("/captain/schedule/exceptions", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function scUpdateException(
+  exceptionId: string,
+  input: SCExceptionInput,
+): Promise<SCException> {
+  return scFetch<SCException>(`/captain/schedule/exceptions/${exceptionId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function scDeleteException(exceptionId: string): Promise<void> {
+  await scFetch(`/captain/schedule/exceptions/${exceptionId}`, {
+    method: "DELETE",
+  });
+}
+
+// — Manual slots CRUD
+export async function scListManualSlots(
+  fromDate?: string,
+  toDate?: string,
+): Promise<SCManualSlot[]> {
+  const qs = new URLSearchParams();
+  if (fromDate) qs.set("from_date", fromDate);
+  if (toDate) qs.set("to_date", toDate);
+  const q = qs.toString() ? `?${qs.toString()}` : "";
+  return scFetch<SCManualSlot[]>(`/captain/schedule/slots${q}`);
+}
+
+export async function scCreateManualSlot(
+  input: SCManualSlotInput,
+): Promise<SCManualSlot> {
+  return scFetch<SCManualSlot>("/captain/schedule/slots", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function scDeleteManualSlot(slotId: string): Promise<void> {
+  await scFetch(`/captain/schedule/slots/${slotId}`, { method: "DELETE" });
+}

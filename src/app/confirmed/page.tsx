@@ -4,11 +4,12 @@
  * Confirmation — spec §6.12.
  *
  * Success state: green tick, Booking confirmed H1, order ID in mono.
- * 3-hour home-visit slot picker. Confirm slot → summary card: slot, address,
- * what happens next (Style Captain visit explained in one line each, tick bullets).
+ * Real BE-backed slot picker (GET /orders/{id}/slots → POST /orders/{id}/booking).
+ * After booking: summary card with captain name + scheduled time + address.
  *
- * Voice & tone per Brand Book: exact promises — "Your Style Captain will arrive
- * Saturday, 6–9 PM", never "soon!".
+ * Voice & tone per Brand Book: exact promises —
+ *   "[Captain Name] will visit [Day], [Time]"
+ * never "soon!".
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -22,65 +23,85 @@ import { Check, HomeVisit, Sparkle, Calendar } from "@/components/ui/icons";
 import { useBookingStore } from "@/lib/booking-store";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
-import { VISIT_SLOT_WINDOWS } from "@/lib/pricing-config";
-import { checkoutApi } from "@/lib/api";
+import { bookingApi, checkoutApi } from "@/lib/api";
+import type { Booking } from "@/types/booking";
 
 export default function ConfirmedPage() {
   const draft = useBookingStore((s) => s.draft);
   const hydrated = useBookingStore((s) => s.hydrated);
-  const setSlot = useBookingStore((s) => s.setSlot);
   const setPayment = useBookingStore((s) => s.setPayment);
 
-  const [selectedDate, setSelectedDate] = useState<string | undefined>(draft?.slot?.date);
-  const [selectedWindow, setSelectedWindow] = useState<string | undefined>(draft?.slot?.window);
-  const [confirmed, setConfirmed] = useState(false);
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [checkingExisting, setCheckingExisting] = useState(true);
+  const [rescheduling, setRescheduling] = useState(false);
   const [verifying, setVerifying] = useState(false);
 
-  // On mount: if we have an orderId but no payment record, verify the payment
-  // status from the server (handles page refresh mid-payment)
-  const serverOrderId = draft?.orderId;
+  const orderId = draft?.orderId;
+  const paymentOrderId = draft?.payment?.orderId;
   const paymentStatus = draft?.payment?.status;
+
+  // On mount: verify payment status if needed, then check for existing booking
   useEffect(() => {
-    if (!hydrated || !serverOrderId || paymentStatus === "paid") return;
+    if (!hydrated || !orderId) return;
     let cancelled = false;
-    setVerifying(true);
-    checkoutApi
-      .getOrderStatus(serverOrderId)
-      .then((status) => {
-        if (cancelled) return;
-        if (status.payment_status === "paid") {
-          setPayment({ orderId: serverOrderId, status: "paid" });
+
+    const run = async () => {
+      // Step 1: Verify payment if not already confirmed
+      if (paymentStatus !== "paid" && paymentOrderId) {
+        setVerifying(true);
+        try {
+          const status = await checkoutApi.getOrderStatus(paymentOrderId);
+          if (cancelled) return;
+          if (status.payment_status === "paid") {
+            setPayment({ orderId: paymentOrderId, status: "paid" });
+          }
+        } catch {
+          // Non-fatal — user can retry
+        } finally {
+          if (!cancelled) setVerifying(false);
         }
-      })
-      .catch(() => {
-        // Non-fatal — user can retry
-      })
-      .finally(() => {
-        if (!cancelled) setVerifying(false);
-      });
+      }
+
+      // Step 2: Check for existing booking (refresh-resume case)
+      try {
+        const existing = await bookingApi.getBooking(orderId);
+        if (!cancelled) setBooking(existing);
+      } catch {
+        // 404 = no booking yet, which is the normal first-visit case
+      } finally {
+        if (!cancelled) setCheckingExisting(false);
+      }
+    };
+
+    run();
     return () => { cancelled = true; };
-  }, [hydrated, serverOrderId, paymentStatus, setPayment]);
+  }, [hydrated, orderId, paymentOrderId, paymentStatus, setPayment]);
 
-  useEffect(() => {
-    if (hydrated && draft?.slot) {
-      setSelectedDate(draft.slot.date);
-      setSelectedWindow(draft.slot.window);
-      setConfirmed(true);
-    }
-  }, [hydrated, draft?.slot]);
-
-  const orderId = draft?.payment?.orderId ?? "DRP-——";
+  const displayOrderId = draft?.payment?.orderId ?? "DRP-——";
   const address = draft?.contact
     ? `${draft.contact.address1}${draft.contact.address2 ? `, ${draft.contact.address2}` : ""}, ${draft.contact.pincode}`
     : "";
 
-  const dateLabel = useMemo(() => {
-    if (!selectedDate) return "";
-    const d = new Date(selectedDate);
-    return d.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short" });
-  }, [selectedDate]);
+  // Format the booking's scheduled_at into a readable visit line
+  const visitLabel = useMemo(() => {
+    if (!booking) return "";
+    const d = new Date(booking.scheduled_at);
+    const day = d.toLocaleDateString("en-IN", {
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+    });
+    const time = d.toLocaleTimeString("en-IN", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    return `${day}, ${time}`;
+  }, [booking]);
 
-  const windowLabel = VISIT_SLOT_WINDOWS.find((w) => w.id === selectedWindow)?.label ?? "";
+  const captainLabel = booking?.captain_name
+    ? booking.captain_name
+    : "Your Style Captain";
 
   if (!hydrated || !draft) {
     return (
@@ -92,12 +113,36 @@ export default function ConfirmedPage() {
     );
   }
 
-  const handleConfirmSlot = () => {
-    if (!selectedDate || !selectedWindow) return;
-    setSlot({ date: selectedDate, window: selectedWindow });
-    setConfirmed(true);
-    track({ event: "slot_selected", date: selectedDate, window: selectedWindow });
+  // No orderId means something went wrong — send back to style selection
+  if (!orderId) {
+    return (
+      <ScreenShell className="pt-6">
+        <div className="flex flex-col items-center text-center">
+          <p className="text-body text-muted">
+            We couldn&apos;t find your order. Please start again.
+          </p>
+          <Link
+            href="/style"
+            className="mt-4 rounded-pill bg-tape px-5 py-2.5 text-body font-semibold text-chalk-white"
+          >
+            Design your blouse
+          </Link>
+        </div>
+      </ScreenShell>
+    );
+  }
+
+  const handleBooked = (b: Booking) => {
+    setBooking(b);
+    setRescheduling(false);
+    track({
+      event: "slot_booked",
+      job_id: b.job_id,
+      captain: b.captain_name ?? "auto",
+    });
   };
+
+  const showPicker = !booking || rescheduling;
 
   return (
     <ScreenShell className="pt-6">
@@ -114,36 +159,42 @@ export default function ConfirmedPage() {
         <div className="mt-3 inline-flex items-center gap-2 rounded-pill bg-mist-navy px-3 py-1.5">
           <span className="text-caption text-muted">{strings.confirmed.orderId}</span>
           <MonoNumber className="text-data font-semibold text-ink-navy">
-            {orderId}
+            {displayOrderId}
           </MonoNumber>
         </div>
       </div>
 
-      {!confirmed && (
+      {/* Loading state while checking for existing booking */}
+      {(checkingExisting || verifying) && !booking && (
+        <div className="mt-8 flex items-center justify-center py-8">
+          <div className="h-1 w-24 overflow-hidden rounded-pill bg-tape-silver">
+            <div className="h-full w-1/2 animate-pulse bg-draep-orange" />
+          </div>
+        </div>
+      )}
+
+      {/* Slot picker — shown when no booking yet OR rescheduling */}
+      {showPicker && !checkingExisting && orderId && (
         <section className="mt-8">
           <h2 className="font-heading text-h2 text-ink-navy">
-            {strings.confirmed.pickSlotTitle}
+            {rescheduling ? "Pick a new time" : strings.confirmed.pickSlotTitle}
           </h2>
           <div className="mt-4">
-            <SlotPicker
-              selectedDate={selectedDate}
-              selectedWindow={selectedWindow}
-              onSelectDate={setSelectedDate}
-              onSelectWindow={setSelectedWindow}
-            />
+            <SlotPicker orderId={orderId} onBooked={handleBooked} />
           </div>
-          <Button
-            onClick={handleConfirmSlot}
-            disabled={!selectedDate || !selectedWindow}
-            fullWidth
-            className="mt-5"
-          >
-            {strings.confirmed.confirmSlot}
-          </Button>
+          {rescheduling && (
+            <button
+              onClick={() => setRescheduling(false)}
+              className="mt-3 w-full text-center text-caption text-muted underline"
+            >
+              Keep my current slot
+            </button>
+          )}
         </section>
       )}
 
-      {confirmed && selectedDate && selectedWindow && (
+      {/* Booking confirmation card */}
+      {booking && !showPicker && (
         <section className="mt-8 rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
           <h2 className="font-heading text-h3 text-ink-navy">
             {strings.confirmed.summaryTitle}
@@ -153,9 +204,12 @@ export default function ConfirmedPage() {
           <div className="mt-3 flex items-start gap-3 rounded-card bg-warm-sand p-3">
             <Calendar size={20} className="mt-1 text-accent-text" />
             <div className="flex-1">
-              <p className="text-caption text-muted">Visit slot</p>
+              <p className="text-caption text-muted">Visit</p>
               <p className="font-heading text-h3 text-ink-navy">
-                {strings.confirmed.captainLine(dateLabel, windowLabel)}
+                {visitLabel}
+              </p>
+              <p className="mt-0.5 text-caption text-muted">
+                with {captainLabel}
               </p>
             </div>
           </div>
@@ -173,10 +227,23 @@ export default function ConfirmedPage() {
 
           {/* What happens next — tick bullets */}
           <ul className="mt-4 space-y-3">
-            <Step icon={<HomeVisit size={16} />} body={strings.confirmed.captainLine(dateLabel, windowLabel)} />
+            <Step
+              icon={<HomeVisit size={16} />}
+              body={`${captainLabel} will visit ${visitLabel}.`}
+            />
             <Step icon={<Sparkle size={16} />} body={strings.confirmed.measureLine} />
             <Step icon={<Check size={16} />} body={strings.confirmed.deliveryLine} terminal />
           </ul>
+
+          {/* Reschedule */}
+          <Button
+            variant="secondary"
+            fullWidth
+            className="mt-4"
+            onClick={() => setRescheduling(true)}
+          >
+            Reschedule
+          </Button>
         </section>
       )}
 

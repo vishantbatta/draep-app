@@ -7,9 +7,11 @@
 
 export * as authApi from "./auth";
 export * as catalogApi from "./catalog";
+export * as libraryApi from "./library";
 export * as ordersApi from "./orders";
 export * as pricingApi from "./pricing";
 export * as serviceAreaApi from "./serviceArea";
 export * as checkoutApi from "./checkout";
+export * as bookingApi from "./booking";
 
 export { ApiError, getToken, setToken, clearToken } from "./client";

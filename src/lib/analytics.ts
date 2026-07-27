@@ -24,7 +24,11 @@ export type AnalyticsEvent =
       orderId: string;
       amount: number;
     }
-  | { event: "slot_selected"; date: string; window: string };
+  | { event: "slot_selected"; date: string; window: string }
+  | { event: "slot_booked"; job_id: string; captain: string }
+  // Design Library funnel (spec §A)
+  | { event: "library_card_tapped"; library_id: string }
+  | { event: "library_drafted"; library_id: string };
 
 export function track(event: AnalyticsEvent): void {
   if (typeof window === "undefined") return;

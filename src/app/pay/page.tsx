@@ -41,6 +41,7 @@ export default function PayPage() {
   const draft = useBookingStore((s) => s.draft);
   const hydrated = useBookingStore((s) => s.hydrated);
   const setPayment = useBookingStore((s) => s.setPayment);
+  const flushPendingChanges = useBookingStore((s) => s.flushPendingChanges);
   const [status, setStatus] = useState<PayStatus>("idle");
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +78,16 @@ export default function PayPage() {
 
     setError(null);
     setStatus("validating");
+
+    // Step 0: Flush any pending selections to the server before validating.
+    // This is a safety net — design screens already flush on "Next", but if
+    // any flush silently failed (network blip, missing orderId at the time),
+    // we retry here so the user doesn't see a false "X is required" error.
+    try {
+      await flushPendingChanges();
+    } catch {
+      // Best effort — validate anyway and surface any real issues.
+    }
 
     // Step 1: Validate the order before checkout
     try {
