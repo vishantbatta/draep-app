@@ -137,7 +137,6 @@ export function LeafletMapPicker({ lat, lng, onPinChange, flyTo }: LeafletMapPic
     markerRef.current = marker;
 
     let lastDragEnd = 0;
-    let lastDragStart = 0;
 
     // ── Manual marker drag (bypasses Leaflet's MarkerDrag) ───────────────
     // Attach a pointerdown handler to the marker's icon DOM element. Using
@@ -154,7 +153,6 @@ export function LeafletMapPicker({ lat, lng, onPinChange, flyTo }: LeafletMapPic
         e.preventDefault();
         e.stopPropagation();
 
-        lastDragStart = Date.now();
         iconEl.style.cursor = "grabbing";
 
         const startClientX = e.clientX;
@@ -162,14 +160,17 @@ export function LeafletMapPicker({ lat, lng, onPinChange, flyTo }: LeafletMapPic
         const startLatLng = marker.getLatLng();
         let moved = false;
 
-        // Capture pointer so we keep getting move events even outside the icon.
-        let captured: number | null = null;
+        // Try to capture the pointer so we keep receiving move events even
+        // outside the icon. setPointerCapture returns void and throws on
+        // failure — we don't strictly need it (document listeners catch
+        // everything anyway), but it helps on touch devices.
+        let hasCapture = false;
         try {
-          captured = (iconEl as HTMLElement).setPointerCapture?.(e.pointerId) ?? null;
-          if (typeof captured === "boolean" && captured === false) captured = null;
-        } catch { captured = null; }
-        // setPointerCapture returns void on some lib typings; try-catch guard.
-        const hasCapture = captured !== null;
+          (iconEl as HTMLElement).setPointerCapture?.(e.pointerId);
+          hasCapture = true;
+        } catch {
+          hasCapture = false;
+        }
 
         const onPointerMove = (ev: PointerEvent) => {
           const dx = ev.clientX - startClientX;
