@@ -50,14 +50,28 @@ async function adminFetch<T>(path: string, options?: RequestInit & { auth?: bool
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const message =
-      (body as { error?: { message?: string } })?.error?.message ??
-      `Request failed (${res.status})`;
+    const text = await res.text().catch(() => "");
+    let message = `Request failed (${res.status})`;
+    if (text) {
+      try {
+        const body = JSON.parse(text) as { error?: { message?: string } };
+        message = body?.error?.message ?? message;
+      } catch {
+        // Non-JSON error body — keep default message
+      }
+    }
     throw new Error(message);
   }
 
-  return res.json() as Promise<T>;
+  // 204 No Content (or any empty body) — nothing to parse.
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  const text = await res.text();
+  if (!text) {
+    return undefined as T;
+  }
+  return JSON.parse(text) as T;
 }
 
 export async function adminLogin(email: string, password: string): Promise<string> {
@@ -1228,5 +1242,182 @@ export function publicAssetAbsoluteUrl(url: string | null | undefined): string |
     return `${window.location.origin}${url}`;
   }
   return url;
+}
+
+// ─── Design Library admin ───────────────────────────────────────────────────
+
+export interface LibraryAdmin {
+  id: string;
+  garment_id: string | null;
+  labels: Record<string, string> | null;
+  descriptions: Record<string, string> | null;
+  category: string | null;
+  celebrity_name: string | null;
+  famous_for: Record<string, string> | null;
+  reference_url: string | null;
+  occasions: string[] | null;
+  styling_notes: Record<string, string> | null;
+  hero_image_url: string | null;
+  front_image_url: string | null;
+  back_image_url: string | null;
+  side_image_url: string | null;
+  status: string | null;
+  priority_order: number | null;
+}
+
+export type LibraryUpdate = Partial<
+  Omit<LibraryAdmin, "id" | "garment_id">
+>;
+
+/** GET /library/admin/list — all library designs (incl. draft/archived). */
+export function adminListLibraries(status?: string): Promise<LibraryAdmin[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return adminFetch<LibraryAdmin[]>(`/library/admin/list${qs}`);
+}
+
+/** PATCH /library/admin/{id} — update design fields. */
+export function adminUpdateLibrary(id: string, patch: LibraryUpdate): Promise<LibraryAdmin> {
+  return adminFetch<LibraryAdmin>(`/library/admin/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+/** POST /library/admin/{id}/image — upload hero/front/back/side image. */
+export async function adminUploadLibraryImage(
+  id: string,
+  field: "hero" | "front" | "back" | "side",
+  file: File,
+): Promise<LibraryAdmin> {
+  const token = getAdminToken();
+  if (!token) throw new Error("No admin token");
+
+  const form = new FormData();
+  form.append("file", file);
+
+  const res = await fetch(
+    `${API_URL}/library/admin/${id}/image?field=${field}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    },
+  );
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const message =
+      (body as { error?: { message?: string } })?.error?.message ??
+      `Upload failed (${res.status})`;
+    throw new Error(message);
+  }
+
+  return res.json() as Promise<LibraryAdmin>;
+}
+
+// ─── Library items admin ────────────────────────────────────────────────────
+
+export interface LibraryItem {
+  id: string;
+  library_id: string | null;
+  type: string; // "variation" | "add_on"
+  garment_style_component_id: string | null;
+  variation_id: string | null;
+  variation_type_id: string | null;
+  addon_id: string | null;
+  addon_variation_id: string | null;
+  placement: string[] | null;
+  // resolved labels
+  component_label: Record<string, string> | null;
+  variation_label: Record<string, string> | null;
+  variation_type_label: Record<string, string> | null;
+  addon_label: Record<string, string> | null;
+  addon_variation_label: Record<string, string> | null;
+}
+
+export interface LibraryItemCreate {
+  garment_style_component_id?: string | null;
+  variation_id?: string | null;
+  variation_type_id?: string | null;
+  addon_id?: string | null;
+  addon_variation_id?: string | null;
+  placement?: string[] | null;
+}
+
+// Picker tree shape
+export interface PickerVariationType {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  price: number | null;
+}
+export interface PickerVariation {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  price: number | null;
+  types: PickerVariationType[];
+}
+export interface PickerComponent {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  importance: string | null;
+  variations: PickerVariation[];
+}
+export interface PickerAddonVariation {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  price: number | null;
+}
+export interface PickerAddon {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  placements: string[] | null;
+  type: string | null;
+  variations: PickerAddonVariation[];
+}
+export interface PickerTree {
+  components: PickerComponent[];
+  addons: PickerAddon[];
+}
+
+/** GET /library/admin/{id}/items */
+export function adminListLibraryItems(id: string): Promise<LibraryItem[]> {
+  return adminFetch<LibraryItem[]>(`/library/admin/${id}/items`);
+}
+
+/** POST /library/admin/{id}/items */
+export function adminCreateLibraryItem(
+  id: string,
+  payload: LibraryItemCreate,
+): Promise<LibraryItem> {
+  return adminFetch<LibraryItem>(`/library/admin/${id}/items`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** PATCH /library/admin/items/{itemId} */
+export function adminUpdateLibraryItem(
+  itemId: string,
+  patch: Partial<LibraryItemCreate>,
+): Promise<LibraryItem> {
+  return adminFetch<LibraryItem>(`/library/admin/items/${itemId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+/** DELETE /library/admin/items/{itemId} */
+export function adminDeleteLibraryItem(itemId: string): Promise<void> {
+  return adminFetch<void>(`/library/admin/items/${itemId}`, { method: "DELETE" });
+}
+
+/** GET /library/admin/{id}/picker */
+export function adminGetPicker(id: string): Promise<PickerTree> {
+  return adminFetch<PickerTree>(`/library/admin/${id}/picker`);
 }
 

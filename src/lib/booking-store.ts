@@ -35,11 +35,11 @@ import {
 import type { OrderOut } from "@/types/api";
 import type {
   AddOnState,
+  Booking,
   BookingDraft,
   ContactDetails,
   PaymentState,
   Selection,
-  SlotSelection,
 } from "@/types/booking";
 
 const DRAFT_VERSION = 1 as const;
@@ -84,7 +84,12 @@ interface BookingStoreState {
 
   setContact: (contact: ContactDetails) => void;
   setPayment: (payment: PaymentState) => void;
-  setSlot: (slot: SlotSelection) => void;
+  /**
+   * Store the server-confirmed booking (POST /orders/{id}/booking response)
+   * on the draft. Captured at /schedule BEFORE payment so /confirmed can
+   * render the visit summary without another round-trip.
+   */
+  setBooking: (booking: Booking) => void;
 
   /**
    * Replace draft.orderId with the authoritative id from the backend
@@ -568,11 +573,11 @@ export const useBookingStore = create<BookingStoreState>()(
           };
         }),
 
-      setSlot: (slot) =>
+      setBooking: (booking) =>
         set((state) => {
           if (!state.draft) return {};
           return {
-            draft: { ...state.draft, slot, updatedAt: new Date().toISOString() },
+            draft: { ...state.draft, booking, updatedAt: new Date().toISOString() },
           };
         }),
 

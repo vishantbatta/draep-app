@@ -436,6 +436,11 @@ function CataloguePageInner() {
               onClick: () => navigateToView(router, { level: "garments" }),
             },
             {
+              label: "Library",
+              active: false,
+              onClick: () => router.push("/admin/catalogue/library"),
+            },
+            {
               label: "Measurements",
               active: false,
               onClick: () => router.push("/admin/measurements"),

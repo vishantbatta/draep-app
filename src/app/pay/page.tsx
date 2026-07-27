@@ -89,21 +89,12 @@ export default function PayPage() {
       // Best effort — validate anyway and surface any real issues.
     }
 
-    // Step 1: Validate the order before checkout
+    // Step 1: Validate the order before checkout (informational only —
+    // all design fields are optional and never block payment)
     try {
-      const validation = await ordersApi.validateOrder(draft.orderId);
-      if (!validation.valid) {
-        const messages = validation.issues.map((i) => i.message).join("; ");
-        setError(messages || "Please complete your design before paying.");
-        setStatus("failed");
-        return;
-      }
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Validation failed. Try again.",
-      );
-      setStatus("failed");
-      return;
+      await ordersApi.validateOrder(draft.orderId);
+    } catch {
+      // Validation endpoint failed — proceed with checkout anyway
     }
 
     // Step 2: Checkout → Cashfree init

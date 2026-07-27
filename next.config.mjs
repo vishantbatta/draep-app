@@ -18,6 +18,12 @@ const nextConfig = {
         destination: `${BACKEND_ORIGIN}/uploads/:path*`,
       },
       {
+        // Proxy design library hero images (served by FastAPI from
+        // be/storage/designs/*) so browser URLs stay same-origin.
+        source: "/designs/:path*",
+        destination: `${BACKEND_ORIGIN}/designs/:path*`,
+      },
+      {
         // Proxy all backend API calls. Combined with admin-api.ts / api/client.ts
         // using relative /api/v1/* URLs, this makes every backend request
         // same-origin — no CORS middleware needed on the FastAPI side.

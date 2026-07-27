@@ -193,7 +193,7 @@ export default function ContactPage() {
         lng: pin.lng,
       });
       track({ event: "contact_submitted" });
-      router.push("/pay");
+      router.push("/schedule");
     } catch (err) {
       setSubmitError(
         err instanceof Error ? err.message : "Failed to save your details. Try again.",

@@ -127,7 +127,12 @@ export interface BookingDraft {
   addOns: Record<string, AddOnState>;
   contact?: ContactDetails;
   payment?: PaymentState;
-  slot?: SlotSelection;
+  /**
+   * Server-side booking (POST /orders/{id}/booking response). Captured on
+   * /schedule BEFORE payment so the /confirmed success screen can render
+   * the visit summary without another round-trip.
+   */
+  booking?: Booking;
   /** Server-side price breakdown (from last order fetch or pricing compute). */
   serverPriceBreakdown?: {
     base: number;

@@ -17,6 +17,7 @@ export const DESIGN_ROUTES = [
 
 export const REVIEW_ROUTE = "/review";
 export const CONTACT_ROUTE = "/contact";
+export const SCHEDULE_ROUTE = "/schedule";
 export const PAY_ROUTE = "/pay";
 export const CONFIRMED_ROUTE = "/confirmed";
 
@@ -25,6 +26,7 @@ export const PROTECTED_ROUTES = [
   ...DESIGN_ROUTES,
   REVIEW_ROUTE,
   CONTACT_ROUTE,
+  SCHEDULE_ROUTE,
   PAY_ROUTE,
   CONFIRMED_ROUTE,
 ];

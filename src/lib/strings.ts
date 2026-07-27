@@ -127,7 +127,7 @@ export const strings = {
     outOfAreaBody:
       "Leave your phone number and we'll text the day Draep reaches you.",
     waitlistCta: "Notify me",
-    continue: "Continue to payment",
+    continue: "Continue to scheduling",
     validation: {
       phone: "Enter a valid 10-digit mobile number",
       name: "Enter your full name",
@@ -135,6 +135,16 @@ export const strings = {
       pincode: "Enter a valid 6-digit pincode",
       pin: "Drag the pin to your address",
     },
+  },
+
+  schedule: {
+    title: "Pick your home-visit slot",
+    body: "Your Style Captain will arrive at the time you pick below. You can change this later if your plans shift.",
+    confirmSlot: "Continue to payment",
+    changeSlot: "Change slot",
+    keepSlot: "Keep my slot",
+    bookedHeading: "Your visit is scheduled",
+    continueCta: "Continue to payment",
   },
 
   pay: {
@@ -150,10 +160,8 @@ export const strings = {
 
   confirmed: {
     title: "Booking confirmed",
-    body: "Your Style Captain will arrive at the slot you pick below.",
+    body: "Your payment is confirmed and your visit is booked. We'll see you soon!",
     orderId: "Order ID",
-    pickSlotTitle: "Pick your home-visit slot",
-    confirmSlot: "Confirm slot",
     summaryTitle: "What happens next",
     captainLine: (date: string, window: string) =>
       `Your Style Captain will arrive ${date}, ${window}.`,
