@@ -69,6 +69,11 @@ export default function UsersListPage() {
               active: true,
               onClick: () => router.push("/admin/users"),
             },
+            {
+              label: "Style Captains",
+              active: false,
+              onClick: () => router.push("/admin/users/style-captains"),
+            },
           ],
         },
       }),
