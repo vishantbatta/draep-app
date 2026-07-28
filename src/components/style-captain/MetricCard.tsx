@@ -196,7 +196,6 @@ export function MetricInputBar({
             <input
               type="text"
               inputMode="decimal"
-              pattern="[0-9.]*"
               value={draft.valueNumeric ?? ""}
               onChange={(e) => handleNumeric(e.target.value)}
               placeholder="0.0"
