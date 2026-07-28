@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SCMetric } from "@/lib/style-captain-api";
 import { pickLabel } from "@/lib/sc-helpers";
 
@@ -171,15 +171,44 @@ export function MetricInputBar({
   onNext: () => void;
   onReview: () => void;
 }) {
-  function handleNumeric(v: string) {
+  // Local string state so the user can type intermediate values like "34." freely
+  const [inputStr, setInputStr] = useState<string>(
+    draft.valueNumeric !== null ? String(draft.valueNumeric) : "",
+  );
+
+  // Sync local input when draft changes externally (e.g. step navigation)
+  useEffect(() => {
+    const expected = draft.valueNumeric !== null ? String(draft.valueNumeric) : "";
+    // Only reset if the parsed value differs — don't clobber "34." while typing
+    if (Number(inputStr) !== (draft.valueNumeric ?? 0) && inputStr.trim() !== "") {
+      setInputStr(expected);
+    } else if (draft.valueNumeric === null) {
+      setInputStr("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.metricId]);
+
+  function handleInput(v: string) {
+    // Allow only valid numeric characters (digits and one dot)
+    if (v !== "" && !/^\d*\.?\d*$/.test(v)) return;
+    setInputStr(v);
     const trimmed = v.trim();
-    if (trimmed === "") {
+    if (trimmed === "" || trimmed === ".") {
       onChange({ ...draft, valueNumeric: null, valueText: null, unit: "in" });
       return;
     }
     const n = Number(trimmed);
     if (Number.isNaN(n)) return;
     onChange({ ...draft, valueNumeric: n, valueText: null, unit: "in" });
+  }
+
+  function commitToParent() {
+    // Final parse on blur — normalise the local string into draft
+    const n = Number(inputStr);
+    if (inputStr.trim() !== "" && !Number.isNaN(n)) {
+      onChange({ ...draft, valueNumeric: n, valueText: null, unit: "in" });
+      setInputStr(String(n));
+    }
   }
 
   const hasValue = draft.valueNumeric !== null;
@@ -196,8 +225,9 @@ export function MetricInputBar({
             <input
               type="text"
               inputMode="decimal"
-              value={draft.valueNumeric ?? ""}
-              onChange={(e) => handleNumeric(e.target.value)}
+              value={inputStr}
+              onChange={(e) => handleInput(e.target.value)}
+              onBlur={commitToParent}
               placeholder="0.0"
               autoFocus
               className="w-full rounded-card border border-hairline-strong bg-chalk-white px-3 py-2 text-body font-medium text-ink outline-none focus:border-accent-text focus:ring-2 focus:ring-accent-text/30"

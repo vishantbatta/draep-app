@@ -54,15 +54,31 @@ export function EditMetricSheet({
   const labelText = labels[activeLang];
   const descText = descriptions[activeLang];
 
+  // Local string state so the user can type intermediate values like "34." freely
+  const [inputStr, setInputStr] = useState<string>(
+    draft.valueNumeric !== null ? String(draft.valueNumeric) : "",
+  );
+
   function handleNumeric(v: string) {
+    // Allow only valid numeric characters (digits and one dot)
+    if (v !== "" && !/^\d*\.?\d*$/.test(v)) return;
+    setInputStr(v);
     const trimmed = v.trim();
-    if (trimmed === "") {
+    if (trimmed === "" || trimmed === ".") {
       onChange({ ...draft, valueNumeric: null, valueText: null });
       return;
     }
     const n = Number(trimmed);
     if (Number.isNaN(n)) return;
     onChange({ ...draft, valueNumeric: n, valueText: null });
+  }
+
+  function commitNumeric() {
+    const n = Number(inputStr);
+    if (inputStr.trim() !== "" && !Number.isNaN(n)) {
+      onChange({ ...draft, valueNumeric: n, valueText: null });
+      setInputStr(String(n));
+    }
   }
 
   function handleText(v: string) {
@@ -220,8 +236,9 @@ export function EditMetricSheet({
                 <input
                   type="text"
                   inputMode="decimal"
-                  value={draft.valueNumeric ?? ""}
+                  value={inputStr}
                   onChange={(e) => handleNumeric(e.target.value)}
+                  onBlur={commitNumeric}
                   placeholder="0.0"
                   autoFocus
                   className="w-full rounded-card border border-hairline-strong bg-chalk-white px-3 py-2 text-body font-medium text-ink outline-none focus:border-accent-text focus:ring-2 focus:ring-accent-text/30"
