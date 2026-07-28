@@ -194,9 +194,9 @@ export function MetricInputBar({
           </label>
           <div className="flex items-center gap-2">
             <input
-              type="number"
+              type="text"
               inputMode="decimal"
-              step="0.1"
+              pattern="[0-9.]*"
               value={draft.valueNumeric ?? ""}
               onChange={(e) => handleNumeric(e.target.value)}
               placeholder="0.0"
