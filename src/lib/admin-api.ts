@@ -921,6 +921,58 @@ export async function fetchStyleCaptains(): Promise<UserRow[]> {
   return rows;
 }
 
+// ─── Captain CRUD via dedicated /admin/captains endpoints ─────────────────────
+// These endpoints handle password hashing on the backend — the generic table
+// API would store plaintext, which we must avoid for the password column.
+
+export interface CaptainPatch {
+  name?: string;
+  phone?: string;
+  country_code?: string;
+  email?: string;
+  timezone?: string;
+  /** Plaintext password — bcrypt-hashed server-side. */
+  password?: string;
+}
+
+export interface CaptainCreate {
+  name: string;
+  phone: string;
+  country_code?: string;
+  /** Plaintext password — bcrypt-hashed server-side. */
+  password: string;
+  timezone?: string;
+}
+
+export interface CaptainOut {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  country_code: string | null;
+  role: string | null;
+  timezone: string | null;
+  last_login: string | null;
+}
+
+/** POST /admin/captains — create a new style captain with hashed password. */
+export async function createCaptain(input: CaptainCreate): Promise<CaptainOut> {
+  return adminFetch<CaptainOut>("/admin/captains", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** PATCH /admin/captains/{id} — update captain profile + password (hashed). */
+export async function patchCaptain(
+  captainId: string,
+  patch: CaptainPatch,
+): Promise<CaptainOut> {
+  return adminFetch<CaptainOut>(`/admin/captains/${captainId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
 /** Fetch a single user by ID. */
 export async function fetchUserById(id: string): Promise<UserRow | null> {
   const { rows } = await fetchTableRows<UserRow>("users", {

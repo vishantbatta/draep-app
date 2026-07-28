@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   fetchTableRows,
-  createTableRow,
+  createCaptain,
   type UserRow,
   type MeasurementJobRow,
 } from "@/lib/admin-api";
@@ -270,6 +270,7 @@ function AddCaptainForm({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [countryCode, setCountryCode] = useState("+91");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -282,15 +283,18 @@ function AddCaptainForm({
       setError("Phone is required");
       return;
     }
+    if (!password.trim()) {
+      setError("Password is required");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const created = await createTableRow<UserRow>("users", {
+      const created = await createCaptain({
         name: name.trim(),
         phone: phone.trim(),
-        email: email.trim() || null,
-        country_code: countryCode.trim() || null,
-        role: "style_captain",
+        country_code: countryCode.trim() || "+91",
+        password: password.trim(),
       });
       onCreated(created.id);
     } catch (e) {
@@ -358,6 +362,22 @@ function AddCaptainForm({
             placeholder="+91"
             className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-1.5 text-[13px] focus:border-ink-navy focus:outline-none"
           />
+        </div>
+        <div className="md:col-span-2">
+          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">
+            Password *
+          </label>
+          <input
+            type="text"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Initial login password"
+            className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-1.5 text-[13px] focus:border-ink-navy focus:outline-none"
+          />
+          <p className="mt-1 text-[10px] text-muted">
+            Stored as a bcrypt hash — the captain can log in with this password
+            immediately.
+          </p>
         </div>
       </div>
       <div className="mt-4 flex gap-2">

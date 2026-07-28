@@ -115,6 +115,13 @@ export default function OrdersListPage() {
   const [selectedCust, setSelectedCust] = useState<UserRow | null>(null);
   const custSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Customer mode: "existing" | "new"
+  const [custMode, setCustMode] = useState<"existing" | "new">("existing");
+
+  // New customer inline creation fields
+  const [newCustName, setNewCustName] = useState("");
+  const [newCustPhone, setNewCustPhone] = useState("");
+
   // Form fields
   const [fAdvance, setFAdvance] = useState("");
   const [fFulfillment, setFFulfillment] = useState<FulfillmentStatus>("draft");
@@ -278,6 +285,9 @@ export default function OrdersListPage() {
     setSelectedCust(null);
     setCustResults([]);
     setCustOpen(false);
+    setCustMode("existing");
+    setNewCustName("");
+    setNewCustPhone("");
     setFAdvance("");
     setFFulfillment("draft");
     setFPayment("pending");
@@ -294,9 +304,27 @@ export default function OrdersListPage() {
     setCreating(true);
     setError(null);
     try {
+      // ── Resolve customer ──────────────────────────────────────────────────
+      let customerId: string | null = null;
+
+      if (custMode === "existing") {
+        customerId = selectedCust?.id ?? null;
+      } else {
+        // "new" mode — create a customer record first
+        if (!newCustName.trim() || !newCustPhone.trim()) {
+          throw new Error("Name and phone are required to create a new customer.");
+        }
+        const newUser = await createTableRow<UserRow>("users", {
+          name: newCustName.trim(),
+          phone: newCustPhone.trim(),
+          role: "customer",
+        });
+        customerId = newUser.id;
+      }
+
       // The total price is auto-calculated from style selections
       const data: Partial<OrderRow> = {
-        user_id: selectedCust?.id ?? null,
+        user_id: customerId,
         fulfillment_status: fFulfillment,
         payment_status: fPayment,
       };
@@ -391,72 +419,145 @@ export default function OrdersListPage() {
         <div className="mb-6 rounded-xl border border-hairline bg-chalk-white p-5">
           <h2 className="mb-4 text-sm font-bold text-ink-navy">Create new order</h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {/* Customer search */}
+            {/* Customer selection — toggle between existing / new */}
             <div className="md:col-span-2">
               <label className="mb-1 block text-xs font-medium text-muted">
-                Customer (search by phone or name)
+                Customer
               </label>
-              {selectedCust ? (
-                <div className="flex items-center justify-between rounded-lg border border-hairline-strong bg-mist-navy/20 px-3 py-2">
-                  <div>
-                    <span className="text-sm font-medium text-ink">
-                      {selectedCust.name ?? "Unnamed"}
-                    </span>
-                    {selectedCust.phone && (
-                      <span className="ml-2 text-xs text-muted">
-                        {selectedCust.phone}
+
+              {/* Toggle */}
+              <div className="mb-3 inline-flex rounded-lg border border-hairline-strong bg-mist-navy/20 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustMode("existing");
+                    setNewCustName("");
+                    setNewCustPhone("");
+                  }}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                    custMode === "existing"
+                      ? "bg-ink-navy text-chalk-white"
+                      : "text-ink hover:bg-mist-navy/40"
+                  }`}
+                >
+                  Select existing user
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustMode("new");
+                    setSelectedCust(null);
+                    setCustSearch("");
+                    setCustResults([]);
+                  }}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                    custMode === "new"
+                      ? "bg-ink-navy text-chalk-white"
+                      : "text-ink hover:bg-mist-navy/40"
+                  }`}
+                >
+                  Create new user
+                </button>
+              </div>
+
+              {/* ── Existing user search ───────────────────────────────────── */}
+              {custMode === "existing" &&
+                (selectedCust ? (
+                  <div className="flex items-center justify-between rounded-lg border border-hairline-strong bg-mist-navy/20 px-3 py-2">
+                    <div>
+                      <span className="text-sm font-medium text-ink">
+                        {selectedCust.name ?? "Unnamed"}
                       </span>
-                    )}
-                    {selectedCust.email && (
-                      <span className="ml-2 text-xs text-muted">
-                        {selectedCust.email}
-                      </span>
+                      {selectedCust.phone && (
+                        <span className="ml-2 text-xs text-muted">
+                          {selectedCust.phone}
+                        </span>
+                      )}
+                      {selectedCust.email && (
+                        <span className="ml-2 text-xs text-muted">
+                          {selectedCust.email}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedCust(null);
+                        setCustSearch("");
+                      }}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      ✕ Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={custSearch}
+                      onChange={(e) => setCustSearch(e.target.value)}
+                      onFocus={() =>
+                        custResults.length > 0 && setCustOpen(true)
+                      }
+                      onBlur={() =>
+                        setTimeout(() => setCustOpen(false), 200)
+                      }
+                      placeholder="Type phone number or name…"
+                      className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm text-ink focus:border-ink-navy focus:outline-none"
+                    />
+                    {custOpen && custResults.length > 0 && (
+                      <div className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-hairline-strong bg-chalk-white shadow-lg">
+                        {custResults.map((u) => (
+                          <button
+                            key={u.id}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setSelectedCust(u);
+                              setCustOpen(false);
+                              setCustResults([]);
+                            }}
+                            className="block w-full px-3 py-2 text-left text-sm transition hover:bg-mist-navy/30"
+                          >
+                            <div className="font-medium text-ink">
+                              {u.name ?? "Unnamed"}
+                            </div>
+                            <div className="text-xs text-muted">
+                              {u.phone ?? ""}{" "}
+                              {u.email ? `• ${u.email}` : ""}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelectedCust(null);
-                      setCustSearch("");
-                    }}
-                    className="text-xs text-red-600 hover:underline"
-                  >
-                    ✕ Remove
-                  </button>
-                </div>
-              ) : (
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={custSearch}
-                    onChange={(e) => setCustSearch(e.target.value)}
-                    onFocus={() => custResults.length > 0 && setCustOpen(true)}
-                    onBlur={() => setTimeout(() => setCustOpen(false), 200)}
-                    placeholder="Type phone number or name…"
-                    className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm text-ink focus:border-ink-navy focus:outline-none"
-                  />
-                  {custOpen && custResults.length > 0 && (
-                    <div className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-hairline-strong bg-chalk-white shadow-lg">
-                      {custResults.map((u) => (
-                        <button
-                          key={u.id}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            setSelectedCust(u);
-                            setCustOpen(false);
-                            setCustResults([]);
-                          }}
-                          className="block w-full px-3 py-2 text-left text-sm transition hover:bg-mist-navy/30"
-                        >
-                          <div className="font-medium text-ink">
-                            {u.name ?? "Unnamed"}
-                          </div>
-                          <div className="text-xs text-muted">
-                            {u.phone ?? ""} {u.email ? `• ${u.email}` : ""}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                ))}
+
+              {/* ── New user inline form ──────────────────────────────────── */}
+              {custMode === "new" && (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-muted">
+                      Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newCustName}
+                      onChange={(e) => setNewCustName(e.target.value)}
+                      placeholder="Full name"
+                      className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-muted">
+                      Phone <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      value={newCustPhone}
+                      onChange={(e) => setNewCustPhone(e.target.value)}
+                      placeholder="9876543210"
+                      className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
+                    />
+                  </div>
                 </div>
               )}
             </div>

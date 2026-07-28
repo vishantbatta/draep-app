@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  createTableRow,
   fetchTableRows,
   type UserRow,
 } from "@/lib/admin-api";
@@ -10,6 +11,7 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ROLES = ["customer", "admin", "style_captain", "tailor"] as const;
+const GENDERS = ["male", "female", "other"] as const;
 
 const ROLE_STYLE: Record<string, string> = {
   admin: "bg-purple-100 text-purple-800",
@@ -57,6 +59,68 @@ export default function UsersListPage() {
   const [filterRole, setFilterRole] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
+
+  // ── Create user form state ──────────────────────────────────────────────
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createFormError, setCreateFormError] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  // Form fields (all available configs)
+  const [fName, setFName] = useState("");
+  const [fPhone, setFPhone] = useState("");
+  const [fEmail, setFEmail] = useState("");
+  const [fRole, setFRole] = useState<string>("customer");
+  const [fGender, setFGender] = useState<string>("");
+  const [fCountryCode, setFCountryCode] = useState("+91");
+  const [fTimezone, setFTimezone] = useState("Asia/Kolkata");
+  const [fPassword, setFPassword] = useState("");
+
+  // Auto-dismiss flash after 4s
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 4000);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  function resetCreateForm() {
+    setFName("");
+    setFPhone("");
+    setFEmail("");
+    setFRole("customer");
+    setFGender("");
+    setFCountryCode("+91");
+    setFTimezone("Asia/Kolkata");
+    setFPassword("");
+    setCreateFormError(null);
+  }
+
+  async function handleCreateUser() {
+    setCreating(true);
+    setCreateFormError(null);
+    try {
+      const data: Record<string, unknown> = { role: fRole };
+      if (fName.trim()) data.name = fName.trim();
+      if (fPhone.trim()) data.phone = fPhone.trim();
+      if (fEmail.trim()) data.email = fEmail.trim();
+      if (fGender) data.gender = fGender;
+      if (fCountryCode.trim()) data.country_code = fCountryCode.trim();
+      if (fTimezone.trim()) data.timezone = fTimezone.trim();
+      if (fPassword.trim()) data.password = fPassword.trim();
+
+      const created = await createTableRow<UserRow>("users", data);
+      setShowCreateForm(false);
+      resetCreateForm();
+      setFlash(`User created (${created.id.slice(0, 8)}) — redirecting…`);
+      router.push(`/admin/users/${created.id}`);
+    } catch (e) {
+      setCreateFormError(
+        e instanceof Error ? e.message : "Failed to create user",
+      );
+    } finally {
+      setCreating(false);
+    }
+  }
 
   // ── Emit sidebar items ────────────────────────────────────────────────────
   useEffect(() => {
@@ -138,13 +202,187 @@ export default function UsersListPage() {
             {total} user{total !== 1 ? "s" : ""} • click a row to view detail
           </p>
         </div>
-        <button
-          onClick={() => loadUsers()}
-          className="rounded-lg border border-hairline-strong px-4 py-2 text-xs font-medium text-ink transition hover:bg-mist-navy/30"
-        >
-          ↻ Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setShowCreateForm((v) => !v);
+              if (!showCreateForm) {
+                setCreateFormError(null);
+                setFlash(null);
+              }
+            }}
+            className="rounded-lg bg-ink-navy px-4 py-2 text-xs font-semibold text-chalk-white transition hover:bg-tape disabled:opacity-40"
+          >
+            {showCreateForm ? "✕ Cancel" : "+ New User"}
+          </button>
+          <button
+            onClick={() => loadUsers()}
+            className="rounded-lg border border-hairline-strong px-4 py-2 text-xs font-medium text-ink transition hover:bg-mist-navy/30"
+          >
+            ↻ Refresh
+          </button>
+        </div>
       </div>
+
+      {/* Flash message */}
+      {flash && (
+        <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-800">
+          {flash}
+        </div>
+      )}
+
+      {/* Create user form */}
+      {showCreateForm && (
+        <div className="mb-6 rounded-xl border border-hairline bg-chalk-white p-5">
+          <h2 className="mb-4 text-sm font-bold text-ink-navy">Create new user</h2>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* Name */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">
+                Name
+              </label>
+              <input
+                type="text"
+                value={fName}
+                onChange={(e) => setFName(e.target.value)}
+                placeholder="Full name"
+                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
+              />
+            </div>
+
+            {/* Phone */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">
+                Phone <span className="text-red-500">*</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={fCountryCode}
+                  onChange={(e) => setFCountryCode(e.target.value)}
+                  placeholder="+91"
+                  className="w-20 rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
+                />
+                <input
+                  type="tel"
+                  value={fPhone}
+                  onChange={(e) => setFPhone(e.target.value)}
+                  placeholder="9876543210"
+                  className="flex-1 rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Email */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">
+                Email
+              </label>
+              <input
+                type="email"
+                value={fEmail}
+                onChange={(e) => setFEmail(e.target.value)}
+                placeholder="user@example.com"
+                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
+              />
+            </div>
+
+            {/* Role */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">
+                Role
+              </label>
+              <select
+                value={fRole}
+                onChange={(e) => setFRole(e.target.value)}
+                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r.replace(/_/g, " ")}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Gender */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">
+                Gender
+              </label>
+              <select
+                value={fGender}
+                onChange={(e) => setFGender(e.target.value)}
+                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
+              >
+                <option value="">—</option>
+                {GENDERS.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Timezone */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">
+                Timezone
+              </label>
+              <input
+                type="text"
+                value={fTimezone}
+                onChange={(e) => setFTimezone(e.target.value)}
+                placeholder="Asia/Kolkata"
+                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
+              />
+            </div>
+
+            {/* Password (staff only) */}
+            {(fRole === "admin" || fRole === "style_captain" || fRole === "tailor") && (
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs font-medium text-muted">
+                  Password (required for staff: admin, style captain, tailor)
+                </label>
+                <input
+                  type="password"
+                  value={fPassword}
+                  onChange={(e) => setFPassword(e.target.value)}
+                  placeholder="Staff login password"
+                  className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Error */}
+          {createFormError && (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+              {createFormError}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              onClick={handleCreateUser}
+              disabled={creating || !fPhone.trim()}
+              className="rounded-lg bg-ink-navy px-5 py-2 text-xs font-semibold text-chalk-white transition hover:bg-tape disabled:opacity-40"
+            >
+              {creating ? "Creating…" : "Create user"}
+            </button>
+            <button
+              onClick={() => {
+                setShowCreateForm(false);
+                resetCreateForm();
+              }}
+              className="rounded-lg border border-hairline-strong px-4 py-2 text-xs font-medium text-ink transition hover:bg-mist-navy/30"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-center gap-3">

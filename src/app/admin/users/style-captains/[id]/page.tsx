@@ -25,6 +25,7 @@ import {
   updateTableRow,
   createTableRow,
   deleteTableRow,
+  patchCaptain,
   type UserRow,
   type MeasurementJobRow,
 } from "@/lib/admin-api";
@@ -347,6 +348,9 @@ export default function StyleCaptainDetailPage() {
         </div>
       </div>
 
+      {/* Set Password */}
+      <SetPasswordSection captainId={captain.id} onSaved={setFlash} />
+
       {/* Assigned Jobs */}
       <section className="mb-6">
         <h2 className="mb-3 font-heading text-lg font-semibold text-ink-navy">
@@ -402,6 +406,132 @@ export default function StyleCaptainDetailPage() {
 
       {/* Schedule management */}
       <CaptainScheduleManager captainId={captain.id} captainName={captain.name} />
+    </div>
+  );
+}
+
+// ─── Set Password Section ─────────────────────────────────────────────────────
+
+function SetPasswordSection({
+  captainId,
+  onSaved,
+}: {
+  captainId: string;
+  onSaved: (msg: string) => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function reset() {
+    setShowForm(false);
+    setNewPassword("");
+    setConfirmPassword("");
+    setError(null);
+  }
+
+  async function handleSave() {
+    if (!newPassword) {
+      setError("Password cannot be empty");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await patchCaptain(captainId, { password: newPassword });
+      onSaved("Password updated");
+      reset();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update password");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mb-6 rounded-xl border border-hairline bg-chalk-white p-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-heading text-lg font-semibold text-ink-navy">
+            Login Password
+          </h2>
+          <p className="mt-0.5 text-xs text-muted">
+            Used by the captain to sign in at the Style Captain dashboard.
+          </p>
+        </div>
+        {!showForm && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="rounded-lg border border-hairline-strong px-4 py-2 text-xs font-medium text-ink hover:bg-mist-navy/30"
+          >
+            Change Password
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <div className="mt-4 border-t border-hairline pt-4">
+          {error && (
+            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">
+                New Password *
+              </label>
+              <input
+                type="text"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Enter new password…"
+                disabled={saving}
+                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-1.5 text-[13px] focus:border-ink-navy focus:outline-none disabled:opacity-50"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">
+                Confirm Password *
+              </label>
+              <input
+                type="text"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Re-enter new password…"
+                disabled={saving}
+                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-1.5 text-[13px] focus:border-ink-navy focus:outline-none disabled:opacity-50"
+              />
+            </div>
+          </div>
+          <p className="mt-2 text-[10px] text-muted">
+            Bcrypt-hashed server-side. The captain will need to log in again on
+            all devices.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving || !newPassword || !confirmPassword}
+              className="rounded-lg bg-ink-navy px-4 py-1.5 text-xs font-semibold text-chalk-white transition hover:bg-tape disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {saving ? "Saving…" : "Set New Password"}
+            </button>
+            <button
+              onClick={reset}
+              disabled={saving}
+              className="rounded-lg border border-hairline-strong px-4 py-1.5 text-xs font-medium text-ink hover:bg-mist-navy/30 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
