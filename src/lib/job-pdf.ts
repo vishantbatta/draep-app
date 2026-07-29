@@ -22,6 +22,7 @@
  */
 
 import type {
+  AddressRow,
   BodyMeasurementWithMetric,
   GarmentMeasurementGroup,
   GarmentOrderItemRow,
@@ -106,8 +107,24 @@ function coverPage(
   job: MeasurementJobRow,
   customer: UserRow | null,
   order: OrderRow | null,
+  address: AddressRow | null,
 ): string {
   const ord = order ?? null;
+
+  // Build address display
+  const addrParts: string[] = [];
+  if (address?.address_line_1) addrParts.push(esc(address.address_line_1));
+  if (address?.address_line_2) addrParts.push(esc(address.address_line_2));
+  const cityLine = [
+    address?.city,
+    address?.state,
+    address?.pincode,
+  ].filter(Boolean).map(esc).join(", ");
+  if (cityLine) addrParts.push(cityLine);
+  const addrHtml = addrParts.length > 0
+    ? addrParts.join("<br/>")
+    : "<em class='muted'>No address on file</em>";
+
   return `
     <section class="page cover-page">
       <header class="brand-header">
@@ -137,6 +154,8 @@ function coverPage(
             <tr><th>Email</th><td>${esc(customer?.email ?? "—")}</td></tr>
             <tr><th>Customer ID</th><td>${esc(customer?.id ?? job.user_id ?? "—")}</td></tr>
           </table>
+          <h2 style="margin-top:14pt;">Delivery Address</h2>
+          <div class="address-body">${addrHtml}</div>
         </div>
       </div>
 
@@ -467,6 +486,7 @@ export interface JobPdfInput {
   job: MeasurementJobRow;
   customer: UserRow | null;
   order: OrderRow | null;
+  address?: AddressRow | null;
   bodyMeasurements: BodyMeasurementWithMetric[];
   garmentMeasurements: GarmentMeasurementGroup[];
   /**
@@ -502,6 +522,7 @@ export async function downloadMeasurementJobPdf(
     job,
     customer,
     order,
+    address,
     bodyMeasurements,
     garmentMeasurements,
     styleSelections,
@@ -556,7 +577,7 @@ export async function downloadMeasurementJobPdf(
   </style>
 </head>
 <body>
-  ${coverPage(job, customer, order)}
+  ${coverPage(job, customer, order, address)}
   ${bodySections.join("")}
   ${garmentSections}
   ${styleSections}
@@ -916,6 +937,14 @@ const PRINT_CSS = `
     min-height: 60pt;
     white-space: pre-wrap;
     font-size: 10.5pt;
+  }
+  .address-body {
+    border: 1px solid #e2e8f0;
+    border-radius: 4pt;
+    padding: 8pt 10pt;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    color: #0f172a;
   }
 
   /* Body measurement pages: 4 rows per page */

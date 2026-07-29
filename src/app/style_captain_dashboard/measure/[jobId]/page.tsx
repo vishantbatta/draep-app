@@ -572,7 +572,6 @@ export default function MeasureJobPage() {
           drafts={drafts}
           onEditMetric={(metricId) => setEditingMetricId(metricId)}
           onEditMaterial={(material) => setEditingMaterial(material)}
-          onReload={load}
         />
       )}
 

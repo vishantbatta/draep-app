@@ -42,6 +42,7 @@ import {
   type MeasurementReadingRow,
   type BodyMeasurementWithMetric,
   type GarmentMeasurementGroup,
+  type AddressRow,
 } from "@/lib/admin-api";
 import { downloadMeasurementJobPdf, type StyleSelectionGroup } from "@/lib/job-pdf";
 import { GarmentOrderEditor } from "./GarmentOrderEditor";
@@ -216,6 +217,7 @@ export default function OrderDetailPage() {
 
   const [order, setOrder] = useState<OrderRow | null>(null);
   const [customer, setCustomer] = useState<UserRow | null>(null);
+  const [address, setAddress] = useState<AddressRow | null>(null);
   const [captain, setCaptain] = useState<UserRow | null>(null);
   const [captains, setCaptains] = useState<UserRow[]>([]);
   const [garmentOrders, setGarmentOrders] = useState<GarmentOrderRow[]>([]);
@@ -327,6 +329,14 @@ export default function OrderDetailPage() {
       if (ord.user_id) {
         fetchUserById(ord.user_id)
           .then(setCustomer)
+          .catch(() => {});
+      }
+      if (ord.address_id) {
+        fetchTableRows<AddressRow>("addresses", {
+          filters: { id: ord.address_id },
+          perPage: 1,
+        })
+          .then(({ rows }) => setAddress(rows[0] ?? null))
           .catch(() => {});
       }
       if (ord.style_captain_id) {
@@ -705,6 +715,7 @@ export default function OrderDetailPage() {
           job: jobForPdf,
           customer,
           order,
+          address,
           bodyMeasurements: body,
           garmentMeasurements: garments,
           styleSelections: styleGroups,
@@ -1055,6 +1066,34 @@ export default function OrderDetailPage() {
                 </div>
               ) : (
                 <div className="text-sm text-muted">No customer linked</div>
+              )}
+            </div>
+
+            {/* Address */}
+            <div>
+              <div className="text-xs font-medium uppercase tracking-wide text-muted">
+                Address
+              </div>
+              {address ? (
+                <div className="text-xs text-ink">
+                  {address.address_line_1 && <div>{address.address_line_1}</div>}
+                  {address.address_line_2 && <div>{address.address_line_2}</div>}
+                  <div className="text-muted">
+                    {[
+                      address.city,
+                      address.state,
+                      address.pincode,
+                    ]
+                      .filter(Boolean)
+                      .join(", ") || "—"}
+                  </div>
+                </div>
+              ) : order.address_id ? (
+                <div className="text-xs text-muted">
+                  Address ID: {truncateId(order.address_id)}
+                </div>
+              ) : (
+                <div className="text-xs text-muted">No address linked</div>
               )}
             </div>
 
