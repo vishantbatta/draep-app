@@ -85,6 +85,7 @@ export default function MeasureJobPage() {
   const [saving, setSaving] = useState(false);
   const [savingStep, setSavingStep] = useState(false);
   const [editingMetricId, setEditingMetricId] = useState<string | null>(null);
+  const [editingMaterial, setEditingMaterial] = useState<SCGarmentOrderMaterial | null>(null);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
 
@@ -476,6 +477,14 @@ export default function MeasureJobPage() {
           onDownloadPdf={(onProgress) =>
             handleDownloadPdf(job, metrics, onProgress)
           }
+          onEdit={async () => {
+            // Reopen the job: set status back to in_progress
+            await scStartJob(job.id);
+            // Reload to pick up the new status, then enter capture phase
+            await load();
+            setStep(0);
+            setPhase("capture");
+          }}
         />
       ) : phase === "capture" && currentMetric && currentDraft ? (
         <>
@@ -559,20 +568,55 @@ export default function MeasureJobPage() {
           onBack={() => setPhase("garment")}
           onComplete={handleComplete}
           job={job}
+          metrics={metrics}
+          drafts={drafts}
+          onEditMetric={(metricId) => setEditingMetricId(metricId)}
+          onEditMaterial={(material) => setEditingMaterial(material)}
+          onReload={load}
         />
       )}
 
-      {/* ─── Inline edit bottom sheet (checkpoint phase) ─────────────────── */}
+      {/* ─── Inline edit bottom sheet (checkpoint + notes phase) ────────── */}
       {editingMetricId &&
         metrics.find((m) => m.id === editingMetricId) &&
         drafts[editingMetricId] && (
           <EditMetricSheet
             metric={metrics.find((m) => m.id === editingMetricId)!}
             draft={drafts[editingMetricId]}
-            onChange={(next) => updateDraftById(editingMetricId, next)}
+            onChange={(next) => {
+              updateDraftById(editingMetricId, next);
+              saveStepSilently(next);
+            }}
             onClose={() => setEditingMetricId(null)}
           />
         )}
+
+      {/* ─── Material edit bottom sheet (notes phase) ───────────────────── */}
+      {editingMaterial && (
+        <BottomSheet
+          title={`Edit · ${editingMaterial.name ?? "Material"}`}
+          onClose={() => setEditingMaterial(null)}
+        >
+          <MaterialForm
+            jobId={job.id}
+            garmentOrderId={editingMaterial.garment_order_id}
+            defaultName={editingMaterial.name ?? "Material"}
+            initial={editingMaterial}
+            isFirstCloth={false}
+            onSubmit={async (input) => {
+              await scUpdateMaterial(editingMaterial.id, {
+                ...input,
+                garment_order_id: editingMaterial.garment_order_id,
+              });
+              setEditingMaterial(null);
+              await load();
+            }}
+            onCancel={() => setEditingMaterial(null)}
+            busy={false}
+            canCancel
+          />
+        </BottomSheet>
+      )}
     </div>
   );
 }
@@ -832,6 +876,10 @@ function FinalNotesPhase({
   onBack,
   onComplete,
   job,
+  metrics,
+  drafts,
+  onEditMetric,
+  onEditMaterial,
 }: {
   notes: string;
   setNotes: (v: string) => void;
@@ -841,7 +889,21 @@ function FinalNotesPhase({
   onBack: () => void;
   onComplete: () => void;
   job: SCJob;
+  metrics: SCMetric[];
+  drafts: Record<string, MetricDraft>;
+  onEditMetric: (metricId: string) => void;
+  onEditMaterial: (material: SCGarmentOrderMaterial) => void;
 }) {
+  // ─── Body measurements for display ────────────────────────────────────────
+  const bodyReadings = metrics
+    .map((m, idx) => ({ metric: m, draft: drafts[m.id], idx }))
+    .filter(
+      (x) =>
+        x.draft &&
+        (x.draft.valueNumeric !== null ||
+          (x.draft.valueText ?? "").trim() !== ""),
+    );
+
   return (
     <div className="space-y-4">
       <div>
@@ -852,13 +914,126 @@ function FinalNotesPhase({
           Review &amp; finish
         </h1>
         <p className="mt-1 text-body text-muted">
-          Add any final notes for order{" "}
-          <span className="font-mono text-ink-navy">
-            {job.order_number ?? "—"}
-          </span>
-          .
+          Review all captured data, add notes, then complete the job.
         </p>
       </div>
+
+      {/* ─── Body measurements review ───────────────────────────────────── */}
+      {bodyReadings.length > 0 && (
+        <div className="rounded-card border border-hairline bg-chalk-white shadow-card">
+          <div className="flex items-center justify-between border-b border-hairline px-4 py-2.5">
+            <p className="text-eyebrow uppercase tracking-wider text-muted">
+              Body · {bodyReadings.length} readings
+            </p>
+          </div>
+          <ul className="divide-y divide-hairline">
+            {bodyReadings.map(({ metric, draft, idx }) => (
+              <li
+                key={metric.id}
+                className="flex items-center justify-between gap-3 px-4 py-2.5"
+              >
+                <button
+                  onClick={() => onEditMetric(metric.id)}
+                  className="tap flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-mist-navy text-[10px] font-bold text-ink-navy">
+                    {idx + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-body font-medium text-ink-navy">
+                      {pickLabel(metric.labels, metric.code ?? "Metric")}
+                    </span>
+                    <span className="block truncate text-caption text-muted">
+                      {metric.code}
+                    </span>
+                  </span>
+                </button>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="font-mono text-body font-semibold text-ink">
+                    {draft!.valueNumeric !== null
+                      ? `${draft!.valueNumeric}${draft!.unit ? ` ${draft!.unit}` : ""}`
+                      : draft!.valueText}
+                  </span>
+                  <button
+                    onClick={() => onEditMetric(metric.id)}
+                    className="tap rounded-pill bg-mist-navy px-2.5 py-1 text-[11px] font-medium text-ink-navy"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ─── Garment materials review ───────────────────────────────────── */}
+      {job.garment_orders.length > 0 && (
+        <div className="space-y-3">
+          {job.garment_orders.map((go, gIdx) => (
+            <div
+              key={go.id}
+              className="rounded-card border border-hairline bg-chalk-white shadow-card"
+            >
+              <div className="flex items-center gap-1.5 border-b border-hairline px-4 py-2.5">
+                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ink-navy text-[10px] font-bold text-chalk-white">
+                  {gIdx + 1}
+                </span>
+                <p className="text-eyebrow uppercase tracking-wider text-muted">
+                  {garmentLabel(go)}
+                </p>
+              </div>
+              {go.materials.length === 0 ? (
+                <p className="px-4 py-3 text-caption text-muted">
+                  No materials captured.
+                </p>
+              ) : (
+                <ul className="divide-y divide-hairline">
+                  {go.materials.map((m) => (
+                    <li
+                      key={m.id}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5"
+                    >
+                      <button
+                        onClick={() => onEditMaterial(m)}
+                        className="tap flex min-w-0 flex-1 items-center gap-2 text-left"
+                      >
+                        <span className="inline-block rounded-pill bg-mist-navy px-2 py-0.5 text-[10px] font-medium uppercase text-ink-navy">
+                          {m.type}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-body font-medium text-ink-navy">
+                            {m.name ?? "—"}
+                          </span>
+                          <span className="block truncate text-caption text-muted">
+                            {m.type === "cloth" && m.length !== null
+                              ? `${m.length}×${m.breadth} ${m.unit ?? ""}`.trim()
+                              : m.color ?? ""}
+                          </span>
+                        </span>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {m.color && (
+                          <span
+                            className="inline-block h-4 w-4 rounded-full border border-hairline-strong"
+                            style={{ backgroundColor: m.color }}
+                          />
+                        )}
+                        <button
+                          onClick={() => onEditMaterial(m)}
+                          className="tap rounded-pill bg-mist-navy px-2.5 py-1 text-[11px] font-medium text-ink-navy"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ─── Text notes ────────────────────────────────────────────────── */}
       <div className="rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
@@ -1110,14 +1285,17 @@ function CompletedView({
   metrics,
   onReload,
   onDownloadPdf,
+  onEdit,
 }: {
   job: SCJob;
   metrics: SCMetric[];
   onReload: () => void;
   onDownloadPdf: (onProgress?: PdfProgressFn) => Promise<void>;
+  onEdit: () => void;
 }) {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<string | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
 
   async function handleDownload() {
     setPdfLoading(true);
@@ -1282,19 +1460,30 @@ function CompletedView({
       <div className="flex gap-2">
         <button
           onClick={handleDownload}
-          disabled={pdfLoading}
+          disabled={pdfLoading || editLoading}
           className="tap flex-1 rounded-pill bg-ink-navy px-4 py-3 text-body font-semibold text-chalk-white shadow-card disabled:opacity-50"
         >
           {pdfLoading ? (pdfProgress ?? "Preparing…") : "Download PDF"}
         </button>
         <button
-          onClick={onReload}
-          disabled={pdfLoading}
-          className="tap rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy disabled:opacity-50"
+          onClick={async () => {
+            setEditLoading(true);
+            await onEdit();
+            setEditLoading(false);
+          }}
+          disabled={pdfLoading || editLoading}
+          className="tap flex-1 rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-card disabled:opacity-50"
         >
-          Refresh
+          {editLoading ? "Opening…" : "Edit job"}
         </button>
       </div>
+      <button
+        onClick={onReload}
+        disabled={pdfLoading || editLoading}
+        className="tap w-full rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy disabled:opacity-50"
+      >
+        Refresh
+      </button>
     </div>
   );
 }
