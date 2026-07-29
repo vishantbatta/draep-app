@@ -577,7 +577,7 @@ export async function downloadMeasurementJobPdf(
   </style>
 </head>
 <body>
-  ${coverPage(job, customer, order, address)}
+  ${coverPage(job, customer, order, address ?? null)}
   ${bodySections.join("")}
   ${garmentSections}
   ${styleSections}
