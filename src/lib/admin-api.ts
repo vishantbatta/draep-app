@@ -1473,3 +1473,32 @@ export function adminGetPicker(id: string): Promise<PickerTree> {
   return adminFetch<PickerTree>(`/library/admin/${id}/picker`);
 }
 
+// ─── Admin Scheduling: open slots ────────────────────────────────────────────
+
+export interface AdminSlotOption {
+  start_at: string; // ISO datetime
+  label: string;    // "HH:MM" in scheduling timezone
+  captain_ids: string[]; // captains available at this slot
+}
+
+export interface AdminDaySlots {
+  date: string; // ISO date
+  slots: AdminSlotOption[];
+}
+
+export interface AdminSlotsResponse {
+  days: AdminDaySlots[];
+}
+
+/** GET /admin/slots — available slots across all style captains (no order needed). */
+export function fetchOpenSlots(
+  fromDate?: string,
+  toDate?: string,
+): Promise<AdminSlotsResponse> {
+  const params = new URLSearchParams();
+  if (fromDate) params.set("from_date", fromDate);
+  if (toDate) params.set("to_date", toDate);
+  const qs = params.toString();
+  return adminFetch<AdminSlotsResponse>(`/admin/slots${qs ? `?${qs}` : ""}`);
+}
+
