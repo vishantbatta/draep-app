@@ -350,20 +350,6 @@ function garmentDetailsPages(
 
 // ─── Style selections (component → variation → variation_type, add-ons) ────
 
-/** Format INR currency for the PDF, falls back to "—" for null/undefined. */
-function fmtINR(v: number | null | undefined): string {
-  if (v === null || v === undefined) return "—";
-  try {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(v);
-  } catch {
-    return String(v);
-  }
-}
-
 /**
  * Build one or more "Style Selections" pages — one per garment order.
  *
@@ -388,12 +374,6 @@ function styleSelectionsPages(
     .map((g) => {
       const variations = g.items.filter((it) => it.type === "variation");
       const addons = g.items.filter((it) => it.type === "add_on");
-      const itemsTotal = g.items.reduce(
-        (sum, it) => sum + (it.price ?? 0),
-        0,
-      );
-      const base = g.basePrice ?? 0;
-      const grandTotal = base + itemsTotal;
 
       const variationRows = variations
         .map((it) => {
@@ -401,7 +381,6 @@ function styleSelectionsPages(
             <tr>
               <td class="style-cell-label">${esc(it.label_snapshot ?? "—")}</td>
               <td>${esc(it.placement ?? "—")}</td>
-              <td class="style-cell-price">${fmtINR(it.price)}</td>
             </tr>
           `;
         })
@@ -416,7 +395,6 @@ function styleSelectionsPages(
                 ${esc(it.label_snapshot ?? "—")}
               </td>
               <td>${esc(it.placement ?? "—")}</td>
-              <td class="style-cell-price">${fmtINR(it.price)}</td>
             </tr>
           `;
         })
@@ -430,22 +408,11 @@ function styleSelectionsPages(
               <tr>
                 <th>Selection</th>
                 <th>Placement</th>
-                <th class="style-th-price">Price</th>
               </tr>
             </thead>
             <tbody>
               ${allRows}
             </tbody>
-            <tfoot>
-              <tr class="style-base-row">
-                <td colspan="2">Base garment price</td>
-                <td class="style-cell-price">${fmtINR(g.basePrice)}</td>
-              </tr>
-              <tr class="style-total-row">
-                <td colspan="2">Total</td>
-                <td class="style-cell-price">${fmtINR(grandTotal)}</td>
-              </tr>
-            </tfoot>
           </table>
         `
         : `<p class="muted">No style selections recorded for this garment order.</p>`;

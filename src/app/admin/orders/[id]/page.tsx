@@ -634,22 +634,30 @@ export default function OrderDetailPage() {
         };
 
       setPdfProgress("Loading measurement catalog…");
-      const metricsList = await fetchMeasurementMetrics();
+      let metricsList: MeasurementMetricRow[] = [];
+      try {
+        metricsList = await fetchMeasurementMetrics();
+      } catch { /* proceed with empty */ }
+
       setPdfProgress("Loading measurements…");
-      const readingsList = await fetchJobReadings(jobForPdf.id);
+      let readingsList: MeasurementReadingRow[] = [];
+      try {
+        readingsList = await fetchJobReadings(jobForPdf.id);
+      } catch { /* proceed with empty */ }
 
       setPdfProgress("Loading garment details…");
-      // Fetch fresh GO list + materials (use the order-id-scoped helpers so we
-      // also pick up GOs whose items haven't been expanded on the page yet).
-      const [goList, materialsList] = await Promise.all([
-        fetchOrderGarmentOrders(order.id),
-        fetchOrderGarmentMaterials(order.id),
-      ]);
+      let goList: Awaited<ReturnType<typeof fetchOrderGarmentOrders>> = [];
+      let materialsList: Awaited<ReturnType<typeof fetchOrderGarmentMaterials>> = [];
+      try {
+        [goList, materialsList] = await Promise.all([
+          fetchOrderGarmentOrders(order.id).catch(() => [] as typeof goList),
+          fetchOrderGarmentMaterials(order.id).catch(() => [] as typeof materialsList),
+        ]);
+      } catch { /* proceed with empty */ }
 
-      // Items per garment order (for style pages)
+      // Items per garment order (for style pages) — wrapped per-GO so one failure doesn't block others
       setPdfProgress("Loading style selections…");
       const itemsByGOId = new Map<string, GarmentOrderItemRow[]>();
-      // Use cached items if present, otherwise fetch.
       await Promise.all(
         goList.map(async (go) => {
           const cached = itemsByGO.get(go.id);
