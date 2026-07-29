@@ -1,3 +1,92 @@
+import withPwaInit from "next-pwa";
+
+/** @type {import('next-pwa').PWAConfig} */
+const pwaConfig = {
+  dest: "public",
+  register: true,
+  skipWaiting: true,
+  clientsClaim: true,
+  disable: process.env.NODE_ENV === "development",
+  fallbacks: {
+    document: "/offline",
+  },
+  runtimeCaching: [
+    {
+      urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
+      handler: "CacheFirst",
+      options: {
+        cacheName: "google-fonts-cache",
+        expiration: {
+          maxEntries: 10,
+          maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
+        },
+      },
+    },
+    {
+      urlPattern: /\.(?:eot|otf|ttc|ttf|woff|woff2|font.css)$/i,
+      handler: "StaleWhileRevalidate",
+      options: {
+        cacheName: "static-font-assets",
+        expiration: {
+          maxEntries: 16,
+          maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
+        },
+      },
+    },
+    {
+      urlPattern: /\.(?:jpg|jpeg|gif|png|svg|ico|webp)$/i,
+      handler: "StaleWhileRevalidate",
+      options: {
+        cacheName: "static-image-assets",
+        expiration: {
+          maxEntries: 64,
+          maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+        },
+      },
+    },
+    {
+      urlPattern: /\.(?:js|css)$/i,
+      handler: "StaleWhileRevalidate",
+      options: {
+        cacheName: "static-resources",
+        expiration: {
+          maxEntries: 64,
+          maxAgeSeconds: 60 * 60 * 24 * 7, // 7 days
+        },
+      },
+    },
+    {
+      // Backend API + image proxies (same-origin /uploads, /designs, /api/v1)
+      urlPattern: /\/(?:api|uploads|designs)\//i,
+      handler: "NetworkFirst",
+      method: "GET",
+      options: {
+        cacheName: "api-cache",
+        networkTimeoutSeconds: 5,
+        expiration: {
+          maxEntries: 48,
+          maxAgeSeconds: 60 * 60 * 24, // 24h
+        },
+      },
+    },
+    {
+      // App shell: serve cached HTML if network fails
+      urlPattern: /\/$/i,
+      handler: "NetworkFirst",
+      options: {
+        cacheName: "html-cache",
+        networkTimeoutSeconds: 5,
+        expiration: {
+          maxEntries: 32,
+          maxAgeSeconds: 60 * 60 * 24, // 24h
+        },
+      },
+    },
+  ],
+};
+
+const withPwa = withPwaInit(pwaConfig);
+
 /** @type {import('next').NextConfig} */
 
 // Backend origin (no trailing slash). All API calls and /uploads/* are
@@ -34,4 +123,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withPwa(nextConfig);

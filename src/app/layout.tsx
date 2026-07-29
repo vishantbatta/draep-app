@@ -34,16 +34,32 @@ export const metadata: Metadata = {
     "Design your custom blouse on the phone. A Style Captain visits your home to measure, then delivers and trials — fixes included.",
   applicationName: strings.brand.name,
   authors: [{ name: "Draep" }],
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "draep",
+    statusBarStyle: "black-translucent",
+  },
+  formatDetection: {
+    telephone: false,
+  },
   icons: {
-    icon: [{ url: "/tape-symbol.png", type: "image/png" }],
-    shortcut: ["/tape-symbol.png"],
-    apple: [{ url: "/tape-symbol.png", type: "image/png" }],
+    icon: [
+      { url: "/icons/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    shortcut: ["/icons/favicon-32x32.png"],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  minimumScale: 1,
+  maximumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
   themeColor: "#083068",
 };

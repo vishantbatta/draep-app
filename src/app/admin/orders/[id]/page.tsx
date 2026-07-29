@@ -1725,8 +1725,16 @@ export default function OrderDetailPage() {
                 className="overflow-hidden rounded-lg border border-hairline bg-chalk-white px-4 py-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium text-ink">
+                  <div
+                    onClick={() =>
+                      router.push(
+                        `/admin/orders/measurement-jobs/${job.id}`,
+                      )
+                    }
+                    className="cursor-pointer transition hover:opacity-70"
+                    title="View measurement job detail"
+                  >
+                    <div className="text-sm font-medium text-ink-navy underline decoration-hairline-strong underline-offset-2">
                       Job {truncateId(job.id)}
                     </div>
                     <div className="text-[11px] text-muted">

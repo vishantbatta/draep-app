@@ -83,6 +83,7 @@ export default function MeasureJobPage() {
   const [notes, setNotes] = useState("");
   const [voiceNoteUrl, setVoiceNoteUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingStep, setSavingStep] = useState(false);
   const [editingMetricId, setEditingMetricId] = useState<string | null>(null);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -178,7 +179,33 @@ export default function MeasureJobPage() {
     setDrafts((prev) => ({ ...prev, [metricId]: next }));
   }
 
+  /**
+   * Fire-and-forget save of a single metric to the backend (upsert).
+   * Non-blocking — shows a subtle indicator but never interrupts navigation.
+   */
+  function saveStepSilently(draft: MetricDraft | undefined) {
+    if (!job || !draft) return;
+    const hasValue =
+      draft.valueNumeric !== null || (draft.valueText ?? "").trim() !== "";
+    if (!hasValue) return;
+    setSavingStep(true);
+    scSaveMeasurements(job.id, [
+      {
+        measurement_metric_id: draft.metricId,
+        value_numeric: draft.valueNumeric,
+        value_text: draft.valueText,
+        unit: draft.unit,
+      },
+    ])
+      .catch(() => {
+        /* best-effort — will be re-saved at checkpoint */
+      })
+      .finally(() => setSavingStep(false));
+  }
+
   function nextStep() {
+    // Save current metric before advancing
+    saveStepSilently(drafts[currentMetric?.id ?? ""]);
     if (step < totalSteps - 1) {
       setStep((s) => s + 1);
     } else {
@@ -187,12 +214,16 @@ export default function MeasureJobPage() {
   }
 
   function prevStep() {
+    // Save current metric before going back
+    saveStepSilently(drafts[currentMetric?.id ?? ""]);
     if (step > 0) setStep((s) => s - 1);
     else router.push("/style_captain_dashboard/measure/start");
   }
 
   /** Jump directly to a step. */
   function jumpToStep(idx: number) {
+    // Save current metric before jumping
+    saveStepSilently(drafts[currentMetric?.id ?? ""]);
     if (idx >= 0 && idx < totalSteps) {
       setStep(idx);
       setPhase("capture");
@@ -452,9 +483,15 @@ export default function MeasureJobPage() {
           <div className="flex items-center justify-between text-caption">
             <span className="font-medium text-accent-text">
               Section 1 · Body · Step {step + 1} of {totalSteps}
+              {savingStep && (
+                <span className="ml-2 text-muted">· saving…</span>
+              )}
             </span>
             <button
-              onClick={() => setPhase("checkpoint")}
+              onClick={() => {
+                saveStepSilently(currentDraft);
+                setPhase("checkpoint");
+              }}
               className="tap text-muted underline"
             >
               Preview
@@ -482,7 +519,10 @@ export default function MeasureJobPage() {
             isLastStep={step >= totalSteps - 1}
             onBack={prevStep}
             onNext={nextStep}
-            onReview={() => setPhase("checkpoint")}
+            onReview={() => {
+              saveStepSilently(currentDraft);
+              setPhase("checkpoint");
+            }}
           />
         </>
       ) : phase === "checkpoint" ? (
