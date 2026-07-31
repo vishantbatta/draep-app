@@ -756,7 +756,9 @@ export interface MeasurementJobRow {
   style_captain_id: string | null;
   status: JobStatus | null;
   scheduled_at: string | null;
+  started_at?: string | null;
   performed_at: string | null;
+  completed_at?: string | null;
   notes: string | null;
   created_at?: string;
   updated_at?: string;

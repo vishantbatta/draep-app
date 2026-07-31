@@ -586,8 +586,17 @@ export async function downloadMeasurementJobPdf(
     // cache was silently dropping the material photo due to a cross-origin
     // attribute/taint mismatch). Canvases are copied via drawImage — no
     // network, no CORS, no taint, no blank slots.
-    await inlineImagesAsCanvases(holder);
-    await waitForImages(holder);
+    // Wrapped in try/catch: image loading should NEVER block the PDF download.
+    try {
+      await inlineImagesAsCanvases(holder);
+    } catch (err) {
+      console.warn("[job-pdf] image inlining failed, continuing with raw <img>:", err);
+    }
+    try {
+      await waitForImages(holder);
+    } catch (err) {
+      console.warn("[job-pdf] image wait failed, continuing:", err);
+    }
 
     // Diagnostic: confirm what's in the holder now.
     const remainingImgs = holder.querySelectorAll("img").length;
@@ -663,18 +672,21 @@ function nextPaint(): Promise<void> {
   });
 }
 
-/** Resolve once every <img> under `root` has fired load OR error. */
-function waitForImages(root: HTMLElement): Promise<void> {
+/** Resolve once every <img> under `root` has fired load OR error (with timeout). */
+function waitForImages(root: HTMLElement, timeoutMs = 8000): Promise<void> {
   const imgs = Array.from(root.querySelectorAll("img"));
   if (imgs.length === 0) return Promise.resolve();
   return Promise.all(
     imgs.map(
       (img) =>
-        new Promise<void>((resolve) => {
-          if (img.complete && img.naturalWidth > 0) return resolve();
-          img.addEventListener("load", () => resolve(), { once: true });
-          img.addEventListener("error", () => resolve(), { once: true });
-        }),
+        Promise.race([
+          new Promise<void>((resolve) => {
+            if (img.complete && img.naturalWidth > 0) return resolve();
+            img.addEventListener("load", () => resolve(), { once: true });
+            img.addEventListener("error", () => resolve(), { once: true });
+          }),
+          new Promise<void>((resolve) => setTimeout(() => resolve(), timeoutMs)),
+        ]),
     ),
   ).then(() => undefined);
 }
@@ -726,7 +738,11 @@ async function inlineImagesAsCanvases(root: HTMLElement): Promise<void> {
   await Promise.all(
     uniqueUrls.map(async (abs) => {
       try {
-        const res = await fetch(abs);
+        // Timeout after 8s so a hung fetch doesn't block the whole PDF.
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 8000);
+        const res = await fetch(abs, { signal: ctrl.signal });
+        clearTimeout(timer);
         if (!res.ok) {
           console.warn(`[job-pdf] image fetch returned ${res.status} for ${abs}`);
           return;

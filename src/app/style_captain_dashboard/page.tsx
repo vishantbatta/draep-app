@@ -60,7 +60,14 @@ export default function StyleCaptainDashboardPage() {
     load();
   }, [load]);
 
-  const visibleJobs = tab === "active" ? activeJobs : recentJobs;
+  const visibleJobs =
+    tab === "active"
+      ? activeJobs
+      : [...recentJobs].sort((a, b) => {
+          const aTime = a.performed_at ?? a.created_at ?? "";
+          const bTime = b.performed_at ?? b.created_at ?? "";
+          return bTime.localeCompare(aTime);
+        });
 
   return (
     <div className="space-y-4">
@@ -331,14 +338,18 @@ function JobCard({ job }: { job: SCJob }) {
         <DetailRow label="Garments" value={garmentsText} />
         <DetailRow label="Scheduled" value={slotText} />
         {addressText && <DetailRow label="Address" value={addressText} />}
-        <DetailRow
-          label={isCompleted ? "Completed" : "Created"}
-          value={
-            isCompleted
-              ? formatDateTime(job.performed_at)
-              : formatDateTime(job.created_at)
-          }
-        />
+        {job.started_at && (
+          <DetailRow
+            label="Started"
+            value={formatDateTime(job.started_at)}
+          />
+        )}
+        {isCompleted && job.completed_at && (
+          <DetailRow
+            label="Completed"
+            value={formatDateTime(job.completed_at)}
+          />
+        )}
         {job.measurements.length > 0 && (
           <DetailRow
             label="Readings"

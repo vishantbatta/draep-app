@@ -464,6 +464,11 @@ export default function MeasurementJobDetailPage() {
         <span className="font-mono text-ink-navy">
           Job {truncateId(job.id)}
         </span>
+        {customer && (
+          <span className="text-muted">
+            • <span className="text-ink">{customer.name ?? "Unnamed"}</span>
+          </span>
+        )}
       </div>
 
       {/* Save message */}
@@ -481,7 +486,17 @@ export default function MeasurementJobDetailPage() {
               Measurement Job
             </h1>
             <div className="mt-1 text-sm text-muted">
-              Created {formatDateTime(job.created_at)} • ID: {job.id}
+              Created at {formatDateTime(job.created_at)}
+              {job.scheduled_at && (
+                <> • Scheduled at {formatDateTime(job.scheduled_at)}</>
+              )}
+              {job.started_at && (
+                <> • Started at {formatDateTime(job.started_at)}</>
+              )}
+              {job.completed_at && (
+                <> • Completed at {formatDateTime(job.completed_at)}</>
+              )}{" "}
+              • Last updated at {formatDateTime(job.updated_at)} • ID: {job.id}
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -565,12 +580,22 @@ export default function MeasurementJobDetailPage() {
           </div>
         </div>
 
-        {/* Scheduled at + Performed at */}
-        <div className="mt-4 grid grid-cols-1 gap-4 border-t border-hairline pt-4 sm:grid-cols-2">
-          {/* Scheduled at */}
+        {/* Timestamps grid: Created, Scheduled, Started, Completed, Last Updated */}
+        <div className="mt-4 grid grid-cols-1 gap-4 border-t border-hairline pt-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Created at (read-only) */}
           <div>
             <div className="text-xs font-medium uppercase tracking-wide text-muted">
-              Scheduled At
+              Created at
+            </div>
+            <div className="mt-1 text-sm text-ink">
+              {formatDateTime(job.created_at)}
+            </div>
+          </div>
+
+          {/* Scheduled at (editable) */}
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted">
+              Scheduled at
             </div>
             <div className="mt-1 flex items-center gap-2">
               <input
@@ -591,15 +616,42 @@ export default function MeasurementJobDetailPage() {
                 {savingField === "scheduled_at" ? "…" : "Save"}
               </button>
             </div>
-            <div className="mt-0.5 text-[11px] text-muted">
-              Current: {formatDateTime(job.scheduled_at)}
+          </div>
+
+          {/* Started at (read-only) */}
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted">
+              Started at
+            </div>
+            <div className="mt-1 text-sm text-ink">
+              {formatDateTime(job.started_at)}
             </div>
           </div>
 
-          {/* Performed at */}
+          {/* Completed at (read-only) */}
           <div>
             <div className="text-xs font-medium uppercase tracking-wide text-muted">
-              Performed At
+              Completed at
+            </div>
+            <div className="mt-1 text-sm text-ink">
+              {formatDateTime(job.completed_at)}
+            </div>
+          </div>
+
+          {/* Last updated at (read-only) */}
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted">
+              Last updated at
+            </div>
+            <div className="mt-1 text-sm text-ink">
+              {formatDateTime(job.updated_at)}
+            </div>
+          </div>
+
+          {/* Performed at (editable, kept for backward compat) */}
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted">
+              Performed at
             </div>
             <div className="mt-1 flex items-center gap-2">
               <input
@@ -619,9 +671,6 @@ export default function MeasurementJobDetailPage() {
               >
                 {savingField === "performed_at" ? "…" : "Save"}
               </button>
-            </div>
-            <div className="mt-0.5 text-[11px] text-muted">
-              Current: {formatDateTime(job.performed_at)}
             </div>
           </div>
         </div>

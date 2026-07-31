@@ -621,13 +621,14 @@ export default function UserDetailPage() {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-hairline bg-chalk-white">
-            <table className="w-full min-w-[600px] text-left text-sm">
+            <table className="w-full min-w-[700px] text-left text-sm">
               <thead>
                 <tr className="border-b border-hairline bg-mist-navy/40 text-xs uppercase tracking-wide text-muted">
                   <th className="px-4 py-3 font-medium">Job</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Scheduled</th>
-                  <th className="px-4 py-3 font-medium">Created</th>
+                  <th className="px-4 py-3 font-medium">Started</th>
+                  <th className="px-4 py-3 font-medium">Completed</th>
                 </tr>
               </thead>
               <tbody>
@@ -649,7 +650,10 @@ export default function UserDetailPage() {
                       {formatDate(job.scheduled_at)}
                     </td>
                     <td className="px-4 py-3 text-[12px] text-muted">
-                      {formatDate(job.created_at)}
+                      {formatDate(job.started_at)}
+                    </td>
+                    <td className="px-4 py-3 text-[12px] text-muted">
+                      {formatDate(job.completed_at)}
                     </td>
                   </tr>
                 ))}

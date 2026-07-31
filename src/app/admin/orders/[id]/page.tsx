@@ -1787,9 +1787,14 @@ export default function OrderDetailPage() {
                     <div className="text-[11px] text-muted">
                       Scheduled: {formatDate(job.scheduled_at)}
                     </div>
-                    {job.performed_at && (
+                    {job.started_at && (
                       <div className="text-[11px] text-muted">
-                        Performed: {formatDate(job.performed_at)}
+                        Started: {formatDate(job.started_at)}
+                      </div>
+                    )}
+                    {job.completed_at && (
+                      <div className="text-[11px] text-muted">
+                        Completed: {formatDate(job.completed_at)}
                       </div>
                     )}
                   </div>

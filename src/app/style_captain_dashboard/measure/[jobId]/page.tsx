@@ -297,10 +297,12 @@ export default function MeasureJobPage() {
         style_captain_id: null,
         status: scJob.status as MeasurementJobRow["status"],
         scheduled_at: scJob.scheduled_at,
+        started_at: scJob.started_at,
         performed_at: scJob.performed_at,
+        completed_at: scJob.completed_at,
         notes: scJob.notes,
         created_at: scJob.created_at ?? undefined,
-        updated_at: undefined,
+        updated_at: scJob.updated_at ?? undefined,
       };
 
       // Build a minimal UserRow from SCJob customer fields
@@ -1319,11 +1321,20 @@ function CompletedView({
         <p className="font-heading text-body font-semibold text-success-text">
           This job is {humanStatus(job.status).toLowerCase()}
         </p>
-        <p className="mt-1 text-caption text-success-text/80">
-          {job.performed_at
-            ? `Performed ${new Date(job.performed_at).toLocaleString()}`
-            : "No completion date recorded"}
-        </p>
+        <div className="mt-1 space-y-0.5 text-caption text-success-text/80">
+          {job.scheduled_at && (
+            <p>Scheduled {new Date(job.scheduled_at).toLocaleString()}</p>
+          )}
+          {job.started_at && (
+            <p>Started {new Date(job.started_at).toLocaleString()}</p>
+          )}
+          {job.completed_at && (
+            <p>Completed {new Date(job.completed_at).toLocaleString()}</p>
+          )}
+          {!job.scheduled_at && !job.started_at && !job.completed_at && (
+            <p>No timestamps recorded</p>
+          )}
+        </div>
       </div>
 
       {job.notes && (

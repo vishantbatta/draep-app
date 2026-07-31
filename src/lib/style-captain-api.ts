@@ -95,9 +95,12 @@ export interface SCJob {
   id: string;
   status: string | null;
   scheduled_at: string | null;
+  started_at: string | null;
   performed_at: string | null;
+  completed_at: string | null;
   notes: string | null;
   created_at: string | null;
+  updated_at: string | null;
   // Customer
   customer_id: string | null;
   customer_name: string | null;

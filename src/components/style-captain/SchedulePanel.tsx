@@ -76,6 +76,25 @@ function datetimeLabel(iso: string | null | undefined): string {
   }
 }
 
+/** Convert an ISO timestamp to a local-date key (YYYY-MM-DD). */
+function dayKeyFromISO(iso: string): string {
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Extract time as h:mm AM/PM from an ISO timestamp in the browser's local timezone. */
+function hhmmFromISO(iso: string): string {
+  const d = new Date(iso);
+  let h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12 === 0 ? 12 : h % 12;
+  return `${h}:${m} ${ampm}`;
+}
+
 const SLOT_STATUS_COLORS: Record<string, string> = {
   open: "bg-success-bg text-success-text border-success-border",
   booked: "bg-mist-navy text-ink-navy border-navy-interactive/30",
@@ -1147,7 +1166,7 @@ function PreviewSection() {
   // Group by date
   const byDate = new Map<string, SCPreviewSlot[]>();
   for (const slot of preview.slots) {
-    const dayKey = slot.start_at.slice(0, 10);
+    const dayKey = dayKeyFromISO(slot.start_at);
     if (!byDate.has(dayKey)) byDate.set(dayKey, []);
     byDate.get(dayKey)!.push(slot);
   }
@@ -1185,13 +1204,13 @@ function PreviewSection() {
           <p className="mb-2 text-eyebrow uppercase tracking-wider text-ink-navy">
             {dateLabel(dayKey)}
           </p>
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-3 gap-1.5">
             {daySlots.map((slot, i) => {
-              const time = slot.start_at.slice(11, 16);
+              const time = hhmmFromISO(slot.start_at);
               return (
                 <div
                   key={`${dayKey}-${i}`}
-                  className={`rounded-pill border px-1.5 py-1 text-center text-[10px] font-medium ${SLOT_STATUS_COLORS[slot.status] ?? "bg-mist-navy text-muted border-hairline"}`}
+                  className={`rounded-pill border px-1.5 py-1 text-center text-[10px] font-medium leading-tight ${SLOT_STATUS_COLORS[slot.status] ?? "bg-mist-navy text-muted border-hairline"}`}
                   title={`${time} · ${slot.status}`}
                 >
                   {time}
