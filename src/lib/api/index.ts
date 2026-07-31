@@ -13,5 +13,6 @@ export * as pricingApi from "./pricing";
 export * as serviceAreaApi from "./serviceArea";
 export * as checkoutApi from "./checkout";
 export * as bookingApi from "./booking";
+export * as tryOnApi from "./tryon";
 
 export { ApiError, getToken, setToken, clearToken } from "./client";

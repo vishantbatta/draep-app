@@ -13,8 +13,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Sparkle, Close } from "@/components/ui/icons";
+import { Sparkle, Sparkles, Close } from "@/components/ui/icons";
 import { BottomSheet } from "@/components/ui/BottomSheet";
+import { TryOnSheet } from "@/components/tryon/TryOnSheet";
 import { libraryApi } from "@/lib/api";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
@@ -44,6 +45,13 @@ export default function LibraryPage() {
   const [detail, setDetail] = useState<LibraryDetailOut | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+
+  /* ── Try-on sheet state ─────────────────────────────────────────────── */
+  const [tryOnOpen, setTryOnOpen] = useState(false);
+  const [tryOnDesignUrl, setTryOnDesignUrl] = useState<string | null>(null);
+  const [tryOnDesignTitle, setTryOnDesignTitle] = useState<string | undefined>(
+    undefined,
+  );
 
   /* ── IntersectionObserver: collapse header when sentinel scrolls out ─ */
   useEffect(() => {
@@ -150,6 +158,37 @@ export default function LibraryPage() {
     }, 250);
   }, []);
 
+  /* ── Open the try-on sheet using the current detail's hero image ──── */
+  // We close the detail sheet visually but KEEP `detailId` / `detail` so that
+  // when the user taps Done on the try-on result we can reopen the exact same
+  // design sheet without a refetch.
+  const openTryOn = useCallback(() => {
+    if (!detail?.hero_image_url) return;
+    setTryOnDesignUrl(detail.hero_image_url);
+    setTryOnDesignTitle(detail.labels?.en ?? undefined);
+    setDetailOpen(false);
+    setTimeout(() => setTryOnOpen(true), 220);
+  }, [detail]);
+
+  const closeTryOn = useCallback(() => {
+    setTryOnOpen(false);
+    setTimeout(() => {
+      setTryOnDesignUrl(null);
+      setTryOnDesignTitle(undefined);
+    }, 250);
+  }, []);
+
+  /* ── Done from try-on: reopen the design detail sheet that launched it ── */
+  const onTryOnDone = useCallback(() => {
+    setTryOnOpen(false);
+    setTimeout(() => {
+      setTryOnDesignUrl(null);
+      setTryOnDesignTitle(undefined);
+      // Reopen the detail sheet if we still have it in context.
+      if (detailId) setDetailOpen(true);
+    }, 220);
+  }, [detailId]);
+
   return (
     <div className="column flex h-dvh flex-col bg-warm-sand">
       {/* ───── Slim header (collapses to a slimmer bar on scroll) ───── */}
@@ -232,11 +271,19 @@ export default function LibraryPage() {
         <div className="h-6" />
       </div>
 
-      {/* ───── Detail BottomSheet (no footer — read-only) ───── */}
+      {/* ───── Detail BottomSheet — sticky "Try it on" footer ───── */}
       <BottomSheet
         open={detailOpen}
         onClose={closeDetail}
         title={detail?.labels?.en ?? strings.style.detailLoading}
+        footer={
+          detail?.hero_image_url ? (
+            <TryOnFooter
+              disabled={!detail?.hero_image_url}
+              onClick={openTryOn}
+            />
+          ) : undefined
+        }
       >
         {detailLoading ? (
           <DetailSkeleton />
@@ -249,6 +296,17 @@ export default function LibraryPage() {
           <DetailBody detail={detail} />
         ) : null}
       </BottomSheet>
+
+      {/* ───── Virtual Try-On sheet ───── */}
+      {tryOnDesignUrl && (
+        <TryOnSheet
+          open={tryOnOpen}
+          onClose={closeTryOn}
+          onDone={onTryOnDone}
+          designImageUrl={tryOnDesignUrl}
+          designTitle={tryOnDesignTitle}
+        />
+      )}
     </div>
   );
 }
@@ -256,6 +314,37 @@ export default function LibraryPage() {
 /* ============================================================ */
 /*  Subcomponents                                                */
 /* ============================================================ */
+
+/** Sticky footer CTA that opens the virtual try-on sheet. */
+function TryOnFooter({
+  disabled,
+  onClick,
+}: {
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="group flex w-full items-center justify-center gap-2 rounded-pill bg-tape px-5 py-3 text-body font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+      style={{ backgroundImage: "var(--tape-gradient)" }}
+    >
+      {/* Animated sparkles */}
+      <span className="relative inline-flex">
+        <Sparkles size={16} className="text-chalk-white" />
+        <span
+          aria-hidden
+          className="absolute inset-0 animate-rivet text-chalk-white"
+        >
+          <Sparkles size={16} />
+        </span>
+      </span>
+      {strings.tryOn.cta}
+    </button>
+  );
+}
 
 /** Library grid card — hero image, category + occasion chips. NO price. */
 function LibraryCard({

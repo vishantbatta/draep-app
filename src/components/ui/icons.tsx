@@ -120,6 +120,39 @@ export function Sparkle(props: IconProps) {
   );
 }
 
+/**
+ * Sparkles — the classic "AI" glyph: a large 4-point star plus two smaller
+ * companions. Used wherever we reference AI-powered features (try-on, etc).
+ */
+export function Sparkles(props: IconProps) {
+  const { size = 20, ...rest } = props;
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      {...rest}
+    >
+      {/* Big 4-point star */}
+      <path
+        d="M12 3l1.6 4.4a4 4 0 0 0 2.3 2.3L20.5 12l-4.6 2.3a4 4 0 0 0-2.3 2.3L12 21l-1.6-4.4a4 4 0 0 0-2.3-2.3L3.5 12l4.6-2.3a4 4 0 0 0 2.3-2.3L12 3z"
+        fill="currentColor"
+        stroke="none"
+      />
+      {/* Small spark, top-right */}
+      <path d="M19 3.5l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4L17 5.4l1.4-.5.5-1.4z" fill="currentColor" stroke="none" />
+      {/* Small spark, bottom-left */}
+      <path d="M4.5 17l.4 1.1 1.1.4-1.1.4-.4 1.1-.4-1.1L3 18.5l1.1-.4.4-1.1z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function Calendar(props: IconProps) {
   return (
     <svg {...svg(props)}>

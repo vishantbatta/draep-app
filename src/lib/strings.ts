@@ -173,4 +173,44 @@ export const strings = {
   errors: {
     generic: "Something went wrong. Please try again.",
   },
+
+  tryOn: {
+    // CTA on the design detail bottom sheet
+    cta: "Try it on",
+    // Picker stage
+    sheetTitle: "Try it on",
+    creativeTitle: "See it on you",
+    creativeBody:
+      "Upload a clear, well-lit photo of yourself and our AI will drape this design on you in seconds.",
+    howHeading: "How it works",
+    step1Title: "Pick the design",
+    step1Body: "We start from this blouse — exact cut, colour and detail.",
+    step2Title: "Share a photo",
+    step2Body: "Upload or take a clear, front-facing photo.",
+    step3Title: "See it on you",
+    step3Body: "Our AI stitches it onto your photo in a few seconds.",
+    uploadCta: "Upload photo",
+    captureCta: "Take a photo",
+    photoTip: "Stand against a plain background · full torso in frame",
+    // Loading stage
+    loadingTitle: "Stitching it on you…",
+    loadingBody: "Our AI is matching the fit and fabric to your photo.",
+    // Result stage
+    resultTitle: "Here's you in this design",
+    resultTip: "This is an AI preview — your master tailor will perfect the real fit.",
+    again: "Try another photo",
+    done: "Done",
+    // Sharing
+    shareHeading: "Share your try-on",
+    shareSave: "Save",
+    shareWhatsapp: "WhatsApp",
+    shareCopy: "Copy link",
+    shareCopied: "Copied",
+    shareMore: "More",
+    shareToast: "Image saved to your device",
+    shareError: "Couldn't share — try long-pressing the image instead.",
+    // Errors
+    errorTitle: "Couldn't generate that",
+    errorRetry: "Try again",
+  },
 } as const;

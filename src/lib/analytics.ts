@@ -28,7 +28,16 @@ export type AnalyticsEvent =
   | { event: "slot_booked"; job_id: string; captain: string }
   // Design Library funnel (spec §A)
   | { event: "library_card_tapped"; library_id: string }
-  | { event: "library_drafted"; library_id: string };
+  | { event: "library_drafted"; library_id: string }
+  // Virtual try-on funnel
+  | { event: "tryon_started"; design_image_url: string }
+  | { event: "tryon_succeeded"; design_image_url: string }
+  | { event: "tryon_failed"; design_image_url: string }
+  | {
+      event: "tryon_shared";
+      design_image_url: string;
+      share_method: "save" | "whatsapp" | "copy" | "more";
+    };
 
 export function track(event: AnalyticsEvent): void {
   if (typeof window === "undefined") return;
