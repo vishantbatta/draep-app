@@ -305,6 +305,7 @@ export default function LibraryPage() {
           onDone={onTryOnDone}
           designImageUrl={tryOnDesignUrl}
           designTitle={tryOnDesignTitle}
+          garmentId={detail?.garment_id ?? undefined}
         />
       )}
     </div>

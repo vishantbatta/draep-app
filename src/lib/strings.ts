@@ -198,17 +198,21 @@ export const strings = {
     // Result stage
     resultTitle: "Here's you in this design",
     resultTip: "This is an AI preview — your master tailor will perfect the real fit.",
-    again: "Try another photo",
     done: "Done",
     // Sharing
-    shareHeading: "Share your try-on",
     shareSave: "Save",
     shareWhatsapp: "WhatsApp",
-    shareCopy: "Copy link",
-    shareCopied: "Copied",
     shareMore: "More",
     shareToast: "Image saved to your device",
     shareError: "Couldn't share — try long-pressing the image instead.",
+    // Chat / refine
+    chatPlaceholder: "Describe a change…",
+    chatSend: "Apply",
+    chatMic: "Speak",
+    chatRefining: "Refining…",
+    chatListening: "Listening…",
+    chatError: "Couldn't apply that. Try again.",
+    suggestionsLabel: "Quick tweaks",
     // Errors
     errorTitle: "Couldn't generate that",
     errorRetry: "Try again",

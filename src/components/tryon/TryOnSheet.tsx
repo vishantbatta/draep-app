@@ -5,43 +5,53 @@
  *
  * Stages:
  *   1. picker   — creative hero + how-it-works diagram + Upload / Capture
- *   2. loading  — branded AI animation while Replicate runs
- *   3. result   — the generated image with Try again / Done
+ *   2. loading  — branded AI animation while Gemini runs
+ *   3. result   — chat-like feed of generated images + chat box for refinements
  *   4. error    — recoverable error inline
  *
- * The picker uses two hidden <input type="file"> elements:
- *   • one with `accept="image/*"`              → OS shows Upload / File picker
- *   • one with `accept="image/*" capture="user"` → OS opens the front camera
- * On iOS and Android both inputs surface native OS-level options
- * ("Photo Library", "Take Photo", etc.) as requested.
- *
- * `onDone` is fired when the user taps Done on the result. The parent uses it
- * to reopen the design detail sheet that originally launched the try-on.
+ * The result stage is a vertical "conversation": each generated image appears
+ * as a card in a scrollable feed. The initial try-on is the first card; every
+ * refinement appends a new card below. Users can scroll through the history
+ * of iterations. Suggestion tags and a chat input (text + mic) sit at the
+ * bottom, pinned.
  */
 
 import { AnimatePresence, motion } from "framer-motion";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { Sparkles, Upload, Close } from "@/components/ui/icons";
-import { tryOn } from "@/lib/api/tryon";
+import { tryOn, refineTryOn } from "@/lib/api/tryon";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
 
 type Stage = "picker" | "loading" | "result" | "error";
 
+/** A single entry in the try-on conversation feed. */
+interface FeedEntry {
+  id: number;
+  imageUrl: string;
+  suggestions: string[];
+  /** The instruction that produced this image. `null` for the initial try-on. */
+  instruction: string | null;
+}
+
 interface Props {
   open: boolean;
-  /** Closes the try-on sheet (used by backdrop / escape / close button). */
   onClose: () => void;
-  /** Fired when the user taps "Done" on the result stage. */
   onDone?: () => void;
-  /** Same-origin URL of the design/model image, e.g. "/designs/abc_hero.jpg". */
   designImageUrl: string;
-  /** Optional title (the design label) for context in the sheet header. */
   designTitle?: string;
+  garmentId?: string;
 }
+
+let _entryId = 0;
 
 export function TryOnSheet({
   open,
@@ -49,20 +59,19 @@ export function TryOnSheet({
   onDone,
   designImageUrl,
   designTitle,
+  garmentId,
 }: Props) {
   const [stage, setStage] = useState<Stage>("picker");
-  const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Hidden native inputs — one for upload, one for capture.
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const captureInputRef = useRef<HTMLInputElement>(null);
 
-  // Reset whenever the sheet is reopened.
   useEffect(() => {
     if (open) {
       setStage("picker");
-      setResultUrl(null);
+      setFeed([]);
       setErrorMsg(null);
     }
   }, [open]);
@@ -74,8 +83,15 @@ export function TryOnSheet({
       setErrorMsg(null);
       track({ event: "tryon_started", design_image_url: designImageUrl });
       try {
-        const out = await tryOn(file, designImageUrl);
-        setResultUrl(out.output_url);
+        const out = await tryOn(file, designImageUrl, garmentId);
+        setFeed([
+          {
+            id: ++_entryId,
+            imageUrl: out.output_url,
+            suggestions: out.suggestions,
+            instruction: null,
+          },
+        ]);
         setStage("result");
         track({ event: "tryon_succeeded", design_image_url: designImageUrl });
       } catch (err) {
@@ -88,13 +104,28 @@ export function TryOnSheet({
         track({ event: "tryon_failed", design_image_url: designImageUrl });
       }
     },
-    [designImageUrl],
+    [designImageUrl, garmentId],
   );
 
-  // Reset the input value so the same file can be picked twice in a row.
   const resetInput = (el: HTMLInputElement | null) => {
     if (el) el.value = "";
   };
+
+  /** Append a new image to the feed after a successful refinement. */
+  const handleRefineResult = useCallback(
+    (instruction: string, newUrl: string, newSuggestions: string[]) => {
+      setFeed((prev) => [
+        ...prev,
+        {
+          id: ++_entryId,
+          imageUrl: newUrl,
+          suggestions: newSuggestions,
+          instruction,
+        },
+      ]);
+    },
+    [],
+  );
 
   return (
     <BottomSheet
@@ -102,7 +133,6 @@ export function TryOnSheet({
       onClose={onClose}
       title={designTitle ?? strings.tryOn.sheetTitle}
     >
-      {/* Hidden native inputs */}
       <input
         ref={uploadInputRef}
         type="file"
@@ -136,15 +166,13 @@ export function TryOnSheet({
             />
           )}
           {stage === "loading" && <LoadingStage key="loading" />}
-          {stage === "result" && resultUrl && (
+          {stage === "result" && feed.length > 0 && (
             <ResultStage
               key="result"
-              resultUrl={resultUrl}
-              onAgain={() => {
-                setResultUrl(null);
-                setStage("picker");
-              }}
+              feed={feed}
+              garmentId={garmentId}
               onDone={() => onDone?.()}
+              onRefineResult={handleRefineResult}
             />
           )}
           {stage === "error" && (
@@ -181,7 +209,6 @@ function PickerStage({
       transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
       className="flex flex-col gap-4"
     >
-      {/* ─── Hero: design photo at its true aspect ratio ──────────────────── */}
       <div className="relative overflow-hidden rounded-card border border-hairline">
         <div className="relative w-full bg-mist-navy">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -192,7 +219,6 @@ function PickerStage({
           />
         </div>
 
-        {/* Top-left AI badge (glass) */}
         <motion.div
           aria-hidden
           className="absolute left-3 top-3 flex items-center gap-1.5 rounded-pill border border-chalk-white/30 bg-chalk-white/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-chalk-white backdrop-blur-xl"
@@ -204,7 +230,6 @@ function PickerStage({
           AI try-on
         </motion.div>
 
-        {/* Shimmer sweep over the hero */}
         <motion.div
           aria-hidden
           className="pointer-events-none absolute inset-0"
@@ -219,7 +244,6 @@ function PickerStage({
         />
       </div>
 
-      {/* ─── Glass "See it on you" section (its own card below the hero) ──── */}
       <div
         className="relative overflow-hidden rounded-card border border-chalk-white/25 p-4 shadow-[0_4px_24px_rgba(8,48,104,0.18)] backdrop-blur-xl"
         style={{
@@ -227,7 +251,6 @@ function PickerStage({
             "linear-gradient(135deg, var(--ink-navy) 0%, #0d3a78 60%, var(--ember) 140%)",
         }}
       >
-        {/* Decorative glow */}
         <div
           aria-hidden
           className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full opacity-30 blur-2xl"
@@ -259,10 +282,8 @@ function PickerStage({
         </div>
       </div>
 
-      {/* ─── How it works (3-step diagram) ───────────────────────────────── */}
       <HowItWorks />
 
-      {/* ─── Two OS-native backed actions ────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-2.5">
         <button
           type="button"
@@ -289,7 +310,8 @@ function PickerStage({
   );
 }
 
-/* ─── How-it-works diagram (Design → Photo → You) ────────────────────── */
+/* ─── How-it-works diagram ──────────────────────────────────────────── */
+
 function HowItWorks() {
   return (
     <div className="rounded-card border border-hairline bg-mist-navy/60 p-3">
@@ -297,11 +319,7 @@ function HowItWorks() {
         {strings.tryOn.howHeading}
       </p>
       <div className="flex items-stretch gap-2">
-        <Step
-          index={1}
-          title={strings.tryOn.step1Title}
-        >
-          {/* Hanger glyph */}
+        <Step index={1} title={strings.tryOn.step1Title}>
           <svg viewBox="0 0 32 32" className="h-6 w-6" fill="none" aria-hidden>
             <path
               d="M16 5a2.5 2.5 0 0 1 1.4 4.6L16 10.5V12l11 6.5a2 2 0 0 1-1 3.5H6a2 2 0 0 1-1-3.5L16 12"
@@ -314,36 +332,15 @@ function HowItWorks() {
           </svg>
         </Step>
         <Connector />
-        <Step
-          index={2}
-          title={strings.tryOn.step2Title}
-        >
-          {/* Person-in-frame glyph */}
+        <Step index={2} title={strings.tryOn.step2Title}>
           <svg viewBox="0 0 32 32" className="h-6 w-6" fill="none" aria-hidden>
-            <rect
-              x="4"
-              y="6"
-              width="24"
-              height="20"
-              rx="2"
-              stroke="currentColor"
-              strokeWidth={1.6}
-            />
+            <rect x="4" y="6" width="24" height="20" rx="2" stroke="currentColor" strokeWidth={1.6} />
             <circle cx="16" cy="14" r="3" stroke="currentColor" strokeWidth={1.6} />
-            <path
-              d="M10 24c1-3.5 3.2-5 6-5s5 1.5 6 5"
-              stroke="currentColor"
-              strokeWidth={1.6}
-              strokeLinecap="round"
-            />
+            <path d="M10 24c1-3.5 3.2-5 6-5s5 1.5 6 5" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" />
           </svg>
         </Step>
         <Connector />
-        <Step
-          index={3}
-          title={strings.tryOn.step3Title}
-          highlight
-        >
+        <Step index={3} title={strings.tryOn.step3Title} highlight>
           <Sparkles size={22} />
         </Step>
       </div>
@@ -371,9 +368,7 @@ function Step({
             ? "text-chalk-white shadow-primary"
             : "bg-chalk-white text-accent-text border border-hairline-strong")
         }
-        style={
-          highlight ? { backgroundImage: "var(--tape-gradient)" } : undefined
-        }
+        style={highlight ? { backgroundImage: "var(--tape-gradient)" } : undefined}
       >
         {children}
       </div>
@@ -389,13 +384,7 @@ function Connector() {
   return (
     <div className="flex items-center pt-2.5" aria-hidden>
       <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
-        <path
-          d="M1 5h11M9 1.5L12.5 5 9 8.5"
-          stroke="var(--tape-silver)"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <path d="M1 5h11M9 1.5L12.5 5 9 8.5" stroke="var(--tape-silver)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
   );
@@ -403,23 +392,14 @@ function Connector() {
 
 function CameraGlyph() {
   return (
-    <svg
-      width={22}
-      height={22}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="text-accent-text"
-      aria-hidden
-    >
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="text-accent-text" aria-hidden>
       <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
       <circle cx="12" cy="13" r="4" />
     </svg>
   );
 }
+
+/* ─── Loading ───────────────────────────────────────────────────────── */
 
 function LoadingStage() {
   return (
@@ -430,9 +410,7 @@ function LoadingStage() {
       transition={{ duration: 0.25 }}
       className="flex flex-col items-center gap-4 px-2 py-8"
     >
-      {/* Branded AI loader — orbiting sparks around a pulsing core */}
       <div className="relative flex h-32 w-32 items-center justify-center">
-        {/* Pulsing tape-gradient core */}
         <motion.div
           aria-hidden
           className="absolute inset-6 rounded-full opacity-90"
@@ -440,14 +418,12 @@ function LoadingStage() {
           animate={{ scale: [1, 1.12, 1], opacity: [0.85, 1, 0.85] }}
           transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
         />
-        {/* Soft halo */}
         <motion.div
           aria-hidden
           className="absolute inset-0 rounded-full bg-draep-orange/30 blur-xl"
           animate={{ scale: [1, 1.2, 1], opacity: [0.4, 0.7, 0.4] }}
           transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
         />
-        {/* Orbiting sparks */}
         {[0, 1, 2].map((i) => (
           <motion.div
             key={i}
@@ -455,15 +431,9 @@ function LoadingStage() {
             className="absolute h-3 w-3 rounded-full bg-chalk-white shadow"
             style={{ offsetPath: "path('M 64 16 A 48 48 0 1 1 63.9 16 Z')" }}
             animate={{ offsetDistance: ["0%", "100%"] }}
-            transition={{
-              duration: 2.4,
-              repeat: Infinity,
-              ease: "linear",
-              delay: i * 0.8,
-            }}
+            transition={{ duration: 2.4, repeat: Infinity, ease: "linear", delay: i * 0.8 }}
           />
         ))}
-        {/* Center sparkles */}
         <Sparkles size={26} className="relative z-10 text-chalk-white" />
       </div>
 
@@ -474,7 +444,6 @@ function LoadingStage() {
         <p className="mt-1 text-caption text-muted">{strings.tryOn.loadingBody}</p>
       </div>
 
-      {/* Indeterminate shimmer bar */}
       <div className="h-1 w-40 overflow-hidden rounded-pill bg-tape-silver">
         <motion.div
           className="h-full w-1/2 rounded-full"
@@ -487,39 +456,70 @@ function LoadingStage() {
   );
 }
 
-function ResultStage({
-  resultUrl,
-  onAgain,
-  onDone,
-}: {
-  resultUrl: string;
-  onAgain: () => void;
-  onDone: () => void;
-}) {
-  const [fullscreen, setFullscreen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+/* ============================================================ */
+/*  Result Stage — chat-like feed with scrollable image history  */
+/* ============================================================ */
 
-  // Briefly show a toast message.
+type NavigatorWithShare = Navigator & {
+  canShare?: (data?: ShareData) => boolean;
+};
+
+function ResultStage({
+  feed,
+  garmentId,
+  onDone,
+  onRefineResult,
+}: {
+  feed: FeedEntry[];
+  garmentId?: string;
+  onDone: () => void;
+  onRefineResult: (instruction: string, url: string, suggestions: string[]) => void;
+}) {
+  // The latest entry is always the last in the feed array.
+  const latest = feed[feed.length - 1];
+
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Chat / refine state
+  const [chatInput, setChatInput] = useState("");
+  const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState(false);
+
+  // Fullscreen viewer
+  const [fullscreenUrl, setFullscreenUrl] = useState<string | null>(null);
+
+  // Speech recognition
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<unknown>(null);
+
+  // Auto-scroll to bottom when feed grows
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
+  }, [feed.length, refining]);
+
   const showToast = useCallback((msg: string, ms = 2200) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), ms);
   }, []);
 
-  // Download the image as a Blob (avoids weird cross-origin navigation issues).
+  // ── Share handlers (share the latest image) ─────────────────────────
+
   const fetchBlob = useCallback(async (): Promise<Blob | null> => {
     try {
-      const res = await fetch(resultUrl);
+      const res = await fetch(latest.imageUrl);
       if (!res.ok) throw new Error("fetch failed");
       return await res.blob();
     } catch {
       return null;
     }
-  }, [resultUrl]);
+  }, [latest.imageUrl]);
 
-  // Save to device — anchors a Blob URL with a `download` attribute.
   const handleSave = useCallback(async () => {
-    track({ event: "tryon_shared", design_image_url: resultUrl, share_method: "save" });
+    track({ event: "tryon_shared", design_image_url: latest.imageUrl, share_method: "save" });
     const blob = await fetchBlob();
     if (!blob) {
       showToast(strings.tryOn.shareError);
@@ -535,12 +535,10 @@ function ResultStage({
     a.remove();
     URL.revokeObjectURL(objUrl);
     showToast(strings.tryOn.shareToast);
-  }, [fetchBlob, resultUrl, showToast]);
+  }, [fetchBlob, latest.imageUrl, showToast]);
 
-  // Share to WhatsApp. Prefer the Web Share API with a file when supported
-  // (covers mobile WA app); fall back to wa.me URL share.
   const handleWhatsapp = useCallback(async () => {
-    track({ event: "tryon_shared", design_image_url: resultUrl, share_method: "whatsapp" });
+    track({ event: "tryon_shared", design_image_url: latest.imageUrl, share_method: "whatsapp" });
     const nav = navigator as NavigatorWithShare;
     if (typeof nav.canShare === "function") {
       const blob = await fetchBlob();
@@ -548,7 +546,7 @@ function ResultStage({
         try {
           await nav.share({
             files: [new File([blob], "draep-tryon.jpg", { type: blob.type })],
-            text: "My Draep try-on ✨",
+            text: "My Draep try-on",
           });
           return;
         } catch {
@@ -557,34 +555,21 @@ function ResultStage({
       }
     }
     window.open(
-      `https://wa.me/?text=${encodeURIComponent("My Draep try-on ✨ " + resultUrl)}`,
+      `https://wa.me/?text=${encodeURIComponent("My Draep try-on")}`,
       "_blank",
       "noopener,noreferrer",
     );
-  }, [fetchBlob, resultUrl]);
+  }, [fetchBlob, latest.imageUrl]);
 
-  // Copy the result URL to clipboard.
-  const handleCopy = useCallback(async () => {
-    track({ event: "tryon_shared", design_image_url: resultUrl, share_method: "copy" });
-    try {
-      await navigator.clipboard.writeText(resultUrl);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch {
-      showToast(strings.tryOn.shareError);
-    }
-  }, [resultUrl, showToast]);
-
-  // Open the OS-native share sheet for any other app.
   const handleMore = useCallback(async () => {
-    track({ event: "tryon_shared", design_image_url: resultUrl, share_method: "more" });
+    track({ event: "tryon_shared", design_image_url: latest.imageUrl, share_method: "more" });
     const nav = navigator as NavigatorWithShare;
     if (typeof nav.share === "function") {
       try {
         const blob = await fetchBlob();
         const shareData: ShareData = {
           title: "My Draep try-on",
-          text: "My Draep try-on ✨",
+          text: "My Draep try-on",
         };
         if (
           blob &&
@@ -592,18 +577,104 @@ function ResultStage({
           nav.canShare({ files: [new File([blob], "draep-tryon.jpg", { type: blob.type })] })
         ) {
           shareData.files = [new File([blob], "draep-tryon.jpg", { type: blob.type })];
-        } else {
-          shareData.url = resultUrl;
         }
         await nav.share(shareData);
       } catch {
-        /* user cancelled — silent */
+        /* user cancelled */
       }
-    } else {
-      // No Web Share API — copy the URL as a fallback.
-      void handleCopy();
     }
-  }, [fetchBlob, resultUrl, handleCopy]);
+  }, [fetchBlob, latest.imageUrl]);
+
+  // ── Refine (chat) handler ───────────────────────────────────────────
+
+  const handleRefine = useCallback(
+    async (instruction: string) => {
+      const trimmed = instruction.trim();
+      if (!trimmed || refining) return;
+
+      setRefining(true);
+      setRefineError(false);
+      track({ event: "tryon_refined", instruction: trimmed });
+
+      try {
+        const result = await refineTryOn(latest.imageUrl, trimmed, garmentId);
+        onRefineResult(trimmed, result.output_url, result.suggestions);
+      } catch {
+        setRefineError(true);
+      } finally {
+        setRefining(false);
+        setChatInput("");
+      }
+    },
+    [latest.imageUrl, refining, onRefineResult, garmentId],
+  );
+
+  const handleSubmitChat = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (chatInput.trim()) void handleRefine(chatInput);
+    },
+    [chatInput, handleRefine],
+  );
+
+  // ── Speech recognition (mic) ────────────────────────────────────────
+
+  const handleMicToggle = useCallback(() => {
+    if (listening) {
+      (recognitionRef.current as { stop: () => void } | null)?.stop();
+      return;
+    }
+
+    const SR =
+      (typeof window !== "undefined" &&
+        ((window as unknown as Record<string, unknown>).SpeechRecognition ||
+          (window as unknown as Record<string, unknown>).webkitSpeechRecognition)) ||
+      null;
+
+    if (!SR) {
+      showToast("Voice input isn't supported on this browser.");
+      return;
+    }
+
+    const recognition = new (SR as new () => {
+      lang: string;
+      interimResults: boolean;
+      maxAlternatives: number;
+      onresult: (event: { results: { 0?: { 0?: { transcript?: string } } } }) => void;
+      onerror: () => void;
+      onend: () => void;
+      start: () => void;
+      stop: () => void;
+    })();
+
+    recognition.lang = "en-IN";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript ?? "";
+      if (transcript) {
+        setChatInput(transcript);
+      }
+    };
+    recognition.onerror = () => {
+      setListening(false);
+    };
+    recognition.onend = () => {
+      setListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  }, [listening, showToast]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      (recognitionRef.current as { stop: () => void } | null)?.stop();
+    };
+  }, []);
 
   return (
     <>
@@ -612,91 +683,155 @@ function ResultStage({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -8 }}
         transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-        className="relative flex flex-col gap-3"
+        className="relative flex max-h-[72vh] flex-col gap-2"
       >
-        {/* Result image — tap to open fullscreen */}
-        <button
-          type="button"
-          onClick={() => setFullscreen(true)}
-          className="group relative block w-full overflow-hidden rounded-card border border-hairline bg-mist-navy text-left"
-          aria-label="Open image full screen"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <motion.img
-            src={resultUrl}
-            alt="Your virtual try-on"
-            className="mx-auto block max-h-[50vh] w-auto max-w-full cursor-zoom-in object-contain transition-transform duration-200 group-hover:scale-[1.01]"
-            initial={{ scale: 1.04, opacity: 0.4 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-          />
-          {/* AI preview badge (glass) */}
-          <motion.div
-            aria-hidden
-            className="pointer-events-none absolute right-3 top-3 flex items-center gap-1 rounded-pill border border-chalk-white/30 bg-chalk-white/20 px-2.5 py-1 text-[11px] font-semibold text-chalk-white backdrop-blur-xl"
-            initial={{ scale: 0.6, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.35, duration: 0.35 }}
-          >
-            <Sparkles size={12} />
-            AI preview
-          </motion.div>
-          {/* Enlarge hint badge (bottom-left, always visible) */}
-          <div className="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1 rounded-pill bg-ink-navy/70 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-chalk-white backdrop-blur-md">
-            <ExpandGlyph />
-            Tap to enlarge
-          </div>
-        </button>
-
-        <div>
-          <p className="font-heading text-h3 font-semibold text-ink-navy">
-            {strings.tryOn.resultTitle}
-          </p>
-          <p className="mt-0.5 text-caption text-muted">{strings.tryOn.resultTip}</p>
-        </div>
-
-        {/* ─── Share row ──────────────────────────────────────────────────── */}
-        <div className="rounded-card border border-hairline bg-mist-navy/60 p-2.5">
-          <p className="mb-1.5 px-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-muted">
-            {strings.tryOn.shareHeading}
-          </p>
-          <div className="grid grid-cols-4 gap-1.5">
+        {/* ─── Top bar: share + done ───────────────────────────────────── */}
+        <div className="flex shrink-0 items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
             <ShareButton label={strings.tryOn.shareSave} onClick={handleSave}>
               <DownloadGlyph />
             </ShareButton>
             <ShareButton label={strings.tryOn.shareWhatsapp} onClick={handleWhatsapp}>
               <WhatsappGlyph />
             </ShareButton>
-            <ShareButton
-              label={copied ? strings.tryOn.shareCopied : strings.tryOn.shareCopy}
-              onClick={handleCopy}
-              highlight={copied}
-            >
-              <LinkGlyph />
-            </ShareButton>
             <ShareButton label={strings.tryOn.shareMore} onClick={handleMore}>
               <ShareGlyph />
             </ShareButton>
           </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2.5">
-          <button
-            type="button"
-            onClick={onAgain}
-            className="rounded-pill border border-hairline-strong bg-chalk-white px-3 py-1.5 text-caption font-medium text-ink-navy transition-all hover:border-navy-interactive active:scale-[0.98]"
-          >
-            {strings.tryOn.again}
-          </button>
           <button
             type="button"
             onClick={onDone}
-            className="rounded-pill bg-tape px-3 py-1.5 text-caption font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98]"
+            className="rounded-pill bg-tape px-4 py-1.5 text-caption font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98]"
             style={{ backgroundImage: "var(--tape-gradient)" }}
           >
             {strings.tryOn.done}
           </button>
         </div>
+
+        {/* ─── Scrollable image feed ───────────────────────────────────── */}
+        <div
+          ref={scrollRef}
+          className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain pr-0.5"
+        >
+          <AnimatePresence initial={false}>
+            {feed.map((entry, idx) => (
+              <FeedCard
+                key={entry.id}
+                entry={entry}
+                isLatest={idx === feed.length - 1}
+                isInitial={entry.instruction === null}
+                refining={refining && idx === feed.length - 1}
+                onImageClick={() => setFullscreenUrl(entry.imageUrl)}
+              />
+            ))}
+          </AnimatePresence>
+
+          {/* Refining placeholder card (appears at bottom while waiting) */}
+          <AnimatePresence>
+            {refining && (
+              <motion.div
+                key="refining-placeholder"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25 }}
+                className="flex flex-col items-center gap-2 rounded-card border border-dashed border-hairline-strong bg-mist-navy/40 py-6"
+              >
+                <motion.div
+                  className="h-7 w-7 rounded-full border-2 border-navy-interactive/30 border-t-navy-interactive"
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+                />
+                <p className="text-caption font-medium text-muted">
+                  {strings.tryOn.chatRefining}
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* ─── Suggestion tags (from the latest image) ─────────────────── */}
+        {latest.suggestions.length > 0 && !refining && (
+          <div className="shrink-0">
+            <p className="mb-1 px-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-muted">
+              {strings.tryOn.suggestionsLabel}
+            </p>
+            <div className="flex flex-wrap justify-start gap-1.5">
+              {latest.suggestions.map((tag, i) => (
+                <button
+                  key={`${tag}-${i}`}
+                  type="button"
+                  disabled={refining}
+                  onClick={() => void handleRefine(tag)}
+                  className="rounded-pill border border-hairline-strong bg-chalk-white px-3 py-1.5 text-left text-caption text-ink-navy transition-all hover:border-accent-text hover:text-accent-text active:scale-[0.97] disabled:opacity-50"
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ─── Chat input (pinned at bottom) ───────────────────────────── */}
+        <form onSubmit={handleSubmitChat} className="relative shrink-0">
+          <div className="flex items-center gap-1.5 rounded-card border border-hairline-strong bg-chalk-white p-1.5">
+            {/* Mic button */}
+            <button
+              type="button"
+              onClick={handleMicToggle}
+              aria-label={strings.tryOn.chatMic}
+              className={
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors " +
+                (listening
+                  ? "bg-error-bg text-error-text"
+                  : "text-muted hover:bg-mist-navy")
+              }
+            >
+              <MicGlyph active={listening} />
+            </button>
+
+            {/* Text input */}
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => {
+                setChatInput(e.target.value);
+                setRefineError(false);
+              }}
+              placeholder={
+                listening ? strings.tryOn.chatListening : strings.tryOn.chatPlaceholder
+              }
+              disabled={refining}
+              className="min-w-0 flex-1 border-none bg-transparent text-body text-ink-navy placeholder:text-muted focus:outline-none disabled:opacity-50"
+            />
+
+            {/* Send button */}
+            <button
+              type="submit"
+              disabled={!chatInput.trim() || refining}
+              aria-label={strings.tryOn.chatSend}
+              className="flex h-9 shrink-0 items-center gap-1 rounded-pill bg-tape px-3 text-caption font-semibold text-chalk-white transition-all hover:brightness-105 active:scale-[0.97] disabled:opacity-40"
+              style={{ backgroundImage: "var(--tape-gradient)" }}
+            >
+              <SendGlyph />
+              <span className="hidden xs:inline">{strings.tryOn.chatSend}</span>
+            </button>
+          </div>
+
+          {/* Error hint */}
+          <AnimatePresence>
+            {refineError && (
+              <motion.p
+                className="absolute -bottom-5 left-2 text-[11px] text-error-text"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                {strings.tryOn.chatError}
+              </motion.p>
+            )}
+          </AnimatePresence>
+        </form>
 
         {/* Toast */}
         <AnimatePresence>
@@ -715,16 +850,15 @@ function ResultStage({
 
       {/* ─── Fullscreen image overlay ──────────────────────────────────── */}
       <AnimatePresence>
-        {fullscreen && (
+        {fullscreenUrl && (
           <motion.div
             className="fixed inset-0 z-[120] flex flex-col bg-ink-navy/95 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            onClick={() => setFullscreen(false)}
+            onClick={() => setFullscreenUrl(null)}
           >
-            {/* Top bar with close affordance */}
             <div className="flex items-center justify-between px-4 py-3">
               <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-chalk-white/80">
                 <Sparkles size={13} />
@@ -732,17 +866,16 @@ function ResultStage({
               </span>
               <button
                 type="button"
-                onClick={() => setFullscreen(false)}
+                onClick={() => setFullscreenUrl(null)}
                 aria-label="Close full screen"
                 className="flex h-9 w-9 items-center justify-center rounded-full border border-chalk-white/25 bg-chalk-white/10 text-chalk-white transition-colors hover:bg-chalk-white/20"
               >
                 <Close size={20} />
               </button>
             </div>
-            {/* The image — fills available space, scrollable if needed */}
             <div className="flex flex-1 items-center justify-center overflow-auto p-3">
               <motion.img
-                src={resultUrl}
+                src={fullscreenUrl}
                 alt="Your virtual try-on (full screen)"
                 className="block max-h-full max-w-full rounded-card object-contain"
                 initial={{ scale: 0.96, opacity: 0 }}
@@ -762,62 +895,123 @@ function ResultStage({
   );
 }
 
-/* ─── Share button + glyphs ───────────────────────────────────────────── */
+/* ─── Feed card (one per generated image) ────────────────────────────── */
 
-type NavigatorWithShare = Navigator & {
-  canShare?: (data?: ShareData) => boolean;
-};
+function FeedCard({
+  entry,
+  isLatest,
+  isInitial,
+  refining,
+  onImageClick,
+}: {
+  entry: FeedEntry;
+  isLatest: boolean;
+  isInitial: boolean;
+  refining: boolean;
+  onImageClick: () => void;
+}) {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 16, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      className="flex flex-col gap-1.5"
+    >
+      {/* Instruction label (chat bubble for refinements) */}
+      {entry.instruction !== null && (
+        <div className="flex justify-end">
+          <div
+            className="max-w-[80%] rounded-pill rounded-br-sm bg-tape px-3 py-1.5 text-caption font-medium text-chalk-white shadow-sm"
+            style={{ backgroundImage: "var(--tape-gradient)" }}
+          >
+            {entry.instruction}
+          </div>
+        </div>
+      )}
+
+      {/* Image card */}
+      <button
+        type="button"
+        onClick={onImageClick}
+        disabled={refining}
+        className="group relative block w-full overflow-hidden rounded-card border border-hairline bg-mist-navy text-left disabled:cursor-default"
+        aria-label="Open image full screen"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <motion.img
+          src={entry.imageUrl}
+          alt={isInitial ? "Your virtual try-on" : "Refined try-on"}
+          className="mx-auto block max-h-[45vh] w-auto max-w-full cursor-zoom-in object-contain transition-transform duration-200 group-hover:scale-[1.01] disabled:cursor-default"
+          initial={{ scale: 1.04, opacity: 0.4 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        />
+
+        {/* Badge: "Initial" or "Latest" */}
+        <div className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-pill bg-ink-navy/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-chalk-white backdrop-blur-md">
+          {isInitial ? (
+            <>
+              <Sparkles size={10} />
+              Original
+            </>
+          ) : isLatest ? (
+            <>
+              <Sparkles size={10} />
+              Latest
+            </>
+          ) : (
+            <>v{entry.id}</>
+          )}
+        </div>
+
+        {/* Expand hint on the latest image */}
+        {isLatest && !refining && (
+          <div className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 rounded-pill bg-ink-navy/70 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-chalk-white backdrop-blur-md">
+            <ExpandGlyph />
+            Tap
+          </div>
+        )}
+      </button>
+    </motion.div>
+  );
+}
+
+/* ─── Share button + glyphs ───────────────────────────────────────────── */
 
 function ShareButton({
   label,
   onClick,
-  highlight,
   children,
 }: {
   label: string;
   onClick: () => void;
-  highlight?: boolean;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={
-        "flex flex-col items-center justify-center gap-0.5 rounded-pill border px-1 py-1.5 text-[10px] font-medium transition-all active:scale-[0.97] " +
-        (highlight
-          ? "border-accent-text/50 bg-accent-fill/10 text-accent-text"
-          : "border-hairline bg-chalk-white text-ink-navy hover:border-navy-interactive")
-      }
+      aria-label={label}
+      className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline bg-chalk-white text-accent-text transition-all hover:border-navy-interactive active:scale-[0.97]"
     >
-      <span className={highlight ? "text-accent-text" : "text-accent-text"}>
-        {children}
-      </span>
-      <span className="leading-none">{label}</span>
+      {children}
     </button>
   );
 }
 
 function DownloadGlyph() {
   return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" />
-    </svg>
-  );
-}
-
-function LinkGlyph() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
-      <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
     </svg>
   );
 }
 
 function ShareGlyph() {
   return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <circle cx="18" cy="5" r="2.5" />
       <circle cx="6" cy="12" r="2.5" />
       <circle cx="18" cy="19" r="2.5" />
@@ -828,7 +1022,7 @@ function ShareGlyph() {
 
 function WhatsappGlyph() {
   return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
       <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.86 9.86 0 0 0 12.04 2zm0 18a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.22 8.22 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.24-8.24 2.2 0 4.27.86 5.82 2.42a8.18 8.18 0 0 1 2.41 5.83c0 4.54-3.7 8.23-8.23 8.23zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.17.24-.64.81-.79.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-1.99-1.23a7.45 7.45 0 0 1-1.38-1.71c-.14-.25-.01-.38.11-.5.11-.11.24-.29.37-.43.12-.14.16-.25.24-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43-.14-.01-.31-.01-.48-.01s-.43.06-.66.31c-.23.24-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.07.14-1.18-.06-.1-.22-.16-.47-.28z" />
     </svg>
   );
@@ -836,22 +1030,49 @@ function WhatsappGlyph() {
 
 function ExpandGlyph() {
   return (
-    <svg
-      width={10}
-      height={10}
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      {/* Four corner brackets — "expand" icon */}
+    <svg width={10} height={10} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M1 4V1h3M11 4V1H8M1 8v3h3M11 8v3H8" />
     </svg>
   );
 }
+
+function MicGlyph({ active }: { active: boolean }) {
+  return (
+    <svg
+      width={18}
+      height={18}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {active ? (
+        <>
+          <rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor" />
+          <path d="M5 11a7 7 0 0 0 14 0M12 18v4" />
+        </>
+      ) : (
+        <>
+          <rect x="9" y="2" width="6" height="12" rx="3" />
+          <path d="M5 11a7 7 0 0 0 14 0M12 18v4" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function SendGlyph() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M22 2L11 13M22 2l-7 20-4-9-9-4z" />
+    </svg>
+  );
+}
+
+/* ─── Error stage ────────────────────────────────────────────────────── */
 
 function ErrorStage({
   message,

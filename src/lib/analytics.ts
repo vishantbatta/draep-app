@@ -36,8 +36,9 @@ export type AnalyticsEvent =
   | {
       event: "tryon_shared";
       design_image_url: string;
-      share_method: "save" | "whatsapp" | "copy" | "more";
-    };
+      share_method: "save" | "whatsapp" | "more";
+    }
+  | { event: "tryon_refined"; instruction: string };
 
 export function track(event: AnalyticsEvent): void {
   if (typeof window === "undefined") return;
