@@ -1,22 +1,22 @@
 "use client";
 
 /**
- * useGeminiLiveCall — React hook managing a Gemini Live API WebSocket session.
+ * useGeminiLiveCall — React hook for the live AI designer video call.
  *
- * Modelled directly on Google's reference implementation:
- *   - Dumb backend proxy (pure pass-through)
- *   - All config sent from the browser in the setup message
- *   - realtime_input.media_chunks for audio + video (snake_case)
- *   - client_content for text turns
- *   - tool_response for function call results
- *   - VAD with proper sensitivity settings + NO_INTERRUPTION
- *   - Audio playback at 24kHz (Gemini output rate)
- *   - Audio capture at 16kHz
+ * Architecture (Option 2 — ADK Runner on the backend, no LiveKit):
+ *   Browser (raw WS) ──► /api/v1/stylist/live-ws ──► ADK Runner.run_live ──► Gemini Live
+ *
+ * The backend (app/api/stylist_live.py + app/stylist_agent/) owns the Gemini
+ * Live session: model config, system instruction, tools, and — crucially —
+ * session resumption + reconnect. So this hook is now a thin transport layer:
+ *   - Streams mic audio (16kHz PCM) + camera frames (1fps JPEG) to the backend.
+ *   - Plays back model audio (24kHz PCM).
+ *   - Renders transcript + design previews the backend forwards.
+ *   - Reconnects the raw browser WS on network drop (the conversation survives
+ *     because the backend session persists independently).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-
-import { getStylistComponents, generateDesign } from "@/lib/api/stylist";
 
 export type CallStatus =
   | "idle"
@@ -49,9 +49,7 @@ export interface DesignImage {
 
 // ── Constants ───────────────────────────────────────────────────────────
 
-const MODEL = "publishers/google/models/gemini-live-2.5-flash-native-audio";
-
-// Video frame capture rate (1fps like the reference)
+// Video frame capture rate (1fps)
 const FRAME_INTERVAL_MS = 1000;
 
 // Audio input rate (Gemini expects 16kHz)
@@ -59,28 +57,6 @@ const AUDIO_INPUT_RATE = 16000;
 
 // Audio output rate (Gemini outputs at 24kHz)
 const AUDIO_OUTPUT_RATE = 24000;
-
-const SYSTEM_INSTRUCTION = `You are Draep's AI Fashion Designer — a warm, expert stylist on a video call with a customer who wants to design a custom blouse (Indian ethnic wear).
-
-YOUR ROLE:
-- You are on a live VIDEO CALL. You can SEE the user through their camera.
-- You are friendly, concise, and speak naturally — like a real designer on a video consultation.
-- You speak in the user's preferred language.
-
-CALL FLOW (follow this exactly):
-1. First, greet the user warmly and ask: "What language would you prefer for our consultation?" Wait for their answer, then switch to that language for the rest of the call.
-2. Ask the user to show their full upper body on camera so you can see their body type and posture. Confirm when you can see them clearly.
-3. Call get_garment_components to get the full list of available blouse design options.
-4. Based on what you see (their body type, posture, and any preferences they share), suggest a complete blouse design. Describe the neckline, back design, sleeve style, and any add-ons you recommend — explaining WHY each choice suits them.
-5. Once the user is happy with your suggestion, call generate_design_image with a detailed description of the design and the current camera frame. Show them the result and refine based on their feedback.
-
-IMPORTANT RULES:
-- Be conversational — short sentences, natural pauses. Don't monologue.
-- Ask one question at a time and wait for the answer.
-- When describing designs, be specific: "I recommend a sweetheart neckline with elbow-length sleeves and a deep back with tie-up detail."
-- Always use the get_garment_components tool to know exactly what options are available — never invent options.
-- Always use the generate_design_image tool to create visual previews — never just describe without showing.
-- Keep the tone warm, confident, and professional — like a master tailor who loves their craft.`;
 
 // ── Hook ────────────────────────────────────────────────────────────────
 
@@ -104,6 +80,10 @@ export function useGeminiLiveCall() {
   // Audio playback (output) — separate context at 24kHz
   const outputAudioCtxRef = useRef<AudioContext | null>(null);
   const nextAudioTimeRef = useRef(0);
+  // Active playback sources — tracked so we can STOP them immediately on
+  // interruption (barge-in) or disconnect, otherwise already-scheduled buffers
+  // keep playing and the designer can't be cut off.
+  const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
   // Audio capture (input) — separate context at 16kHz
   const inputAudioCtxRef = useRef<AudioContext | null>(null);
@@ -111,27 +91,13 @@ export function useGeminiLiveCall() {
   const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
 
   const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const componentListRef = useRef<string>("");
 
   const mutedRef = useRef(false);
   const statusRef = useRef<CallStatus>("idle");
-  const setupDoneRef = useRef(false);
-  const receivedAudioRef = useRef(false); // true once we get any audio from the model
-
-  // Anti-idle: Gemini Live tears down idle bidi streams (1006) when the mic goes
-  // quiet — notably during the tool-call fetch gap. We keep the stream "alive" by
-  // mixing a very low-amplitude synthesized keyboard-typing sound into the
-  // Gemini-bound mic signal. It is near-silent to humans but registers as
-  // continuous activity to Gemini's VAD. Never routed to the user's speakers.
-  const antiIdleRef = useRef(true);
-  const keyPhaseRef = useRef(0); // tracks position in the typing pattern
-
-  // Auto-reconnect: when Gemini tears the stream down mid-call (1006 after audio),
-  // we transparently re-establish the session instead of ending the call.
+  const manualDisconnectRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
-  const MAX_RECONNECT_ATTEMPTS = 3;
-  const manualDisconnectRef = useRef(false); // true when the user ended the call
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const MAX_RECONNECT_ATTEMPTS = 5;
 
   useEffect(() => {
     statusRef.current = status;
@@ -144,7 +110,6 @@ export function useGeminiLiveCall() {
       const ctx = outputAudioCtxRef.current;
       if (!ctx) return;
 
-      // Decode base64 → bytes
       const binaryStr = atob(base64Data);
       const len = binaryStr.length;
       const bytes = new Uint8Array(len);
@@ -152,7 +117,7 @@ export function useGeminiLiveCall() {
         bytes[i] = binaryStr.charCodeAt(i);
       }
 
-      // Gemini sends raw PCM 16-bit LE at 24kHz
+      // Backend sends raw PCM 16-bit LE at 24kHz
       const numBytes = len - (len % 2);
       const samples = numBytes / 2;
       if (samples === 0) return;
@@ -169,6 +134,12 @@ export function useGeminiLiveCall() {
       source.buffer = audioBuffer;
       source.connect(ctx.destination);
 
+      // Track this source so interruption/disconnect can stop it.
+      activeSourcesRef.current.add(source);
+      source.onended = () => {
+        activeSourcesRef.current.delete(source);
+      };
+
       const startTime = Math.max(ctx.currentTime, nextAudioTimeRef.current);
       source.start(startTime);
       nextAudioTimeRef.current = startTime + audioBuffer.duration;
@@ -177,98 +148,15 @@ export function useGeminiLiveCall() {
     }
   }, []);
 
-  // ── Handle function calls (browser-side, like reference) ────────────
-
-  const handleToolCalls = useCallback(
-    async (calls: Array<{ id: string; name: string; args: Record<string, unknown> }>) => {
-      console.log("[GeminiLive] Tool calls received:", calls.map((c) => c.name));
-
-      for (const call of calls) {
-        let responseObj: Record<string, unknown>;
-
-        try {
-          if (call.name === "get_garment_components") {
-            console.log("[GeminiLive] Fetching garment components...");
-            if (!componentListRef.current) {
-              const result = await getStylistComponents();
-              componentListRef.current = result.component_list;
-            }
-            responseObj = { components: componentListRef.current };
-            console.log("[GeminiLive] Components fetched, length:", componentListRef.current.length);
-          } else if (call.name === "generate_design_image") {
-            const imageData = captureCurrentFrame();
-            const description = (call.args.description as string) || "elegant blouse design";
-
-            if (!imageData) {
-              responseObj = { error: "Could not capture camera frame." };
-            } else {
-              console.log("[GeminiLive] Generating design image...");
-              const result = await generateDesign({ image: imageData, description });
-              console.log("[GeminiLive] Design generated:", result.output_url);
-
-              setDesignImages((prev) => [
-                ...prev,
-                { id: ++_designId, url: result.output_url, description, timestamp: Date.now() },
-              ]);
-
-              responseObj = {
-                success: true,
-                image_url: result.output_url,
-                message: "Design generated successfully.",
-              };
-            }
-          } else {
-            responseObj = { error: `Unknown function: ${call.name}` };
-          }
-        } catch (err) {
-          console.error(`[GeminiLive] Tool call ${call.name} failed:`, err);
-          responseObj = { error: err instanceof Error ? err.message : "Function call failed" };
-        }
-
-        // Send tool_response back to Google via the proxy
-        // Gemini Live API expects function_responses array inside tool_response
-        const toolResponseMsg = {
-          tool_response: {
-            function_responses: [
-              {
-                id: call.id,
-                name: call.name,
-                response: responseObj,
-              },
-            ],
-          },
-        };
-
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify(toolResponseMsg));
-          console.log(`[GeminiLive] Sent tool_response for ${call.name}`);
-        } else {
-          console.warn(`[GeminiLive] WS closed, couldn't send tool_response for ${call.name}`);
-        }
-      }
-    },
-    [],
-  );
-
-  // ── Capture current video frame as base64 ───────────────────────────
-
-  function captureCurrentFrame(): string | null {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas || !video.videoWidth) return null;
-
-    const maxWidth = 512;
-    const scale = Math.min(1, maxWidth / video.videoWidth);
-    canvas.width = video.videoWidth * scale;
-    canvas.height = video.videoHeight * scale;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.8);
-  }
+  // Stop all currently-playing/scheduled model audio immediately. Used on
+  // interruption (barge-in) and disconnect so the designer can be cut off.
+  const stopModelAudio = useCallback(() => {
+    nextAudioTimeRef.current = 0;
+    activeSourcesRef.current.forEach((s) => {
+      try { s.stop(); } catch { /* already ended */ }
+    });
+    activeSourcesRef.current.clear();
+  }, []);
 
   // ── Start microphone audio streaming ────────────────────────────────
 
@@ -290,15 +178,6 @@ export function useGeminiLiveCall() {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
       const input = e.inputBuffer.getChannelData(0);
-
-      // Anti-idle: mix a faint synthesized keyboard-typing sound into the mic
-      // signal so Gemini's VAD always sees activity (prevents mid-call 1006
-      // teardown during quiet moments / tool-call fetch gaps). Very low amplitude.
-      if (antiIdleRef.current) {
-        mixKeyboardIdle(input, keyPhaseRef);
-      }
-
-      // Resample from ctx.sampleRate (usually 48000) to 16000
       const downsampled = downsampleBuffer(input, ctx.sampleRate, AUDIO_INPUT_RATE);
       if (!downsampled) return;
 
@@ -306,24 +185,17 @@ export function useGeminiLiveCall() {
       const base64 = arrayBufferToBase64(pcm16.buffer);
       if (!base64) return;
 
-      // Use realtime_input.media_chunks format (matching reference exactly)
       ws.send(
         JSON.stringify({
           realtime_input: {
-            media_chunks: [
-              {
-                mime_type: "audio/pcm",
-                data: base64,
-              },
-            ],
+            media_chunks: [{ mime_type: "audio/pcm", data: base64 }],
           },
         }),
       );
     };
 
     source.connect(processor);
-    // Connect to a zero-gain node so the processor stays alive but
-    // mic audio does NOT play through the speakers (prevents echo/feedback).
+    // Zero-gain node keeps the processor alive without playing mic through speakers.
     const silencer = ctx.createGain();
     silencer.gain.value = 0;
     processor.connect(silencer);
@@ -361,22 +233,15 @@ export function useGeminiLiveCall() {
 
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       const base64 = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
       if (!base64) return;
 
-      // Use realtime_input.media_chunks format (matching reference exactly)
       ws.send(
         JSON.stringify({
           realtime_input: {
-            media_chunks: [
-              {
-                mime_type: "image/jpeg",
-                data: base64,
-              },
-            ],
+            media_chunks: [{ mime_type: "image/jpeg", data: base64 }],
           },
         }),
       );
@@ -403,36 +268,13 @@ export function useGeminiLiveCall() {
         return;
       }
 
-      // ── setupComplete ──
-      if ("setupComplete" in msg) {
-        console.log("[GeminiLive] Setup complete — session ready");
-        setupDoneRef.current = true;
-        setStatus("connected");
-        startVideoStreaming();
-
-        // Start audio streaming NOW
-        if (streamRef.current) {
-          startAudioStreaming(streamRef.current);
-        }
-
-        // Kick off conversation with initial text turn
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(
-            JSON.stringify({
-              client_content: {
-                turns: [
-                  {
-                    role: "user",
-                    parts: [{ text: "Hi! I'm ready for my fashion consultation." }],
-                  },
-                ],
-                turn_complete: true,
-              },
-            }),
-          );
-          console.log("[GeminiLive] Sent initial greeting turn");
-        }
+      // ── Design image (out-of-band from the image tool) ──
+      const design = msg.designImage as { url: string; description: string } | undefined;
+      if (design?.url) {
+        setDesignImages((prev) => [
+          ...prev,
+          { id: ++_designId, url: design.url, description: design.description, timestamp: Date.now() },
+        ]);
         return;
       }
 
@@ -463,7 +305,6 @@ export function useGeminiLiveCall() {
               ]);
             }
             if (part.inlineData?.data) {
-              receivedAudioRef.current = true;
               playAudioChunk(part.inlineData.data);
             }
           }
@@ -472,76 +313,44 @@ export function useGeminiLiveCall() {
         if (serverContent.outputTranscription?.text) {
           setTranscript((prev) => [
             ...prev,
-            {
-              id: ++_transcriptId,
-              role: "model",
-              text: serverContent.outputTranscription!.text,
-              timestamp: Date.now(),
-            },
+            { id: ++_transcriptId, role: "model", text: serverContent.outputTranscription!.text, timestamp: Date.now() },
           ]);
         }
 
         if (serverContent.inputTranscription?.text) {
           setTranscript((prev) => [
             ...prev,
-            {
-              id: ++_transcriptId,
-              role: "user",
-              text: serverContent.inputTranscription!.text,
-              timestamp: Date.now(),
-            },
+            { id: ++_transcriptId, role: "user", text: serverContent.inputTranscription!.text, timestamp: Date.now() },
           ]);
         }
 
-        // Flush audio queue on interruption
+        // Interruption (barge-in): stop all queued/playing model audio so the
+        // designer can be cut off mid-sentence.
         if (serverContent.interrupted) {
-          nextAudioTimeRef.current = 0;
+          stopModelAudio();
         }
       }
-
-      // ── Tool calls ──
-      const toolCall = msg.toolCall as
-        | { functionCalls: Array<{ id: string; name: string; args: Record<string, unknown> }> }
-        | undefined;
-
-      if (toolCall?.functionCalls) {
-        void handleToolCalls(toolCall.functionCalls);
-      }
     },
-    [playAudioChunk, handleToolCalls, startVideoStreaming, startAudioStreaming],
+    [playAudioChunk, stopModelAudio],
   );
 
   // ── Connect (start the call) ────────────────────────────────────────
 
-  // Ref so the onclose handler can trigger connect() for auto-reconnect without
-  // a stale closure / dependency cycle. Assigned below after connect() is defined.
-  const connectRef = useRef<((opts?: { isReconnect?: boolean }) => Promise<void>) | null>(null);
-
-  const connect = useCallback(async (opts?: { isReconnect?: boolean }) => {
-    const isReconnect = opts?.isReconnect ?? false;
-    manualDisconnectRef.current = false;
-
-    if (isReconnect) {
-      // Preserve transcript + designs across a transparent reconnect.
-      setStatus("reconnecting");
-    } else {
-      setStatus("connecting");
-      setTranscript([]);
-      setDesignImages([]);
-      reconnectAttemptsRef.current = 0;
-    }
+  const connect = useCallback(async () => {
+    setStatus("connecting");
     setErrorMsg(null);
+    setTranscript([]);
+    setDesignImages([]);
+    manualDisconnectRef.current = false;
+    reconnectAttemptsRef.current = 0;
     setCloseDetail(null);
-    setupDoneRef.current = false;
-    receivedAudioRef.current = false;
 
     try {
       const AudioCtx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
 
-      // 1. Get user media (front camera + mic) — reuse on reconnect to avoid
-      //    re-prompting / camera flicker.
+      // 1. Get user media (front camera + mic) — reuse on reconnect
       let stream = streamRef.current;
       if (!stream) {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -556,7 +365,7 @@ export function useGeminiLiveCall() {
         streamRef.current = stream;
       }
 
-      // 2. Initialize output audio context at 24kHz (for playback) — reuse if open
+      // 2. Output audio context at 24kHz (reuse if open)
       if (!outputAudioCtxRef.current) {
         outputAudioCtxRef.current = new AudioCtx({ sampleRate: AUDIO_OUTPUT_RATE });
       }
@@ -565,7 +374,7 @@ export function useGeminiLiveCall() {
       }
       nextAudioTimeRef.current = 0;
 
-      // 3. Initialize input audio context at 16kHz (for capture) — reuse if open
+      // 3. Input audio context at 16kHz (reuse if open)
       if (!inputAudioCtxRef.current) {
         inputAudioCtxRef.current = new AudioCtx({ sampleRate: AUDIO_INPUT_RATE });
       }
@@ -579,7 +388,7 @@ export function useGeminiLiveCall() {
         await videoRef.current.play().catch(() => {});
       }
 
-      // 5. Open WebSocket to backend proxy
+      // 5. Open WebSocket to the ADK-backed backend endpoint.
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
       const apiHost = apiUrl.replace(/^https?:\/\//, "").replace(/\/api\/v1$/, "");
       const apiProto = apiUrl.startsWith("https") ? "wss:" : "ws:";
@@ -589,72 +398,23 @@ export function useGeminiLiveCall() {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log("[GeminiLive] WebSocket opened, sending setup...");
+        console.log("[GeminiLive] WebSocket opened");
+        setStatus("connected");
+        startVideoStreaming();
+        if (streamRef.current) {
+          startAudioStreaming(streamRef.current);
+        }
 
-        // Setup message using snake_case keys (matching Google's reference exactly)
-        const setup = {
-          model: MODEL,
-          generation_config: {
-            response_modalities: ["AUDIO"],
-            temperature: 1.0,
-            speech_config: {
-              voice_config: {
-                prebuilt_voice_config: {
-                  voice_name: "Puck",
-                },
-              },
+        // Kick off the conversation with a greeting turn. The backend's ADK
+        // Runner owns all model config; we just send the first user turn.
+        ws.send(
+          JSON.stringify({
+            client_content: {
+              turns: [{ role: "user", parts: [{ text: "Hi! I'm ready for my fashion consultation." }] }],
+              turn_complete: true,
             },
-          },
-          system_instruction: {
-            parts: [{ text: SYSTEM_INSTRUCTION }],
-          },
-          tools: {
-            function_declarations: [
-              {
-                name: "get_garment_components",
-                description:
-                  "Get the complete list of available blouse style components and their options (necklines, sleeves, back designs, add-ons, etc.). Call this to know exactly what design options are available before making suggestions.",
-                parameters: { type: "object", properties: {} },
-              },
-              {
-                name: "generate_design_image",
-                description:
-                  "Generate a photorealistic image of the user wearing a specific blouse design. Pass a detailed description of the design. The function captures the current camera frame and overlays the design. Returns the generated image.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    description: {
-                      type: "string",
-                      description:
-                        "Detailed description of the blouse design to generate, e.g. 'Sweetheart neckline, elbow-length sleeves, deep V-back with tie-up, navy blue silk with gold embroidery'",
-                    },
-                  },
-                  required: ["description"],
-                },
-              },
-            ],
-          },
-          // Proactive audio lets the model speak first without waiting for user input
-          proactivity: {
-            proactive_audio: true,
-          },
-          realtime_input_config: {
-            automatic_activity_detection: {
-              disabled: false,
-              silence_duration_ms: 0,
-              prefix_padding_ms: 500,
-              end_of_speech_sensitivity: "END_SENSITIVITY_HIGH",
-              start_of_speech_sensitivity: "START_SENSITIVITY_UNSPECIFIED",
-            },
-            // NO_INTERRUPTION prevents barge-in so the designer's full response plays
-            activity_handling: "NO_INTERRUPTION",
-          },
-          input_audio_transcription: {},
-          output_audio_transcription: {},
-        };
-
-        ws.send(JSON.stringify({ setup }));
-        console.log("[GeminiLive] Setup message sent");
+          }),
+        );
       };
 
       ws.onmessage = handleWsMessage;
@@ -664,11 +424,11 @@ export function useGeminiLiveCall() {
       };
 
       ws.onclose = (event) => {
-        console.warn(
-          `[GeminiLive] WebSocket closed: code=${event.code}, reason="${event.reason}", wasClean=${event.wasClean}`,
-        );
+        console.warn(`[GeminiLive] WebSocket closed: code=${event.code}, reason="${event.reason}"`);
+        stopModelAudio();
+        stopVideoStreaming();
+        stopAudioStreaming();
 
-        // Store close detail for the UI modal
         const detail: CloseDetail = {
           code: event.code,
           reason: event.reason || "(no reason provided)",
@@ -677,52 +437,30 @@ export function useGeminiLiveCall() {
         };
         setCloseDetail(detail);
 
-        stopVideoStreaming();
-        stopAudioStreaming();
-
-        // User ended the call intentionally — never reconnect.
+        // User ended the call — don't reconnect.
         if (manualDisconnectRef.current) {
           setStatus("ended");
           return;
         }
 
-        // Mid-call abnormal close (1006 = Gemini/Vertex tore down the bidi stream,
-        // which it does non-deterministically on idle/duration/quota limits).
-        // Attempt a transparent reconnect so the user isn't dropped.
-        const isMidCallDrop =
-          setupDoneRef.current && (event.code === 1006 || event.code === 1011);
-
-        if (isMidCallDrop && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+        // Network drop — the backend session persists, so transparently
+        // reconnect the browser WS and resume (the backend replays/resumes).
+        if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
           reconnectAttemptsRef.current += 1;
           const attempt = reconnectAttemptsRef.current;
-          console.log(
-            `[GeminiLive] Mid-call drop (code ${event.code}) — auto-reconnect attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS}`,
-          );
+          console.log(`[GeminiLive] Reconnect attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS}`);
           setStatus("reconnecting");
-          const delay = Math.min(1000 * attempt, 3000); // 1s, 2s, 3s backoff
+          const delay = Math.min(1000 * attempt, 3000);
           reconnectTimerRef.current = setTimeout(() => {
-            connectRef.current?.({ isReconnect: true });
+            void connect();
           }, delay);
           return;
         }
 
-        // Reconnect exhausted OR a setup-time failure — surface to the user.
-        if (isMidCallDrop) {
-          console.log("[GeminiLive] Reconnect attempts exhausted — ending call");
-        }
-
-        // Build human-readable error message
+        // Exhausted — surface to the user.
         const reasonText = event.reason || getCloseCodeExplanation(event.code);
-        const parts: string[] = ["Call ended abruptly."];
-        parts.push(`Code ${event.code}: ${reasonText}`);
-
-        if (!setupDoneRef.current) {
-          setErrorMsg(parts.join(" "));
-          setStatus("error");
-        } else if (statusRef.current !== "ended" && statusRef.current !== "error") {
-          setErrorMsg(parts.join(" "));
-          setStatus("ended");
-        }
+        setErrorMsg(`Call ended abruptly. Code ${event.code}: ${reasonText}`);
+        setStatus("ended");
       };
     } catch (err) {
       console.error("[GeminiLive] Connect failed:", err);
@@ -733,21 +471,11 @@ export function useGeminiLiveCall() {
       );
       setStatus("error");
     }
-  }, [
-    handleWsMessage,
-    stopVideoStreaming,
-    stopAudioStreaming,
-  ]);
-
-  // Keep the ref in sync so onclose can call the latest connect().
-  useEffect(() => {
-    connectRef.current = connect;
-  }, [connect]);
+  }, [handleWsMessage, startVideoStreaming, startAudioStreaming, stopVideoStreaming, stopAudioStreaming, stopModelAudio]);
 
   // ── Disconnect ──────────────────────────────────────────────────────
 
   const disconnect = useCallback(() => {
-    // Mark intentional so the onclose handler doesn't trigger auto-reconnect.
     manualDisconnectRef.current = true;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
@@ -755,6 +483,7 @@ export function useGeminiLiveCall() {
     }
     reconnectAttemptsRef.current = 0;
 
+    stopModelAudio();
     stopVideoStreaming();
     stopAudioStreaming();
 
@@ -779,7 +508,7 @@ export function useGeminiLiveCall() {
     }
 
     setStatus("ended");
-  }, [stopVideoStreaming, stopAudioStreaming]);
+  }, [stopVideoStreaming, stopAudioStreaming, stopModelAudio]);
 
   // ── Toggle mute ─────────────────────────────────────────────────────
 
@@ -803,6 +532,7 @@ export function useGeminiLiveCall() {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
       }
+      stopModelAudio();
       stopVideoStreaming();
       stopAudioStreaming();
       if (wsRef.current) {
@@ -822,7 +552,7 @@ export function useGeminiLiveCall() {
         inputAudioCtxRef.current = null;
       }
     };
-  }, [stopVideoStreaming, stopAudioStreaming]);
+  }, [stopVideoStreaming, stopAudioStreaming, stopModelAudio]);
 
   return {
     status,
@@ -840,49 +570,6 @@ export function useGeminiLiveCall() {
 }
 
 // ── Audio helpers ───────────────────────────────────────────────────────
-
-/**
- * Mix a faint, continuously-varying "keyboard typing" sound into a mic buffer.
- *
- * Gemini Live's VAD tears down idle bidi streams (1006) when input goes quiet —
- * which happens during the tool-call HTTP fetch gap and any natural pause. This
- * synthesizes low-amplitude mechanical-keypress-like bursts that keep the stream
- * "alive" without being audible to a human (amplitude ~0.004–0.022).
- *
- * It mutates `buffer` in place and advances `phaseRef` so the typing pattern
- * continues seamlessly across consecutive process frames.
- *
- * Pattern: a slow "typing cadence" (~5 keys/sec). Each "keypress" is a short
- * decaying burst of noise (a real key is mostly a click/thock). Between presses
- * the level drops to a low floor so there's always some energy but it never
- * sounds like continuous static if it were ever audible.
- */
-function mixKeyboardIdle(buffer: Float32Array, phaseRef: { current: number }) {
-  const sampleRate = 48000; // input ctx rate (resampled later); close enough for cadence
-  const KEY_PERIOD = sampleRate / 5; // ~5 keypresses per second
-  const KEYPRESS_LEN = Math.floor(sampleRate * 0.018); // 18ms click
-  const FLOOR = 0.004; // resting energy between presses
-  const PEAK = 0.022; // peak energy during a click
-
-  for (let i = 0; i < buffer.length; i++) {
-    const phase = phaseRef.current++;
-    const posInPeriod = phase % KEY_PERIOD;
-
-    let amp: number;
-    if (posInPeriod < KEYPRESS_LEN) {
-      // Decaying click envelope (fast attack, exponential decay = thock-like)
-      const decay = Math.exp(-posInPeriod / (KEYPRESS_LEN * 0.35));
-      amp = FLOOR + (PEAK - FLOOR) * decay;
-    } else {
-      amp = FLOOR;
-    }
-
-    // White noise shaped by the envelope: noise gives the mechanical texture,
-    // the envelope gives the cadence.
-    const noise = Math.random() * 2 - 1;
-    buffer[i] = buffer[i] + amp * noise;
-  }
-}
 
 function downsampleBuffer(buffer: Float32Array, fromRate: number, toRate: number): Float32Array | null {
   if (toRate === fromRate) return buffer;
@@ -933,13 +620,9 @@ function getCloseCodeExplanation(code: number): string {
     case 1001:
       return "Endpoint going away";
     case 1006:
-      return "Abnormal closure — connection lost (usually Google's VAD timeout or network issue)";
-    case 1007:
-      return "Invalid payload data — usually a malformed JSON message sent to Gemini";
-    case 1008:
-      return "Policy violation — usually an API key or configuration issue";
+      return "Abnormal closure — connection lost (network issue)";
     case 1011:
-      return "Internal server error — the proxy or Gemini had an unexpected error";
+      return "Internal server error";
     default:
       return "Unknown WebSocket close code";
   }

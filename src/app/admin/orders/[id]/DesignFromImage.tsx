@@ -19,17 +19,19 @@
  * 2. Apply mode (garmentOrderId provided): writes to DB via applyDesignFromAI.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   chatDesign,
   clearDesignThread,
   applyDesignFromAI,
   createTableRow,
+  fetchGarmentTree,
   type AISelection,
   type AIAddon,
   type AIUnknownItem,
   type ChatDesignResult,
   type GarmentOrderItemRow,
+  type GarmentTree,
 } from "@/lib/admin-api";
 import type { DraftItem } from "./GarmentOrderEditor";
 
@@ -44,6 +46,17 @@ interface DesignFromImageProps {
   onSaveComplete?: (items: GarmentOrderItemRow[]) => void;
   /** Called with draft items + last reference image URL (draft mode only). */
   onDraftChange?: (items: DraftItem[], imageUrl: string) => void;
+  /**
+   * Apply mode (composerOnly): fired with the raw AI selections + add-ons +
+   * reference image URL on every AI response, so the parent can prefill a
+   * GarmentOrderEditor (apply mode) without writing to the DB itself. The
+   * admin then saves explicitly via the editor's "Save Design" button.
+   */
+  onApplyDraft?: (
+    selections: AISelection[],
+    addons: AIAddon[],
+    imageUrl: string,
+  ) => void;
   onCancel?: () => void;
   /**
    * When provided, the component skips the upload zone and immediately
@@ -52,9 +65,10 @@ interface DesignFromImageProps {
    */
   initialMessage?: string;
   /**
-   * Draft mode + composerOnly: render ONLY the composer (upload/mic/send)
-   * and fire onDraftChange on every AI response. The parent owns the
-   * reference image + GarmentOrderEditor and renders this beneath them.
+   * Render ONLY the composer (upload/mic/send) and fire the appropriate
+   * draft callback (onDraftChange in draft mode, onApplyDraft in apply mode)
+   * on every AI response. The parent owns the reference image +
+   * GarmentOrderEditor and renders this beneath them.
    */
   composerOnly?: boolean;
   /**
@@ -154,7 +168,31 @@ function aiResultToDraftItems(
   return items;
 }
 
-// ─── Web Speech API types (minimal) ────────────────────────────────────
+/**
+ * Convert the latest AI result into GarmentOrderItemRow[] (apply-mode shape)
+ * so a real GarmentOrderEditor can be prefilled from it. Mirrors
+ * aiResultToDraftItems but stamps the garment_order_id and row id.
+ */
+export function aiResultToGarmentOrderItems(
+  selections: AISelection[],
+  addons: AIAddon[],
+  garmentOrderId: string,
+): GarmentOrderItemRow[] {
+  return aiResultToDraftItems(selections, addons).map((it, i) => ({
+    id: `prefilled-${garmentOrderId}-${i}`,
+    garment_order_id: garmentOrderId,
+    garment_style_component_id: it.garment_style_component_id,
+    type: it.type,
+    variation_id: it.variation_id,
+    variation_type_id: it.variation_type_id,
+    addon_id: it.addon_id,
+    addon_variation_id: it.addon_variation_id,
+    placement: it.placement,
+    price: it.price,
+    custom_input: null,
+    label_snapshot: it.label_snapshot,
+  }));
+}
 
 interface SpeechRecognitionEventLike {
   results: {
@@ -171,6 +209,7 @@ export function DesignFromImage({
   draftMode = false,
   onSaveComplete,
   onDraftChange,
+  onApplyDraft,
   onCancel,
   initialMessage,
   composerOnly = false,
@@ -192,6 +231,11 @@ export function DesignFromImage({
   const [resolvedUnknowns, setResolvedUnknowns] = useState<Set<number>>(new Set());
   const [discardedUnknowns, setDiscardedUnknowns] = useState<Set<number>>(new Set());
 
+  // Catalog tree — used to (a) validate each unknown's parent_id before
+  // showing the "+ Add" action and (b) look up labels when auto-selecting a
+  // freshly-created catalog row.
+  const [tree, setTree] = useState<GarmentTree | null>(null);
+
   // Composer state
   const [textDraft, setTextDraft] = useState("");
   const [pendingImage, setPendingImage] = useState<File | null>(null);
@@ -203,6 +247,37 @@ export function DesignFromImage({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const speechRef = useRef<any>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Load the garment catalog tree once ───────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    fetchGarmentTree(garmentId)
+      .then((t) => {
+        if (!cancelled) setTree(t);
+      })
+      .catch(() => {
+        /* tree is best-effort for unknown validation; ignore failures */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [garmentId]);
+
+  // Sets of valid parent ids, derived from the tree. An unknown is only
+  // actionable if its parent_id resolves against one of these.
+  const validParentIds = useMemo(() => {
+    const componentIds = new Set<string>();
+    const variationIds = new Set<string>();
+    const addonIds = new Set<string>();
+    if (tree) {
+      for (const comp of tree.components) {
+        componentIds.add(comp.id);
+        for (const v of comp.variations) variationIds.add(v.id);
+      }
+      for (const addon of tree.addons) addonIds.add(addon.id);
+    }
+    return { componentIds, variationIds, addonIds };
+  }, [tree]);
 
   // ── Auto-scroll to bottom ────────────────────────────────────────────
   useEffect(() => {
@@ -270,6 +345,61 @@ export function DesignFromImage({
     speechRef.current?.stop();
     setRecording(false);
   }, []);
+
+  // ── Push the current design up to the parent (live editor update) ────
+  /**
+   * Fire the appropriate live callback so the parent's GarmentOrderEditor
+   * remounts with the given selections + add-ons. Shared by sendMessage
+   * (on every AI response) and handleAddUnknownToCatalog (after a row is
+   * created and auto-selected).
+   *
+   * `imageUrl` is passed explicitly (rather than read from lastImageUrl
+   * state) because callers run in the same tick as setLastImageUrl — the
+   * state closure would be stale and yield "" → broken <img> in the parent.
+   */
+  const pushDesignUp = useCallback(
+    (
+      selections: AISelection[],
+      addons: AIAddon[],
+      imageUrl?: string,
+    ) => {
+      const refUrl = imageUrl ?? lastImageUrl ?? "";
+      if (selections.length === 0 && addons.length === 0) return;
+      if (draftMode) {
+        const draftItems = aiResultToDraftItems(selections, addons);
+        onDraftChange?.(draftItems, refUrl);
+      } else {
+        onApplyDraft?.(selections, addons, refUrl);
+      }
+    },
+    [draftMode, lastImageUrl, onDraftChange, onApplyDraft],
+  );
+
+  // ── Unknown-item validation (#2) ─────────────────────────────────────
+  /**
+   * An unknown is only actionable (can be "+ Add"-ed) when its parent_id
+   * resolves to a real catalog row of the right kind. Unknowns with a
+   * dangling parent are silently dropped from the UI; defaults stay as-is.
+   * `addon` needs no parent (created under the garment itself).
+   */
+  const isActionableUnknown = useCallback(
+    (item: AIUnknownItem): boolean => {
+      if (!item.parent_id) return item.type === "addon";
+      switch (item.type) {
+        case "variation":
+          return validParentIds.componentIds.has(item.parent_id);
+        case "variation_type":
+          return validParentIds.variationIds.has(item.parent_id);
+        case "addon_variation":
+          return validParentIds.addonIds.has(item.parent_id);
+        case "addon":
+          return true;
+        default:
+          return false;
+      }
+    },
+    [validParentIds],
+  );
 
   // ── Send message ─────────────────────────────────────────────────────
 
@@ -339,15 +469,14 @@ export function DesignFromImage({
         setLastImageUrl(result.image_url);
       }
 
-      // In draft mode, push the latest selections up to the parent on EVERY
-      // AI response so the editor + reference image update live (Bug 2).
-      if (
-        draftMode &&
-        (result.selections.length > 0 || result.addons.length > 0)
-      ) {
-        const draftItems = aiResultToDraftItems(result.selections, result.addons);
-        onDraftChange?.(draftItems, result.image_url ?? lastImageUrl ?? "");
-      }
+      // Push the latest selections up to the parent on EVERY AI response so
+      // the editor + reference image update live. Pass image_url explicitly
+      // (see pushDesignUp) — lastImageUrl state is stale in this same tick.
+      pushDesignUp(
+        result.selections,
+        result.addons,
+        result.image_url ?? undefined,
+      );
 
       // Blob URL no longer needed — the user message uses the hosted URL now.
       if (sendImagePreview) {
@@ -371,6 +500,22 @@ export function DesignFromImage({
   const handleFileSelect = (file: File) => {
     if (!file.type.startsWith("image/")) {
       setError("Please select an image file (JPG, PNG, WebP).");
+      return;
+    }
+    // HEIC/HEIF/AVIF can't be decoded by browsers in an <img> tag, so the
+    // preview would render as a broken image. Reject up front with guidance.
+    const name = file.name.toLowerCase();
+    const undecodable =
+      file.type === "image/heic" ||
+      file.type === "image/heif" ||
+      file.type === "image/avif" ||
+      name.endsWith(".heic") ||
+      name.endsWith(".heif") ||
+      name.endsWith(".avif");
+    if (undecodable) {
+      setError(
+        "HEIC/AVIF images can't be previewed. Please convert to JPG, PNG, or WebP and try again.",
+      );
       return;
     }
     if (file.size > 12 * 1024 * 1024) {
@@ -408,39 +553,113 @@ export function DesignFromImage({
   const handleAddUnknownToCatalog = async (idx: number) => {
     const item = currentUnknowns[idx];
     if (!item) return;
+    // Safety net (#2): never action an unknown whose parent doesn't resolve.
+    if (!isActionableUnknown(item)) {
+      setError(
+        `Can't add "${item.name}" — its parent isn't in the catalog. Add it manually first.`,
+      );
+      return;
+    }
     try {
+      // The payload is the same for every leaf type; only the table + FK field differ.
+      const payload = {
+        slug: item.slug,
+        labels: { en: item.name },
+        priority_order: 999,
+        price: item.suggested_price,
+      };
+
       if (item.type === "variation") {
-        await createTableRow("garment_style_component_variations", {
-          component_id: item.parent_id,
-          slug: item.slug,
-          labels: { en: item.name },
-          priority_order: 999,
-          price: item.suggested_price,
-        });
+        // Create the variation under its component, then auto-select it.
+        const created = await createTableRow<{ id: string }>(
+          "garment_style_component_variations",
+          { ...payload, component_id: item.parent_id },
+        );
+        const newSel: AISelection = {
+          component_id: item.parent_id!,
+          component_label: item.parent_label,
+          variation_id: created.id,
+          variation_label: item.name,
+          variation_type_id: null,
+          variation_type_label: null,
+        };
+        // Replace any existing choice for this component, then push up.
+        setCurrentSelections((prev) => [
+          ...prev.filter((s) => s.component_id !== item.parent_id),
+          newSel,
+        ]);
+        pushDesignUp(
+          [
+            ...currentSelections.filter((s) => s.component_id !== item.parent_id),
+            newSel,
+          ],
+          currentAddons,
+        );
       } else if (item.type === "variation_type") {
-        await createTableRow("garment_style_component_variation_types", {
-          variation_id: item.parent_id,
-          slug: item.slug,
-          labels: { en: item.name },
-          priority_order: 999,
-          price: item.suggested_price,
-        });
+        // Create the sub-type under its variation. We need the parent
+        // component id + variation label to build a complete selection.
+        const created = await createTableRow<{ id: string }>(
+          "garment_style_component_variation_types",
+          { ...payload, variation_id: item.parent_id },
+        );
+        const parentSel = currentSelections.find(
+          (s) => s.variation_id === item.parent_id,
+        );
+        const newSel: AISelection = {
+          component_id: parentSel?.component_id ?? "",
+          component_label: parentSel?.component_label ?? null,
+          variation_id: item.parent_id!,
+          variation_label: parentSel?.variation_label ?? null,
+          variation_type_id: created.id,
+          variation_type_label: item.name,
+        };
+        const componentId = parentSel?.component_id ?? null;
+        const nextSelections = [
+          ...currentSelections.filter(
+            (s) => componentId !== null && s.component_id !== componentId,
+          ),
+          newSel,
+        ];
+        setCurrentSelections(nextSelections);
+        pushDesignUp(nextSelections, currentAddons);
       } else if (item.type === "addon") {
-        await createTableRow("garment_addons", {
-          garment_id: garmentId,
-          slug: item.slug,
-          labels: { en: item.name },
-          priority_order: 999,
-          price: item.suggested_price,
-        });
+        // Create a brand-new add-on under the garment, then auto-add it.
+        const created = await createTableRow<{ id: string }>(
+          "garment_addons",
+          { ...payload, garment_id: garmentId },
+        );
+        const newAddon: AIAddon = {
+          addon_id: created.id,
+          addon_label: item.name,
+          addon_variation_id: null,
+          addon_variation_label: null,
+          placement: null,
+        };
+        const nextAddons = [
+          ...currentAddons.filter((a) => a.addon_id !== created.id),
+          newAddon,
+        ];
+        setCurrentAddons(nextAddons);
+        pushDesignUp(currentSelections, nextAddons);
       } else if (item.type === "addon_variation") {
-        await createTableRow("garment_addon_variations", {
-          addon_id: item.parent_id,
-          slug: item.slug,
-          labels: { en: item.name },
-          priority_order: 999,
-          price: item.suggested_price,
-        });
+        // Create an add-on variation under its add-on, then auto-select it.
+        const created = await createTableRow<{ id: string }>(
+          "garment_addon_variations",
+          { ...payload, addon_id: item.parent_id },
+        );
+        const newAddon: AIAddon = {
+          addon_id: item.parent_id!,
+          addon_label: item.parent_label,
+          addon_variation_id: created.id,
+          addon_variation_label: item.name,
+          placement: null,
+        };
+        const nextAddons = [
+          ...currentAddons.filter((a) => a.addon_id !== item.parent_id),
+          newAddon,
+        ];
+        setCurrentAddons(nextAddons);
+        pushDesignUp(currentSelections, nextAddons);
       }
       setResolvedUnknowns((prev) => new Set(prev).add(idx));
     } catch (e) {
@@ -558,7 +777,7 @@ export function DesignFromImage({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic,image/avif"
+          accept="image/jpeg,image/png,image/webp"
           onChange={handleInputChange}
           className="hidden"
         />
@@ -618,9 +837,9 @@ export function DesignFromImage({
     </div>
   );
 
-  // ─── Render: Composer-only (draft mode, parent owns the editor) ──────
+  // ─── Render: Composer-only (parent owns the editor) ──────────────────
 
-  if (composerOnly && draftMode) {
+  if (composerOnly) {
     return (
       <div className="rounded-xl border border-tape/40 bg-tape/5">
         {error && (
@@ -673,24 +892,51 @@ export function DesignFromImage({
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
           onClick={() => fileInputRef.current?.click()}
-          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-hairline-strong bg-chalk-white px-4 py-8 transition hover:border-tape hover:bg-tape/5"
+          className="flex cursor-pointer items-center justify-center gap-4 rounded-lg border-2 border-dashed border-hairline-strong bg-chalk-white px-4 py-5 transition hover:border-tape hover:bg-tape/5"
         >
           {pendingImagePreview ? (
-            <div className="flex flex-col items-center gap-2">
+            <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={pendingImagePreview}
                 alt="Reference preview"
-                className="max-h-48 rounded-lg border border-hairline object-contain"
+                className="max-h-40 w-auto max-w-[55%] shrink-0 rounded-lg border border-hairline object-contain"
               />
-              <div className="text-xs text-muted">
-                {pendingImage?.name} — click to change
+              <div className="flex flex-1 flex-col items-start gap-2">
+                <div className="text-xs text-muted line-clamp-2">
+                  {pendingImage?.name} — click image to change
+                </div>
+                {/* Actions sit beside the image so they're never pushed below
+                    the fold after upload (fixes "Analyze hidden behind scroll"). */}
+                <div
+                  className="flex items-center gap-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => {
+                      if (pendingImagePreview) URL.revokeObjectURL(pendingImagePreview);
+                      setPendingImagePreview(null);
+                      setPendingImage(null);
+                      setError(null);
+                    }}
+                    className="rounded-lg border border-hairline-strong px-3 py-1.5 text-xs font-medium text-muted hover:bg-mist-navy"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    onClick={() => sendMessage()}
+                    disabled={loading}
+                    className="rounded-lg bg-ink-navy px-4 py-1.5 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
+                  >
+                    Analyze with AI
+                  </button>
+                </div>
               </div>
-            </div>
+            </>
           ) : (
-            <>
+            <div className="flex flex-col items-center gap-2">
               <svg
-                className="mb-2 h-10 w-10 text-hairline-strong"
+                className="h-10 w-10 text-hairline-strong"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -709,39 +955,16 @@ export function DesignFromImage({
               <div className="text-xs text-muted">
                 or click to browse — JPG, PNG, WebP · max 12MB
               </div>
-            </>
+            </div>
           )}
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/heic,image/avif"
+            accept="image/jpeg,image/png,image/webp"
             onChange={handleInputChange}
             className="hidden"
           />
         </div>
-
-        {pendingImage && (
-          <div className="mt-3 flex items-center justify-end gap-2">
-            <button
-              onClick={() => {
-                if (pendingImagePreview) URL.revokeObjectURL(pendingImagePreview);
-                setPendingImagePreview(null);
-                setPendingImage(null);
-                setError(null);
-              }}
-              className="rounded-lg border border-hairline-strong px-3 py-1.5 text-xs font-medium text-muted hover:bg-mist-navy"
-            >
-              Clear
-            </button>
-            <button
-              onClick={() => sendMessage()}
-              disabled={loading}
-              className="rounded-lg bg-ink-navy px-4 py-1.5 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
-            >
-              Analyze with AI
-            </button>
-          </div>
-        )}
 
         {loading && (
           <div className="mt-3 flex items-center justify-center gap-2 rounded-lg border border-tape/40 bg-tape/5 py-3">
@@ -926,6 +1149,8 @@ export function DesignFromImage({
           {currentUnknowns.length > 0 && (
             <div className="mt-2 space-y-1.5">
               {currentUnknowns.map((item, idx) => {
+                // #2: only show unknowns whose parent resolves in the catalog.
+                if (!isActionableUnknown(item)) return null;
                 if (discardedUnknowns.has(idx)) return null;
                 const resolved = resolvedUnknowns.has(idx);
                 return (

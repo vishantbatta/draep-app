@@ -727,7 +727,12 @@ export interface GarmentOrderRow {
   total_price: number | null;
   status: GarmentOrderStatus | null;
   user_note: string | null;
-  assets_shared: boolean | null;
+  /**
+   * JSON list of asset URLs the customer shared as design inspiration
+   * (e.g. ["/uploads/abc.jpg"]). Stored relative/absolute; resolve via
+   * resolveAssetUrl() before rendering.
+   */
+  assets_shared: string[] | null;
   created_at?: string;
   updated_at?: string;
 }

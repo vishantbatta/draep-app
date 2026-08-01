@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
-import { Sparkle, Sparkles, Close } from "@/components/ui/icons";
+import { Sparkle, Sparkles, Close, ChevronRight } from "@/components/ui/icons";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { TryOnSheet } from "@/components/tryon/TryOnSheet";
 import { libraryApi } from "@/lib/api";
@@ -204,10 +204,10 @@ export default function LibraryPage() {
         />
 
         {!collapsed && (
-          <div className="relative z-10 flex flex-col items-center gap-2 px-4 pb-4">
+          <div className="relative z-10 flex flex-col items-center gap-2 px-4 pb-6">
             <div className="text-center">
               <span className="inline-flex items-center gap-1.5 rounded-pill bg-chalk-white/15 px-3 py-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white backdrop-blur-sm">
-                <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-tape" />
+                <RivetDot />
                 Design Library
               </span>
               <h1 className="mt-2 font-heading text-h1 font-semibold text-chalk-white">
@@ -216,24 +216,32 @@ export default function LibraryPage() {
             </div>
           </div>
         )}
+
+        {/* Tape-gradient seam with tick overlay — Brand Book §6 (the tape) */}
+        <div aria-hidden className="lp-tape-strip absolute inset-x-0 bottom-0 z-10" />
       </header>
 
       {/* ───── Bottom section (library grid) ───── */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <div ref={sentinelRef} className="h-px w-full" aria-hidden />
 
-        {/* Section header */}
-        <div className="px-4 pt-1">
-          <h2 className="font-heading text-h3 font-semibold text-ink-navy">
+        {/* Section header — eyebrow + tick-divider rail ending in a rivet (§6) */}
+        <div className="px-4 pt-4">
+          <span className="eyebrow">The collection</span>
+          <h2 className="mt-1 font-heading text-h3 font-semibold text-ink-navy">
             {strings.style.libraryHeading}
           </h2>
           <p className="mt-0.5 text-caption text-muted">
             {strings.style.librarySubheading}
           </p>
+          <div className="mt-3 flex items-center gap-2">
+            <span className="tick-divider flex-1" aria-hidden />
+            <RivetDot />
+          </div>
         </div>
 
-        {/* Grid body */}
-        <div className="px-4 pt-3">
+        {/* Grid body — one full-bleed hero row per design */}
+        <div className="px-4 pt-4">
           {listLoading && items.length === 0 ? (
             <GridSkeleton />
           ) : listError ? (
@@ -244,7 +252,7 @@ export default function LibraryPage() {
           ) : items.length === 0 ? (
             <EmptyState text={strings.style.emptyLibrary} />
           ) : (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-4">
               {items.map((it) => (
                 <LibraryCard
                   key={it.id}
@@ -255,15 +263,15 @@ export default function LibraryPage() {
             </div>
           )}
 
-          {/* Infinite scroll loader */}
+          {/* Infinite scroll loader — tape-gradient sliver */}
           <div ref={loaderRef} className="h-1" aria-hidden />
           {nextCursor && listLoading && items.length > 0 && (
-            <div className="flex items-center justify-center py-4">
+            <div className="flex items-center justify-center py-5">
               <div
                 aria-hidden
                 className="h-1 w-24 overflow-hidden rounded-pill bg-tape-silver"
               >
-                <div className="h-full w-1/2 animate-pulse bg-draep-orange" />
+                <div className="h-full w-1/2 animate-pulse bg-tape" />
               </div>
             </div>
           )}
@@ -319,6 +327,19 @@ export default function LibraryPage() {
 /*  Subcomponents                                                */
 /* ============================================================ */
 
+/**
+ * Rivet dot — the orange tape-end motif (Brand Book §6 "rivet = timeline
+ * end-dot"). Glows on its own halo so it reads on navy and on sand.
+ */
+function RivetDot({ className = "" }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={`inline-block rounded-full bg-draep-orange shadow-[0_0_0_3px_rgba(248,144,16,0.22)] ${className}`}
+    />
+  );
+}
+
 /** Sticky footer CTA that opens the virtual try-on sheet. */
 function TryOnFooter({
   disabled,
@@ -350,7 +371,18 @@ function TryOnFooter({
   );
 }
 
-/** Library grid card — hero image, category + occasion chips. NO price. */
+/**
+ * Library row card — one design per row (Brand Book §6 .stylecard, wide format).
+ *
+ * Two clean zones, never overlapping:
+ *   • Image zone  — full-bleed photo on the soft catalogue placeholder gradient.
+ *                   object-cover + object-top keeps the full blouse visible
+ *                   (product shots are top/center weighted) and the grid
+ *                   visually consistent. Category + chevron float on it.
+ *   • Body zone   — white card surface, navy text. "Worn by", title, tags.
+ *                   Solid surface = text can never blend with the photo.
+ * Read-only: no price.
+ */
 function LibraryCard({
   item,
   onSelect,
@@ -359,46 +391,78 @@ function LibraryCard({
   onSelect: () => void;
 }) {
   const title = item.labels?.en ?? "Untitled design";
-  const occasions = (item.occasions ?? []).slice(0, 2);
+  const tags = (item.occasions ?? []).slice(0, 3);
+  const wornBy = item.celebrity_name;
 
   return (
     <button
       type="button"
       onClick={onSelect}
-      className="group flex flex-col overflow-hidden rounded-card border border-hairline bg-chalk-white text-left transition-all hover:border-navy-interactive hover:shadow-card active:scale-[0.98]"
+      className="group flex w-full flex-col overflow-hidden rounded-card border border-hairline bg-chalk-white text-left shadow-card transition-all ease-brand hover:-translate-y-0.5 hover:shadow-brand active:scale-[0.99]"
     >
-      <div className="relative aspect-[16/9] overflow-hidden bg-mist-navy">
+      {/* ── Image zone — hugs the photo's own aspect ratio ────── */}
+      <div className="relative w-full overflow-hidden bg-mist-navy">
         {item.hero_image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={item.hero_image_url}
             alt={title}
             loading="lazy"
-            className="h-full w-full object-cover transition-transform duration-500 ease-brand group-hover:scale-[1.03]"
+            className="relative block h-auto w-full object-cover transition-transform duration-500 ease-brand group-hover:scale-[1.03]"
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-muted">
-            <Sparkle size={28} />
+          // No photo — soft catalogue placeholder (Brand Book §6 .ph)
+          <div
+            className="relative flex aspect-[4/3] w-full items-center justify-center text-muted"
+            style={{ backgroundImage: "linear-gradient(135deg,#EAF0F8,#FFF6EA)" }}
+          >
+            <Sparkle size={32} />
           </div>
         )}
+
+        {/* Category — floats on image, own chip surface */}
+        {item.category && (
+          <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-pill bg-ink-navy/85 px-2.5 py-1 font-mono text-[10px] font-medium uppercase tracking-wider text-chalk-white backdrop-blur-sm">
+            <RivetDot className="!h-1.5 !w-1.5 !shadow-none" />
+            {item.category}
+          </span>
+        )}
+
+        {/* Open affordance */}
+        <span className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-chalk-white/90 text-ink-navy shadow-card transition-colors group-hover:bg-chalk-white">
+          <ChevronRight size={14} />
+        </span>
       </div>
 
-      <div className="flex flex-1 flex-col gap-1.5 px-3 py-2.5">
-        {/* Category only — price hidden */}
-        <div className="flex items-center gap-2">
-          {item.category && (
-            <span className="rounded-pill bg-warm-sand px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-ink-navy">
-              {item.category}
+      {/* ── Body zone — solid white, navy text ─────────────────── */}
+      <div className="flex flex-1 flex-col gap-1.5 p-3.5">
+        {wornBy && (
+          <div className="flex items-center gap-1.5">
+            <Sparkle size={12} className="shrink-0 text-draep-orange" />
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted">
+              {strings.style.designBy}
             </span>
-          )}
-        </div>
-        <p className="line-clamp-1 text-body font-medium text-ink-navy">
+            <span className="truncate font-heading text-[13px] font-semibold text-ink-navy">
+              {wornBy}
+            </span>
+          </div>
+        )}
+
+        <p className="line-clamp-2 text-body font-heading font-semibold leading-snug text-ink-navy">
           {title}
         </p>
-        {occasions.length > 0 && (
-          <p className="line-clamp-1 text-caption text-muted">
-            {occasions.join(" · ")}
-          </p>
+
+        {tags.length > 0 && (
+          <div className="mt-0.5 flex flex-wrap gap-1.5">
+            {tags.map((t) => (
+              <span
+                key={t}
+                className="rounded-pill bg-warm-sand px-2 py-0.5 text-[11px] font-medium text-ink-navy"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
         )}
       </div>
     </button>
@@ -560,16 +624,24 @@ function ItemRow({ item }: { item: ResolvedItemOut }) {
 
 function GridSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3">
-      {Array.from({ length: 6 }).map((_, i) => (
+    <div className="flex flex-col gap-4">
+      {Array.from({ length: 4 }).map((_, i) => (
         <div
           key={i}
-          className="overflow-hidden rounded-card border border-hairline bg-chalk-white"
+          className="overflow-hidden rounded-card border border-hairline bg-chalk-white shadow-card"
         >
-          <div className="aspect-[4/5] w-full animate-pulse bg-mist-navy" />
-          <div className="space-y-1.5 px-3 py-2">
-            <div className="h-3 w-3/4 animate-pulse rounded-pill bg-mist-navy" />
-            <div className="h-2.5 w-1/2 animate-pulse rounded-pill bg-mist-navy" />
+          {/* Image zone */}
+          <div className="relative aspect-[4/3] w-full animate-pulse bg-mist-navy">
+            <div className="absolute left-3 top-3 h-5 w-16 animate-pulse rounded-pill bg-chalk-white/70" />
+          </div>
+          {/* Body zone */}
+          <div className="space-y-2 p-3.5">
+            <div className="h-3 w-1/3 animate-pulse rounded-pill bg-mist-navy" />
+            <div className="h-4 w-3/4 animate-pulse rounded-pill bg-mist-navy" />
+            <div className="flex gap-1.5 pt-1">
+              <div className="h-5 w-16 animate-pulse rounded-pill bg-mist-navy" />
+              <div className="h-5 w-14 animate-pulse rounded-pill bg-mist-navy" />
+            </div>
           </div>
         </div>
       ))}
