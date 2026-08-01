@@ -42,7 +42,7 @@ const PRIMARY_TABS: PrimaryTab[] = [
     label: "Catalogue",
     href: "/admin/catalogue",
     matchPrefix: "/admin/catalogue",
-    altPrefixes: ["/admin/measurements"],
+    altPrefixes: ["/admin/measurements", "/admin/catalogue/validation-rules"],
     icon: (
       <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
         <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />

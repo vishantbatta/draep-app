@@ -385,6 +385,38 @@ export async function scCreateWalkInJob(
   });
 }
 
+// ─── Validation ─────────────────────────────────────────────────────────────
+
+export interface SCValidationError {
+  rule: string;
+  code: string;
+  severity: string;
+  values: Record<string, number | string>;
+  explanation: Record<string, string>;
+}
+
+export interface SCValidationResult {
+  status: "pass" | "warn" | "block";
+  catalog_version: number | null;
+  measurement_job_id: string;
+  critical_errors: SCValidationError[];
+  non_critical_errors: SCValidationError[];
+  message: Record<string, string>;
+}
+
+export async function scValidateJob(
+  jobId: string,
+  garmentOrderId?: string,
+): Promise<SCValidationResult> {
+  const qs = garmentOrderId
+    ? `?garment_order_id=${encodeURIComponent(garmentOrderId)}`
+    : "";
+  return scFetch<SCValidationResult>(
+    `/measurement-jobs/${jobId}/validate${qs}`,
+    { method: "POST", auth: false },
+  );
+}
+
 // ─── Scheduling (availability rules, exceptions, slots, preview) ───────────
 // These hit the /captain/* router (different from /style-captain/* jobs router
 // above). Same JWT, different prefix.

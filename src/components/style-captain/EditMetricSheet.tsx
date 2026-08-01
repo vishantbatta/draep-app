@@ -88,7 +88,7 @@ export function EditMetricSheet({
   const isTextMetric = draft.valueText !== null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center">
       {/* Backdrop */}
       <button
         aria-label="Close"

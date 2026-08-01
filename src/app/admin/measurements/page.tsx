@@ -19,6 +19,7 @@ import {
   TextInput,
   Thumbnail,
 } from "@/app/admin/catalogue/_shared/catalogue-helpers";
+import { ConditionBuilderModal } from "./ConditionBuilder";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  Types
@@ -231,6 +232,9 @@ function MeasurementsPageInner() {
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<Metric | null>(null);
 
+  // Conditions manager modal
+  const [showConditionsModal, setShowConditionsModal] = useState(false);
+
   const triggerReload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   // ─── Reorder (drag-and-drop) ──────────────────────────────────────────────
@@ -277,6 +281,11 @@ function MeasurementsPageInner() {
               label: "Measurements",
               active: true,
               onClick: () => router.push("/admin/measurements"),
+            },
+            {
+              label: "Validation Rules",
+              active: false,
+              onClick: () => router.push("/admin/catalogue/validation-rules"),
             },
           ],
         },
@@ -389,7 +398,11 @@ function MeasurementsPageInner() {
   return (
     <div className="min-h-dvh bg-warm-sand">
       {/* ═══ Hero Header ═══════════════════════════════════════════════════ */}
-      <MeasureHeader count={metrics.length} onAdd={() => { setEditMode("create"); setShowCreateModal(true); }} />
+      <MeasureHeader
+        count={metrics.length}
+        onAdd={() => { setEditMode("create"); setShowCreateModal(true); }}
+        onManageConditions={() => setShowConditionsModal(true)}
+      />
 
       {/* ═══ Content area ══════════════════════════════════════════════════ */}
       <div className="mx-auto max-w-7xl px-4 pb-16 md:px-6">
@@ -537,6 +550,11 @@ function MeasurementsPageInner() {
         }}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      {/* ═══ Conditions Manager ═════════════════════════════════════════════ */}
+      {showConditionsModal && (
+        <ConditionBuilderModal onClose={() => setShowConditionsModal(false)} />
+      )}
     </div>
   );
 }
@@ -593,7 +611,15 @@ function FilterDropdown({
 //  Hero Header — tape-measure themed gradient banner
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function MeasureHeader({ count, onAdd }: { count: number; onAdd: () => void }) {
+function MeasureHeader({
+  count,
+  onAdd,
+  onManageConditions,
+}: {
+  count: number;
+  onAdd: () => void;
+  onManageConditions: () => void;
+}) {
   return (
     <div className="relative overflow-hidden border-b border-hairline bg-gradient-to-br from-ink-navy via-[#0a2d5e] to-[#0d3d7a]">
       {/* Decorative tick marks */}
@@ -634,17 +660,33 @@ function MeasureHeader({ count, onAdd }: { count: number; onAdd: () => void }) {
           </p>
         </div>
 
-        {/* Add button */}
-        <button
-          onClick={onAdd}
-          className="tap inline-flex items-center gap-1.5 rounded-pill bg-tape px-4 py-2 text-[13px] font-semibold text-ink-navy shadow-lg transition hover:brightness-110 active:scale-95"
-        >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
-            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-          <span className="hidden sm:inline">Add Metric</span>
-          <span className="sm:hidden">Add</span>
-        </button>
+        {/* Buttons */}
+        <div className="flex items-center gap-2">
+          {/* Manage Conditions */}
+          <button
+            onClick={onManageConditions}
+            className="tap inline-flex items-center gap-1.5 rounded-pill border border-chalk-white/20 bg-chalk-white/10 px-3.5 py-2 text-[13px] font-medium text-chalk-white backdrop-blur-sm transition hover:bg-chalk-white/20 active:scale-95"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
+              <path d="M3.5 5.5h9M3.5 8h9M3.5 10.5h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              <path d="M13 9.5l1.5 1.5L13 12.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="hidden sm:inline">Manage Conditions</span>
+            <span className="sm:hidden">Conditions</span>
+          </button>
+
+          {/* Add Metric */}
+          <button
+            onClick={onAdd}
+            className="tap inline-flex items-center gap-1.5 rounded-pill bg-tape px-4 py-2 text-[13px] font-semibold text-ink-navy shadow-lg transition hover:brightness-110 active:scale-95"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            <span className="hidden sm:inline">Add Metric</span>
+            <span className="sm:hidden">Add</span>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1335,3 +1377,4 @@ function MetricFormModal({
     </Modal>
   );
 }
+

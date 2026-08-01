@@ -46,6 +46,9 @@ const config: Config = {
         "success-bg": "var(--success-bg)",
         "success-border": "var(--success-border)",
         warning: "var(--warning)",
+        "warning-text": "var(--warning-text)",
+        "warning-bg": "var(--warning-bg)",
+        "warning-border": "var(--warning-border)",
         error: "var(--error)",
         "error-text": "var(--error-text)", // AA on error-bg
         "error-bg": "var(--error-bg)",

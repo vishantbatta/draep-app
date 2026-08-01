@@ -217,4 +217,32 @@ export const strings = {
     errorTitle: "Couldn't generate that",
     errorRetry: "Try again",
   },
+
+  stylist: {
+    title: "Call a designer",
+    subtitle: "Talk to our AI stylist over video",
+    cta: "Call a designer",
+    startCall: "Start video call",
+    startCallBody:
+      "Our AI fashion designer will guide you through a personalised blouse design consultation.",
+    connecting: "Connecting…",
+    connected: "Connected",
+    ended: "Call ended",
+    endCall: "End call",
+    mute: "Mute",
+    unmute: "Unmute",
+    camPermissionTitle: "Camera & mic access needed",
+    camPermissionBody:
+      "Allow camera and microphone so our AI designer can see you and talk to you.",
+    permDenied: "Camera access was blocked. Please allow it in your browser settings.",
+    generating: "Generating your design…",
+    designsLabel: "Designs",
+    transcriptLabel: "Live transcript",
+    noTranscript: "Conversation will appear here",
+    errorTitle: "Couldn't start the call",
+    errorRetry: "Try again",
+    back: "Back",
+    talking: "Speaking…",
+    listening: "Listening…",
+  },
 } as const;

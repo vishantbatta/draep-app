@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 import { Sparkle, Sparkles, Close } from "@/components/ui/icons";
 import { BottomSheet } from "@/components/ui/BottomSheet";
@@ -270,6 +271,8 @@ export default function LibraryPage() {
 
         <div className="h-6" />
       </div>
+
+
 
       {/* ───── Detail BottomSheet — sticky "Try it on" footer ───── */}
       <BottomSheet

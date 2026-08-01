@@ -508,19 +508,19 @@ function ResultStage({
 
   // ── Share handlers (share the latest image) ─────────────────────────
 
-  const fetchBlob = useCallback(async (): Promise<Blob | null> => {
+  const fetchBlob = useCallback(async (url: string): Promise<Blob | null> => {
     try {
-      const res = await fetch(latest.imageUrl);
+      const res = await fetch(url);
       if (!res.ok) throw new Error("fetch failed");
       return await res.blob();
     } catch {
       return null;
     }
-  }, [latest.imageUrl]);
+  }, []);
 
-  const handleSave = useCallback(async () => {
-    track({ event: "tryon_shared", design_image_url: latest.imageUrl, share_method: "save" });
-    const blob = await fetchBlob();
+  const handleSave = useCallback(async (url: string) => {
+    track({ event: "tryon_shared", design_image_url: url, share_method: "save" });
+    const blob = await fetchBlob(url);
     if (!blob) {
       showToast(strings.tryOn.shareError);
       return;
@@ -535,13 +535,13 @@ function ResultStage({
     a.remove();
     URL.revokeObjectURL(objUrl);
     showToast(strings.tryOn.shareToast);
-  }, [fetchBlob, latest.imageUrl, showToast]);
+  }, [fetchBlob, showToast]);
 
-  const handleWhatsapp = useCallback(async () => {
-    track({ event: "tryon_shared", design_image_url: latest.imageUrl, share_method: "whatsapp" });
+  const handleWhatsapp = useCallback(async (url: string) => {
+    track({ event: "tryon_shared", design_image_url: url, share_method: "whatsapp" });
     const nav = navigator as NavigatorWithShare;
     if (typeof nav.canShare === "function") {
-      const blob = await fetchBlob();
+      const blob = await fetchBlob(url);
       if (blob && nav.canShare({ files: [new File([blob], "draep-tryon.jpg", { type: blob.type })] })) {
         try {
           await nav.share({
@@ -559,14 +559,14 @@ function ResultStage({
       "_blank",
       "noopener,noreferrer",
     );
-  }, [fetchBlob, latest.imageUrl]);
+  }, [fetchBlob]);
 
-  const handleMore = useCallback(async () => {
-    track({ event: "tryon_shared", design_image_url: latest.imageUrl, share_method: "more" });
+  const handleMore = useCallback(async (url: string) => {
+    track({ event: "tryon_shared", design_image_url: url, share_method: "more" });
     const nav = navigator as NavigatorWithShare;
     if (typeof nav.share === "function") {
       try {
-        const blob = await fetchBlob();
+        const blob = await fetchBlob(url);
         const shareData: ShareData = {
           title: "My Draep try-on",
           text: "My Draep try-on",
@@ -583,7 +583,7 @@ function ResultStage({
         /* user cancelled */
       }
     }
-  }, [fetchBlob, latest.imageUrl]);
+  }, [fetchBlob]);
 
   // ── Refine (chat) handler ───────────────────────────────────────────
 
@@ -685,19 +685,8 @@ function ResultStage({
         transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
         className="relative flex max-h-[72vh] flex-col gap-2"
       >
-        {/* ─── Top bar: share + done ───────────────────────────────────── */}
-        <div className="flex shrink-0 items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <ShareButton label={strings.tryOn.shareSave} onClick={handleSave}>
-              <DownloadGlyph />
-            </ShareButton>
-            <ShareButton label={strings.tryOn.shareWhatsapp} onClick={handleWhatsapp}>
-              <WhatsappGlyph />
-            </ShareButton>
-            <ShareButton label={strings.tryOn.shareMore} onClick={handleMore}>
-              <ShareGlyph />
-            </ShareButton>
-          </div>
+        {/* ─── Top bar: done ────────────────────────────────────────────── */}
+        <div className="flex shrink-0 items-center justify-end gap-2">
           <button
             type="button"
             onClick={onDone}
@@ -848,7 +837,7 @@ function ResultStage({
         </AnimatePresence>
       </motion.div>
 
-      {/* ─── Fullscreen image overlay ──────────────────────────────────── */}
+      {/* ─── Fullscreen image overlay with share buttons ─────────────── */}
       <AnimatePresence>
         {fullscreenUrl && (
           <motion.div
@@ -859,6 +848,7 @@ function ResultStage({
             transition={{ duration: 0.2 }}
             onClick={() => setFullscreenUrl(null)}
           >
+            {/* Header: AI preview label + close */}
             <div className="flex items-center justify-between px-4 py-3">
               <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-chalk-white/80">
                 <Sparkles size={13} />
@@ -873,6 +863,8 @@ function ResultStage({
                 <Close size={20} />
               </button>
             </div>
+
+            {/* Image */}
             <div className="flex flex-1 items-center justify-center overflow-auto p-3">
               <motion.img
                 src={fullscreenUrl}
@@ -885,9 +877,34 @@ function ResultStage({
                 onClick={(e) => e.stopPropagation()}
               />
             </div>
-            <p className="pb-4 text-center text-caption text-chalk-white/60">
-              Tap anywhere outside the image to close
-            </p>
+
+            {/* Share buttons */}
+            <div className="flex items-center justify-center gap-3 px-4 pb-6 pt-2" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => void handleSave(fullscreenUrl)}
+                aria-label={strings.tryOn.shareSave}
+                className="flex h-12 w-12 items-center justify-center rounded-full border border-chalk-white/25 bg-chalk-white/10 text-chalk-white backdrop-blur-md transition-all hover:bg-chalk-white/20 active:scale-95"
+              >
+                <DownloadGlyph />
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleWhatsapp(fullscreenUrl)}
+                aria-label={strings.tryOn.shareWhatsapp}
+                className="flex h-12 w-12 items-center justify-center rounded-full border border-chalk-white/25 bg-chalk-white/10 text-chalk-white backdrop-blur-md transition-all hover:bg-chalk-white/20 active:scale-95"
+              >
+                <WhatsappGlyph />
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleMore(fullscreenUrl)}
+                aria-label={strings.tryOn.shareMore}
+                className="flex h-12 w-12 items-center justify-center rounded-full border border-chalk-white/25 bg-chalk-white/10 text-chalk-white backdrop-blur-md transition-all hover:bg-chalk-white/20 active:scale-95"
+              >
+                <ShareGlyph />
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

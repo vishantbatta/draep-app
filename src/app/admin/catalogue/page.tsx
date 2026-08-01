@@ -445,6 +445,11 @@ function CataloguePageInner() {
               active: false,
               onClick: () => router.push("/admin/measurements"),
             },
+            {
+              label: "Validation Rules",
+              active: false,
+              onClick: () => router.push("/admin/catalogue/validation-rules"),
+            },
           ],
         },
       }),

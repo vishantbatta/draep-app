@@ -63,6 +63,9 @@
   --success-bg: #e8f1ec;
   --success-border: #b8d8c4;
   --warning: #eab308;
+  --warning-text: #92580a;        /* dark amber — AA on warning-bg */
+  --warning-bg: #fef6e0;
+  --warning-border: #f0d68c;
   --error: #dc2626;
   --error-text: #b3382c;         /* Brand Book §4 .alert color */
   --error-bg: #fce9e7;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   scCompleteJob,
@@ -12,10 +12,13 @@ import {
   scStartJob,
   scUpdateMaterial,
   scUploadPhotos,
+  scValidateJob,
   type SCGarmentOrderMaterial,
   type SCJob,
   type SCMaterialInput,
   type SCMetric,
+  type SCValidationError,
+  type SCValidationResult,
 } from "@/lib/style-captain-api";
 import {
   existingValue,
@@ -89,6 +92,11 @@ export default function MeasureJobPage() {
   const [hasInitialized, setHasInitialized] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
 
+  // Validation state
+  const [validationResult, setValidationResult] = useState<SCValidationResult | null>(null);
+  const [validating, setValidating] = useState(false);
+  const [showValidationSheet, setShowValidationSheet] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -142,6 +150,16 @@ export default function MeasureJobPage() {
         } else if (hasMeasurements && allMetricsFilled) {
           // All body metrics done — go to checkpoint (→ garment next)
           setPhase("checkpoint");
+
+          // Auto-run validation on checkpoint entry so the captain sees
+          // critical/warning issues immediately without having to click save.
+          setValidating(true);
+          scValidateJob(j.id, j.garment_orders[0]?.id)
+            .then((res) => {
+              setValidationResult(res);
+              setValidating(false);
+            })
+            .catch(() => setValidating(false));
         } else if (hasMeasurements && firstUnfilledIdx > 0) {
           // Some metrics filled — jump to first unfilled
           setStep(firstUnfilledIdx);
@@ -231,12 +249,17 @@ export default function MeasureJobPage() {
     }
   }
 
-  /** Save all body measurement drafts, then advance to garment phase. */
+  /** Save all body measurement drafts, then run validation and open the
+   *  validation bottom sheet showing critical + non-critical results.
+   *  - Critical errors → block proceeding; show remeasure buttons.
+   *  - Non-critical only → show "I have checked" CTA to proceed.
+   *  - Pass → proceed to garment phase. */
   async function saveBodyAndAdvance() {
     if (!job) return;
     setSaving(true);
     setError(null);
     try {
+      // 1. Save all measurements
       const payload = metrics
         .map((m) => drafts[m.id])
         .filter(
@@ -253,12 +276,55 @@ export default function MeasureJobPage() {
       if (payload.length > 0) {
         await scSaveMeasurements(job.id, payload);
       }
-      setPhase("garment");
+
+      // 2. Run validation
+      setValidating(true);
+      const garmentOrderId = job.garment_orders[0]?.id;
+      const result = await scValidateJob(job.id, garmentOrderId);
+      setValidationResult(result);
+      setValidating(false);
+
+      // 3. If all clear, proceed directly
+      if (result.status === "pass") {
+        setPhase("garment");
+        return;
+      }
+
+      // 4. Otherwise open the validation bottom sheet
+      setShowValidationSheet(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save readings");
+      setValidating(false);
     } finally {
       setSaving(false);
     }
+  }
+
+  /** Re-run validation (called after the user remeasures a metric inside the
+   *  validation bottom sheet). Updates the result in place so the sheet
+   *  refreshes. */
+  async function revalidate() {
+    if (!job) return;
+    setValidating(true);
+    try {
+      const garmentOrderId = job.garment_orders[0]?.id;
+      const result = await scValidateJob(job.id, garmentOrderId);
+      setValidationResult(result);
+      if (result.status === "pass") {
+        setShowValidationSheet(false);
+        setPhase("garment");
+      }
+    } catch {
+      /* best-effort */
+    } finally {
+      setValidating(false);
+    }
+  }
+
+  /** Called after the user acknowledges non-critical warnings in the sheet. */
+  function proceedAfterWarningAck() {
+    setShowValidationSheet(false);
+    setPhase("garment");
   }
 
   async function handleComplete() {
@@ -530,9 +596,20 @@ export default function MeasureJobPage() {
             isLastStep={step >= totalSteps - 1}
             onBack={prevStep}
             onNext={nextStep}
-            onReview={() => {
+            onReview={async () => {
               saveStepSilently(currentDraft);
               setPhase("checkpoint");
+              // Run validation and open the sheet immediately
+              setValidating(true);
+              try {
+                const result = await scValidateJob(job.id, job.garment_orders[0]?.id);
+                setValidationResult(result);
+                if (result.status !== "pass") {
+                  setShowValidationSheet(true);
+                }
+              } catch { /* best-effort */ } finally {
+                setValidating(false);
+              }
             }}
           />
         </>
@@ -546,6 +623,8 @@ export default function MeasureJobPage() {
             setPhase("capture");
           }}
           saving={saving}
+          validating={validating}
+          validationResult={validationResult}
           onBack={() => {
             setStep(0);
             setPhase("capture");
@@ -577,21 +656,6 @@ export default function MeasureJobPage() {
         />
       )}
 
-      {/* ─── Inline edit bottom sheet (checkpoint + notes phase) ────────── */}
-      {editingMetricId &&
-        metrics.find((m) => m.id === editingMetricId) &&
-        drafts[editingMetricId] && (
-          <EditMetricSheet
-            metric={metrics.find((m) => m.id === editingMetricId)!}
-            draft={drafts[editingMetricId]}
-            onChange={(next) => {
-              updateDraftById(editingMetricId, next);
-              saveStepSilently(next);
-            }}
-            onClose={() => setEditingMetricId(null)}
-          />
-        )}
-
       {/* ─── Material edit bottom sheet (notes phase) ───────────────────── */}
       {editingMaterial && (
         <BottomSheet
@@ -618,6 +682,43 @@ export default function MeasureJobPage() {
           />
         </BottomSheet>
       )}
+
+      {/* ─── Validation bottom sheet (critical + non-critical) ─────────── */}
+      {showValidationSheet && validationResult && job && (
+        <ValidationSheet
+          result={validationResult}
+          validating={validating}
+          metrics={metrics}
+          drafts={drafts}
+          onRemeasure={(metricId) => setEditingMetricId(metricId)}
+          onRevalidate={revalidate}
+          onAcknowledgeWarnings={proceedAfterWarningAck}
+          onClose={() => setShowValidationSheet(false)}
+        />
+      )}
+
+      {/* ─── Inline edit bottom sheet (checkpoint + notes phase) ──────────
+          Rendered LAST so it stacks above the ValidationSheet when opened
+          from within it (both are fixed inset-0; DOM order wins). */}
+      {editingMetricId &&
+        metrics.find((m) => m.id === editingMetricId) &&
+        drafts[editingMetricId] && (
+          <EditMetricSheet
+            metric={metrics.find((m) => m.id === editingMetricId)!}
+            draft={drafts[editingMetricId]}
+            onChange={(next) => {
+              updateDraftById(editingMetricId, next);
+              saveStepSilently(next);
+            }}
+            onClose={() => {
+              setEditingMetricId(null);
+              // If the validation sheet is open, re-run validation after edit
+              if (showValidationSheet) {
+                revalidate();
+              }
+            }}
+          />
+        )}
     </div>
   );
 }
@@ -671,6 +772,8 @@ function CheckpointScreen({
   onEdit,
   onJumpToStep,
   saving,
+  validating,
+  validationResult,
   onBack,
   onContinue,
 }: {
@@ -679,6 +782,8 @@ function CheckpointScreen({
   onEdit: (metricId: string) => void;
   onJumpToStep: (idx: number) => void;
   saving: boolean;
+  validating: boolean;
+  validationResult: SCValidationResult | null;
   onBack: () => void;
   onContinue: () => void;
 }) {
@@ -839,6 +944,102 @@ function CheckpointScreen({
         </div>
       )}
 
+      {/* ─── Validation: critical errors (block proceeding) ─────────────── */}
+      {validating && (
+        <div className="rounded-card border border-hairline bg-mist-navy/50 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent-text border-t-transparent" />
+            <p className="text-caption font-medium text-ink-navy">
+              Checking measurements…
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!validating &&
+        validationResult &&
+        validationResult.status !== "pass" && (
+          <div className="space-y-2">
+            {validationResult.critical_errors.length > 0 && (
+              <div className="rounded-card border border-error-border bg-error-bg px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-4 w-4 shrink-0 text-error-text"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <p className="text-caption font-bold text-error-text">
+                    {validationResult.critical_errors.length} critical{" "}
+                    {validationResult.critical_errors.length === 1
+                      ? "issue"
+                      : "issues"}{" "}
+                    — must fix before continuing
+                  </p>
+                </div>
+              </div>
+            )}
+            {validationResult.non_critical_errors.length > 0 && (
+              <div className="rounded-card border border-warning-border bg-warning-bg px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-4 w-4 shrink-0 text-warning-text"
+                    aria-hidden="true"
+                  >
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                  <p className="text-caption font-bold text-warning-text">
+                    {validationResult.non_critical_errors.length}{" "}
+                    {validationResult.non_critical_errors.length === 1
+                      ? "advisory"
+                      : "advisories"}{" "}
+                    — tap review to see details
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+      {/* ─── Validation: all clear ─────────────────────────────────────── */}
+      {!validating &&
+        validationResult &&
+        validationResult.status === "pass" && (
+          <div className="flex items-center gap-2 rounded-card border border-success-border bg-success-bg px-4 py-2.5">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-4 w-4 shrink-0 text-success-text"
+              aria-hidden="true"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <p className="text-caption font-medium text-success-text">
+              All measurements look good
+            </p>
+          </div>
+        )}
+
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
       <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
@@ -851,16 +1052,347 @@ function CheckpointScreen({
           </button>
           <button
             onClick={onContinue}
-            disabled={saving || skipped > 0}
+            disabled={saving || validating || skipped > 0}
             className="tap flex-[2] rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary disabled:opacity-50"
           >
-            {saving
-              ? "Saving…"
-              : skipped > 0
-                ? "Fill all metrics to continue"
-                : "Save & continue to garments →"}
+            {validating
+              ? "Checking…"
+              : saving
+                ? "Saving…"
+                : skipped > 0
+                  ? "Fill all metrics to continue"
+                  : "Continue →"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Validation bottom sheet (critical + non-critical + remeasure) ──────────
+
+/** Map a validation error's values keys (snake_case metric names) to the
+ *  matching SCMetric objects so we can show "Re-measure" buttons.
+ *  e.g. "upper_bust" → metric with slug "upper-bust" */
+function findMetricsForError(
+  error: SCValidationError,
+  metrics: SCMetric[],
+): SCMetric[] {
+  const result: SCMetric[] = [];
+  if (!error.values) return result;
+  for (const key of Object.keys(error.values)) {
+    // Validation keys are snake_case ("upper_bust").
+    // Metric slugs are kebab-case ("upper-bust"), codes are snake_case ("upper_bust").
+    const kebab = key.replace(/_/g, "-");
+    const m = metrics.find(
+      (mt) =>
+        mt.slug === kebab ||            // slug match (kebab)
+        mt.code === key ||              // exact code match (snake_case)
+        mt.code?.toLowerCase() === key, // case-insensitive code match
+    );
+    if (m && !result.find((r) => r.id === m.id)) result.push(m);
+  }
+  return result;
+}
+
+function ValidationSheet({
+  result,
+  validating,
+  metrics,
+  drafts,
+  onRemeasure,
+  onRevalidate,
+  onAcknowledgeWarnings,
+  onClose,
+}: {
+  result: SCValidationResult;
+  validating: boolean;
+  metrics: SCMetric[];
+  drafts: Record<string, MetricDraft>;
+  onRemeasure: (metricId: string) => void;
+  onRevalidate: () => void;
+  onAcknowledgeWarnings: () => void;
+  onClose: () => void;
+}) {
+  const [verifiedSet, setVerifiedSet] = useState<Set<string>>(new Set());
+  const [activeLang, setActiveLang] = useState<string>("en");
+
+  // Detect available languages from explanation objects
+  const availableLangs = useMemo(() => {
+    const allErrs = [...result.critical_errors, ...result.non_critical_errors];
+    const langSet = new Set<string>(["en"]);
+    for (const e of allErrs) {
+      if (e.explanation) {
+        for (const lang of Object.keys(e.explanation)) {
+          if (e.explanation[lang]) langSet.add(lang);
+        }
+      }
+    }
+    return LANG_ORDER.filter((l) => langSet.has(l));
+  }, [result]);
+
+  const hasCritical = result.critical_errors.length > 0;
+  const hasWarnings = result.non_critical_errors.length > 0;
+  const allWarningsVerified =
+    hasWarnings &&
+    result.non_critical_errors.every((err) => verifiedSet.has(`${err.rule}-${err.code}`));
+
+  function toggleVerify(key: string) {
+    setVerifiedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <button
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-ink-navy/40 backdrop-blur-[1px]"
+      />
+      <div className="relative flex max-h-[90dvh] w-full max-w-column flex-col rounded-t-sheet bg-chalk-white shadow-brand animate-slide-up">
+        {/* Drag handle */}
+        <div className="flex items-center justify-center pt-3 pb-1">
+          <span className="h-1 w-10 rounded-pill bg-tape-silver" />
+        </div>
+
+        {/* ── Header ── */}
+        <div className="shrink-0 px-4 pb-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <span className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-accent-text">
+                Checkpoint
+              </span>
+              <h2 className="font-heading text-h2 text-ink-navy">
+                {hasCritical ? "Measurement check" : "Advisories"}
+              </h2>
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="tap flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-mist-navy text-ink-navy"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            </button>
+          </div>
+          {/* Count badges */}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {hasCritical && (
+              <span className="inline-flex items-center gap-1.5 rounded-pill bg-error-bg px-2.5 py-1 text-[12px] font-semibold text-error-text">
+                <span className="h-1.5 w-1.5 rounded-full bg-error" />
+                {result.critical_errors.length} critical
+              </span>
+            )}
+            {hasWarnings && (
+              <span className="inline-flex items-center gap-1.5 rounded-pill border border-warning-border bg-warning-bg px-2.5 py-1 text-[12px] font-semibold text-warning-text">
+                <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+                {result.non_critical_errors.length} advisories
+              </span>
+            )}
+            {hasWarnings && !hasCritical && (
+              <span className="inline-flex items-center gap-1 text-[12px] text-muted">
+                {verifiedSet.size}/{result.non_critical_errors.length} verified
+              </span>
+            )}
+          </div>
+
+          {/* Language toggle */}
+          {availableLangs.length > 1 && (
+            <div className="mt-2 flex gap-1 rounded-pill bg-mist-navy p-0.5">
+              {availableLangs.map((lang) => {
+                const isActive = lang === activeLang;
+                return (
+                  <button
+                    key={lang}
+                    onClick={() => setActiveLang(lang)}
+                    className={`tap flex-1 rounded-pill px-3 py-1 text-caption font-semibold uppercase tracking-wide transition ${
+                      isActive
+                        ? "bg-chalk-white text-ink-navy shadow-card"
+                        : "text-muted"
+                    }`}
+                  >
+                    {LANG_TAGS[lang] ?? lang}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4">
+          {validating && (
+            <div className="flex items-center justify-center gap-2 py-6">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent-text border-t-transparent" />
+              <span className="text-body text-muted">Re-checking…</span>
+            </div>
+          )}
+          <div className="space-y-2.5 pb-4">
+            {hasCritical && result.critical_errors.map((err, idx) => (
+              <ValidationItem key={`c-${idx}`} error={err} critical metrics={metrics} drafts={drafts} onRemeasure={onRemeasure} lang={activeLang} />
+            ))}
+            {hasCritical && hasWarnings && (
+              <div className="flex items-center gap-3 py-1">
+                <span className="h-px flex-1 bg-hairline" />
+                <span className="font-mono text-[10px] uppercase tracking-wide text-muted">Advisories</span>
+                <span className="h-px flex-1 bg-hairline" />
+              </div>
+            )}
+            {hasWarnings && result.non_critical_errors.map((err, idx) => {
+              const vKey = `${err.rule}-${err.code}`;
+              return (
+                <ValidationItem
+                  key={`w-${idx}`}
+                  error={err}
+                  metrics={metrics}
+                  drafts={drafts}
+                  onRemeasure={onRemeasure}
+                  verified={verifiedSet.has(vKey)}
+                  onVerify={() => toggleVerify(vKey)}
+                  lang={activeLang}
+                />
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Footer ── */}
+        <div className="shrink-0 border-t border-hairline bg-chalk-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+          {hasCritical ? (
+            <div className="flex items-center justify-center gap-2.5">
+              <button
+                onClick={onRevalidate}
+                disabled={validating}
+                aria-label="Re-check"
+                className="tap flex h-10 w-10 items-center justify-center rounded-full border border-hairline-strong bg-chalk-white text-ink-navy disabled:opacity-40"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={`h-4 w-4 ${validating ? "animate-spin" : ""}`}><path d="M23 4v6h-6" /><path d="M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" /><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" /></svg>
+              </button>
+              <p className="text-[13px] text-muted">
+                Fix the critical issues, then re-check
+              </p>
+            </div>
+          ) : (
+            <button
+              onClick={onAcknowledgeWarnings}
+              disabled={!allWarningsVerified}
+              className="tap w-full rounded-pill bg-tape px-6 py-3 text-body font-semibold text-chalk-white shadow-primary disabled:opacity-40"
+            >
+              {allWarningsVerified ? "Continue →" : `Verify all (${verifiedSet.size}/${result.non_critical_errors.length})`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Validation card — uses Banner pattern: left-stripe accent + icon badge */
+function ValidationItem({
+  error,
+  critical,
+  metrics,
+  drafts,
+  onRemeasure,
+  verified,
+  onVerify,
+  lang = "en",
+}: {
+  error: SCValidationError;
+  critical?: boolean;
+  metrics: SCMetric[];
+  drafts: Record<string, MetricDraft>;
+  onRemeasure: (metricId: string) => void;
+  verified?: boolean;
+  onVerify?: () => void;
+  lang?: string;
+}) {
+  const explanation = error.explanation?.[lang] ?? error.explanation?.en ?? error.rule;
+  const relatedMetrics = findMetricsForError(error, metrics);
+
+  const accent = verified ? "var(--success)" : critical ? "var(--error)" : "var(--warning)";
+  const bg = verified ? "bg-success-bg" : critical ? "bg-error-bg" : "bg-[color-mix(in_srgb,var(--warning)_12%,white)]";
+  const iconChar = verified ? "✓" : critical ? "!" : "?";
+
+  return (
+    <div
+      className={`flex items-start gap-3 rounded-card border border-hairline px-3 py-2.5 ${bg}`}
+      style={{ borderLeft: `1.5px solid ${accent}` }}
+    >
+      {/* Icon badge — Banner pattern */}
+      <span
+        className="mt-0.5 flex h-6 w-6 flex-none items-center justify-center rounded-pill text-[12px] font-bold text-chalk-white"
+        style={{ background: accent }}
+      >
+        {iconChar}
+      </span>
+
+      <div className="min-w-0 flex-1 space-y-1.5">
+        {/* Explanation text */}
+        <p className="text-[14px] leading-relaxed text-ink">
+          {explanation}
+        </p>
+
+        {/* Rule code + measurement chips */}
+        {!verified && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-mono text-[10px] uppercase tracking-wide text-muted">
+              {error.code}
+            </span>
+          </div>
+        )}
+
+        {/* Measurement chips + Verified on the right */}
+        {!verified && (
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            {/* Readable measurement chips: "Shoulder Left  1.0" */}
+            {relatedMetrics.map((m) => {
+              const d = drafts[m.id];
+              const val = d
+                ? d.valueNumeric !== null
+                  ? `${d.valueNumeric}${d.unit === "in" ? '"' : d.unit ?? ""}`
+                  : d.valueText ?? "—"
+                : "—";
+              const label = pickLabel(m.labels, m.code ?? "");
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => onRemeasure(m.id)}
+                  className="tap inline-flex items-center gap-1.5 rounded-pill border border-hairline-strong bg-chalk-white px-2.5 py-1 text-[12px] text-ink-navy"
+                  aria-label={`Edit ${label}`}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 flex-none text-accent-text"><path d="M23 4v6h-6" /><path d="M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" /><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" /></svg>
+                  <span className="text-muted">{label}</span>
+                  <span className="font-mono font-semibold text-ink">{val}</span>
+                </button>
+              );
+            })}
+
+            {/* Verified CTA pushed to the right for quick thumb access */}
+            {!critical && onVerify && (
+              <button
+                onClick={onVerify}
+                className="tap ml-auto inline-flex items-center gap-1 rounded-pill bg-tape px-3 py-1 text-[12px] font-semibold text-chalk-white shadow-primary"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3"><polyline points="20 6 9 17 4 12" /></svg>
+                Verified
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
