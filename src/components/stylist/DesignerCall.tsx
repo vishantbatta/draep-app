@@ -29,13 +29,14 @@ import { useEffect, useRef, useState } from "react";
 
 import { ArrowLeft, Sparkles } from "@/components/ui/icons";
 import { strings } from "@/lib/strings";
-import type { CallStatus, DesignImage, TranscriptEntry } from "@/hooks/useGeminiLiveCall";
+import type { CallStatus, CloseDetail, DesignImage, TranscriptEntry } from "@/hooks/useGeminiLiveCall";
 
 interface Props {
   status: CallStatus;
   transcript: TranscriptEntry[];
   designImages: DesignImage[];
   errorMsg: string | null;
+  closeDetail: CloseDetail | null;
   muted: boolean;
   videoRef: React.RefObject<HTMLVideoElement>;
   canvasRef: React.RefObject<HTMLCanvasElement>;
@@ -50,6 +51,7 @@ export function DesignerCall({
   transcript,
   designImages,
   errorMsg,
+  closeDetail,
   muted,
   videoRef,
   canvasRef,
@@ -80,6 +82,11 @@ export function DesignerCall({
 
   // ── Active call screen ──────────────────────────────────────────────
   const isConnected = status === "connected";
+  const isReconnecting = status === "reconnecting";
+  // Only show error modal during active calls that failed unexpectedly
+  // NOT for "ended" status (natural session end from VAD timeout)
+  const showCallError =
+    (status === "connecting" || status === "connected" || isReconnecting) && !!errorMsg;
 
   return (
     <div className="fixed inset-0 z-[200] flex flex-col bg-ink-navy">
@@ -147,17 +154,42 @@ export function DesignerCall({
             AI Fashion Designer
           </p>
           <p className="text-[11px] text-chalk-white/70">
-            {status === "connecting"
-              ? strings.stylist.connecting
-              : isConnected
-                ? strings.stylist.connected
-                : strings.stylist.ended}
+            {isReconnecting
+              ? "Reconnecting…"
+              : status === "connecting"
+                ? strings.stylist.connecting
+                : isConnected
+                  ? strings.stylist.connected
+                  : strings.stylist.ended}
           </p>
         </motion.div>
 
         {/* Spacer */}
         <div className="w-10" />
       </div>
+
+      {/* ─── Reconnecting banner (slides in on transparent auto-reconnect) ─── */}
+      <AnimatePresence>
+        {isReconnecting && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.25 }}
+            className="relative z-10 mx-auto mt-3 flex w-full max-w-[calc(100%-2rem)] items-center justify-center gap-2 rounded-pill border border-chalk-white/15 bg-ink-navy/70 px-4 py-2 backdrop-blur-md"
+          >
+            <motion.span
+              aria-hidden
+              className="h-2 w-2 rounded-full bg-draep-orange"
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+            />
+            <span className="text-caption font-medium text-chalk-white/90">
+              Connection dipped — reconnecting you to the designer
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ─── Design preview overlay (slides up when generated) ─── */}
       <AnimatePresence>
@@ -211,6 +243,18 @@ export function DesignerCall({
           <EndCallIcon />
         </button>
       </div>
+
+      {/* ─── Error modal (shows when call drops during active call) ─── */}
+      <AnimatePresence>
+        {showCallError && (
+          <ErrorModal
+            errorMsg={errorMsg}
+            closeDetail={closeDetail}
+            onBack={onBack}
+            onRetry={onConnect}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -357,6 +401,108 @@ function PreCallScreen({
         </button>
       </div>
     </div>
+  );
+}
+
+/* ============================================================ */
+/*  Error modal (shown during active call when it drops)         */
+/* ============================================================ */
+
+function ErrorModal({
+  errorMsg,
+  closeDetail,
+  onBack,
+  onRetry,
+}: {
+  errorMsg: string | null;
+  closeDetail: CloseDetail | null;
+  onBack: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.3 }}
+      className="fixed inset-0 z-[300] flex items-center justify-center bg-ink-navy/85 backdrop-blur-md"
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.9, y: 20 }}
+        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        className="mx-4 w-full max-w-md overflow-hidden rounded-card border border-error/30 bg-ink-navy shadow-2xl"
+      >
+        {/* Header */}
+        <div className="flex items-center gap-2 border-b border-chalk-white/10 px-4 py-3"
+             style={{ background: "rgba(239, 68, 68, 0.15)" }}>
+          <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="text-error" aria-hidden>
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span className="text-sm font-semibold text-chalk-white">Call Disconnected</span>
+        </div>
+
+        {/* Error details */}
+        <div className="px-4 py-4">
+          {closeDetail && (
+            <div className="mb-3 flex items-center gap-2">
+              <span
+                className="rounded-pill px-2.5 py-1 text-xs font-bold"
+                style={{
+                  background: "rgba(239, 68, 68, 0.2)",
+                  color: "#fca5a5",
+                }}
+              >
+                WS {closeDetail.code}
+              </span>
+              <span className="text-xs text-chalk-white/50">
+                {closeDetail.wasClean ? "Clean close" : "Abnormal close"}
+              </span>
+            </div>
+          )}
+
+          <div className="overflow-x-auto rounded-card bg-ink-navy/60 p-3">
+            <p
+              className="whitespace-pre-wrap break-words text-left text-xs leading-relaxed text-chalk-white/80"
+              style={{ fontFamily: "var(--font-mono, ui-monospace, monospace)" }}
+            >
+              {errorMsg ?? "Unknown error"}
+            </p>
+          </div>
+
+          {closeDetail?.reason && (
+            <p
+              className="mt-2 text-left text-[11px] leading-relaxed text-chalk-white/40"
+              style={{ fontFamily: "var(--font-mono, ui-monospace, monospace)" }}
+            >
+              {closeDetail.reason}
+            </p>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-2 border-t border-chalk-white/10 px-4 py-3">
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex-1 rounded-pill bg-chalk-white/10 px-4 py-2.5 text-sm font-medium text-chalk-white transition-colors hover:bg-chalk-white/20"
+          >
+            Go Back
+          </button>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="flex-1 rounded-pill px-4 py-2.5 text-sm font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-95"
+            style={{ backgroundImage: "var(--tape-gradient)" }}
+          >
+            Try Again
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

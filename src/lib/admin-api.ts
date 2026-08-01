@@ -1504,3 +1504,164 @@ export function fetchOpenSlots(
   return adminFetch<AdminSlotsResponse>(`/admin/slots${qs ? `?${qs}` : ""}`);
 }
 
+// ─── Design AI (image → Gemini analysis) ────────────────────────────────────
+
+export interface AISelection {
+  component_id: string;
+  component_label: string | null;
+  variation_id: string;
+  variation_label: string | null;
+  variation_type_id: string | null;
+  variation_type_label: string | null;
+}
+
+export interface AIAddon {
+  addon_id: string;
+  addon_label: string | null;
+  addon_variation_id: string | null;
+  addon_variation_label: string | null;
+  placement: string[] | null;
+}
+
+export interface AIUnknownItem {
+  type: "variation" | "variation_type" | "addon" | "addon_variation";
+  parent_id: string | null;
+  parent_label: string | null;
+  name: string;
+  slug: string;
+  description: string;
+  suggested_price: number | null;
+}
+
+export interface AnalyzeDesignResult {
+  image_url: string;
+  selections: AISelection[];
+  addons: AIAddon[];
+  unknown_items: AIUnknownItem[];
+}
+
+export interface ApplyDesignResult {
+  garment_order_id: string;
+  total_price: number;
+  items: GarmentOrderItemRow[];
+  items_count: number;
+}
+
+/**
+ * POST /admin/design-ai/analyze
+ * Upload a reference image and get AI-generated design selections.
+ */
+export async function analyzeDesignImage(
+  garmentId: string,
+  image: File,
+): Promise<AnalyzeDesignResult> {
+  const token = getAdminToken();
+  if (!token) throw new Error("No admin token");
+
+  const formData = new FormData();
+  formData.append("garment_id", garmentId);
+  formData.append("image", image);
+
+  const res = await fetch(`${API_URL}/admin/design-ai/analyze`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      // Don't set Content-Type — browser sets it with boundary for FormData
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    const msg =
+      (detail as Record<string, unknown>)?.detail ??
+      (detail as Record<string, unknown>)?.message ??
+      `Analysis failed (${res.status})`;
+    throw new Error(typeof msg === "string" ? msg : "Analysis failed");
+  }
+
+  return res.json() as Promise<AnalyzeDesignResult>;
+}
+
+/**
+ * POST /admin/design-ai/apply
+ * Apply AI-generated selections to a garment order (replaces existing items).
+ */
+export async function applyDesignFromAI(
+  garmentOrderId: string,
+  selections: AISelection[],
+  addons: AIAddon[],
+): Promise<ApplyDesignResult> {
+  return adminFetch<ApplyDesignResult>("/admin/design-ai/apply", {
+    method: "POST",
+    body: JSON.stringify({
+      garment_order_id: garmentOrderId,
+      selections,
+      addons,
+    }),
+  });
+}
+
+// ─── Design AI Conversational Chat ───────────────────────────────────────────
+
+export interface ChatDesignResult {
+  image_url: string | null;
+  message: string;
+  selections: AISelection[];
+  addons: AIAddon[];
+  unknown_items: AIUnknownItem[];
+}
+
+/**
+ * POST /admin/design-ai/chat
+ * Send a message (text and/or image) to the conversational design AI.
+ * Maintains thread state on the backend via thread_id.
+ */
+export async function chatDesign(
+  threadId: string,
+  garmentId: string,
+  options: { text?: string; image?: File },
+): Promise<ChatDesignResult> {
+  const token = getAdminToken();
+  if (!token) throw new Error("No admin token");
+
+  const formData = new FormData();
+  formData.append("thread_id", threadId);
+  formData.append("garment_id", garmentId);
+  if (options.text) formData.append("text", options.text);
+  if (options.image) formData.append("image", options.image);
+
+  const res = await fetch(`${API_URL}/admin/design-ai/chat`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    const msg =
+      (detail as Record<string, unknown>)?.detail ??
+      (detail as Record<string, unknown>)?.message ??
+      `Chat failed (${res.status})`;
+    throw new Error(typeof msg === "string" ? msg : "Chat failed");
+  }
+
+  return res.json() as Promise<ChatDesignResult>;
+}
+
+/**
+ * DELETE /admin/design-ai/chat/{thread_id}
+ * Clear a conversation thread.
+ */
+export async function clearDesignThread(threadId: string): Promise<void> {
+  const token = getAdminToken();
+  if (!token) throw new Error("No admin token");
+
+  await fetch(`${API_URL}/admin/design-ai/chat/${threadId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+

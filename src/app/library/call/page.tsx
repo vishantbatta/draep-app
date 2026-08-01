@@ -25,6 +25,7 @@ export default function DesignerCallPage() {
     transcript,
     designImages,
     errorMsg,
+    closeDetail,
     muted,
     videoRef,
     canvasRef,
@@ -44,6 +45,7 @@ export default function DesignerCallPage() {
       transcript={transcript}
       designImages={designImages}
       errorMsg={errorMsg}
+      closeDetail={closeDetail}
       muted={muted}
       videoRef={videoRef}
       canvasRef={canvasRef}

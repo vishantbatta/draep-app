@@ -12,7 +12,10 @@ import {
 import {
   createOrder,
   createTableRow,
+  updateTableRow,
+  deleteTableRow,
   fetchTableRows,
+  fetchGarmentOrderItems,
   fetchGarments,
   fetchStyleCaptains,
   fetchOpenSlots,
@@ -28,6 +31,7 @@ import {
   type AdminSlotOption,
 } from "@/lib/admin-api";
 import { GarmentOrderEditor, type DraftItem } from "./[id]/GarmentOrderEditor";
+import { DesignFromImage } from "./[id]/DesignFromImage";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,6 +96,33 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
   const [garmentsLoading, setGarmentsLoading] = useState(false);
   const [garmentDrafts, setGarmentDrafts] = useState<GarmentDraft[]>([]);
   const draftIdCounter = useRef(0);
+  // Per-draft tab state: "upload" (AI) vs "manual" (accordion editor).
+  // When prefilledItems are set, tabs disappear and only the editor shows.
+  const [draftTabs, setDraftTabs] = useState<Record<string, "upload" | "manual">>({});
+  // AI-prefilled initial items per draft. When set, the editor opens directly
+  // with these selections pre-loaded (no tab toggle shown).
+  const [prefilledByDraft, setPrefilledByDraft] = useState<
+    Record<string, { items: GarmentOrderItemRow[]; imageUrl: string }>
+  >({});
+  // Per-draft iteration counter — bumps each time the AI returns new
+  // selections so the GarmentOrderEditor remounts with fresh initialItems.
+  const [draftIterations, setDraftIterations] = useState<Record<string, number>>({});
+  // Stable AI thread id per draft, shared between the upload-zone instance
+  // and the composerOnly instance so conversation context survives the
+  // upload-zone → editor+composer transition.
+  const [draftThreadIds] = useState<Record<string, string>>({});
+
+  // ── Draft persistence ────────────────────────────────────────────────────
+  // When the admin advances past the Garments step, the in-progress order is
+  // written to the DB with fulfillment_status = "draft". The ids below track
+  // the rows created so the later steps UPDATE them instead of recreating.
+  const [draftOrderId, setDraftOrderId] = useState<string | null>(null);
+  const [draftCustomerId, setDraftCustomerId] = useState<string | null>(null);
+  // Map: wizard draft.id → created garment_order DB id.
+  const [draftGarmentOrderIds, setDraftGarmentOrderIds] = useState<
+    Record<string, string>
+  >({});
+  const [persistingDraft, setPersistingDraft] = useState(false);
 
   // ── Step 3: Address ───────────────────────────────────────────────────────
   const [addresses, setAddresses] = useState<AddressRow[]>([]);
@@ -159,6 +190,12 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
     setSelectedSlotDate(undefined);
     setSelectedSlot(undefined);
     setSelectedCaptainId("");
+    setPrefilledByDraft({});
+    setDraftIterations({});
+    setDraftOrderId(null);
+    setDraftCustomerId(null);
+    setDraftGarmentOrderIds({});
+    setPersistingDraft(false);
   }
 
   function handleClose() {
@@ -360,10 +397,16 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
   // ── Garment draft helpers ──────────────────────────────────────────────────
   function addGarmentDraft() {
     draftIdCounter.current += 1;
+    const draftId = `draft-${draftIdCounter.current}`;
+    // Assign a stable AI conversation thread id for this draft so the
+    // upload-zone and composerOnly DesignFromImage instances share context.
+    draftThreadIds[draftId] = `thread-${draftIdCounter.current}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
     setGarmentDrafts((prev) => [
       ...prev,
       {
-        id: `draft-${draftIdCounter.current}`,
+        id: draftId,
         garmentId: "",
         draftItems: [],
         computedTotal: 0,
@@ -381,6 +424,187 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
     setGarmentDrafts((prev) => prev.filter((g) => g.id !== id));
   }
 
+  /**
+   * Apply an AI design result (from DesignFromImage) to a garment draft:
+   * stores prefilled editor items, the reference image, the raw draft items,
+   * and bumps the iteration counter so the editor remounts with fresh data.
+   */
+  function applyAIDraft(
+    draftId: string,
+    items: DraftItem[],
+    imageUrl: string,
+  ) {
+    const prefilled: GarmentOrderItemRow[] = items.map((it, i) => ({
+      id: `prefilled-${draftId}-${i}`,
+      garment_order_id: "draft",
+      garment_style_component_id: it.garment_style_component_id,
+      type: it.type,
+      variation_id: it.variation_id,
+      variation_type_id: it.variation_type_id,
+      addon_id: it.addon_id,
+      addon_variation_id: it.addon_variation_id,
+      placement: it.placement,
+      price: it.price,
+      custom_input: null,
+      label_snapshot: it.label_snapshot,
+    }));
+    setPrefilledByDraft((prev) => ({
+      ...prev,
+      [draftId]: { items: prefilled, imageUrl },
+    }));
+    updateGarmentDraft(draftId, { draftItems: items });
+    setDraftIterations((prev) => ({
+      ...prev,
+      [draftId]: (prev[draftId] ?? 0) + 1,
+    }));
+  }
+
+  // ── Persist draft order (advance from Garments step) ──────────────────────
+  /**
+   * Write the in-progress order to the DB with fulfillment_status = "draft":
+   * creates the customer (if new), the order row, and a garment_order +
+   * items per draft. Idempotent — on re-entry (admin went Back to Garments,
+   * edited, then Next again) it updates existing rows. Items are
+   * delete-then-reinserted per garment_order to avoid the
+   * ix_goi_unique_variation partial unique index when the picked variation
+   * for a component changes.
+   *
+   * NOTE: if the admin closes the sheet after this runs, the draft order and
+   * (for a new customer) the users row remain in the DB. That is intentional
+   * — drafts are reopenable from the orders list.
+   */
+  async function persistDraftOrder() {
+    if (persistingDraft) return;
+    setPersistingDraft(true);
+    setError(null);
+    try {
+      // 1. Resolve / create customer (once)
+      let customerId: string;
+      if (draftCustomerId) {
+        customerId = draftCustomerId;
+      } else if (foundUser) {
+        customerId = foundUser.id;
+      } else {
+        const newUser = await createTableRow<UserRow>("users", {
+          name: newUserName.trim(),
+          phone: phoneInput.trim(),
+          role: "customer",
+        });
+        customerId = newUser.id;
+      }
+      if (!draftCustomerId) setDraftCustomerId(customerId);
+
+      // 2. Create draft order (once), else refresh total_price
+      let orderId = draftOrderId;
+      if (!orderId) {
+        const order = await createOrder({
+          user_id: customerId,
+          address_id: null,
+          total_price: grandTotal > 0 ? grandTotal : null,
+          fulfillment_status: "draft",
+          payment_status: null,
+        });
+        orderId = order.id;
+        setDraftOrderId(orderId);
+      } else {
+        await updateTableRow("orders", orderId, {
+          total_price: grandTotal > 0 ? grandTotal : null,
+        });
+      }
+
+      // 3. Sync garment_orders + items for each draft
+      const newGoIds: Record<string, string> = { ...draftGarmentOrderIds };
+      for (const draft of garmentDrafts) {
+        const garment = garments.find((g) => g.id === draft.garmentId);
+        const basePrice = garment?.base_price ?? null;
+        const existingGoId = newGoIds[draft.id];
+
+        if (existingGoId) {
+          // Tear down old items (avoids unique-index conflicts on re-insert),
+          // then update the garment_order and re-insert the current items.
+          const oldItems = await fetchGarmentOrderItems(existingGoId);
+          await Promise.all(
+            oldItems.map((it) => deleteTableRow("garment_orders_items", it.id)),
+          );
+          await updateTableRow("garment_orders", existingGoId, {
+            garment_id: draft.garmentId,
+            price: draft.computedTotal > 0 ? draft.computedTotal : basePrice,
+          });
+          for (const item of draft.draftItems) {
+            await createTableRow<GarmentOrderItemRow>("garment_orders_items", {
+              garment_order_id: existingGoId,
+              type: item.type,
+              garment_style_component_id: item.garment_style_component_id,
+              variation_id: item.variation_id,
+              variation_type_id: item.variation_type_id,
+              addon_id: item.addon_id,
+              addon_variation_id: item.addon_variation_id,
+              placement: item.placement,
+              price: item.price,
+              label_snapshot: item.label_snapshot,
+            });
+          }
+        } else {
+          const go = await createTableRow<{ id: string }>("garment_orders", {
+            order_id: orderId,
+            garment_id: draft.garmentId,
+            price: draft.computedTotal > 0 ? draft.computedTotal : basePrice,
+            status: "pending",
+          });
+          newGoIds[draft.id] = go.id;
+          for (const item of draft.draftItems) {
+            await createTableRow<GarmentOrderItemRow>("garment_orders_items", {
+              garment_order_id: go.id,
+              type: item.type,
+              garment_style_component_id: item.garment_style_component_id,
+              variation_id: item.variation_id,
+              variation_type_id: item.variation_type_id,
+              addon_id: item.addon_id,
+              addon_variation_id: item.addon_variation_id,
+              placement: item.placement,
+              price: item.price,
+              label_snapshot: item.label_snapshot,
+            });
+          }
+        }
+      }
+
+      // 4. Clean up garment_orders for drafts that were removed
+      for (const [oldDraftId, goId] of Object.entries(draftGarmentOrderIds)) {
+        if (!garmentDrafts.find((d) => d.id === oldDraftId)) {
+          const items = await fetchGarmentOrderItems(goId);
+          await Promise.all(
+            items.map((it) => deleteTableRow("garment_orders_items", it.id)),
+          );
+          await deleteTableRow("garment_orders", goId);
+          delete newGoIds[oldDraftId];
+        }
+      }
+
+      setDraftGarmentOrderIds(newGoIds);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save draft order");
+      throw e;
+    } finally {
+      setPersistingDraft(false);
+    }
+  }
+
+  // ── Step-aware next ───────────────────────────────────────────────────────
+  async function handleNext() {
+    if (step === 1) {
+      // Garments → Address: persist the draft order first.
+      try {
+        await persistDraftOrder();
+        setStep((s) => s + 1);
+      } catch {
+        // error already surfaced in persistDraftOrder
+      }
+    } else {
+      setStep((s) => s + 1);
+    }
+  }
+
   // ── Submit ─────────────────────────────────────────────────────────────────
   async function handleSubmit() {
     setSubmitting(true);
@@ -388,7 +612,9 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
     try {
       // 1. Resolve customer
       let customerId: string;
-      if (foundUser) {
+      if (draftCustomerId) {
+        customerId = draftCustomerId;
+      } else if (foundUser) {
         customerId = foundUser.id;
       } else {
         const newUser = await createTableRow<UserRow>("users", {
@@ -418,48 +644,63 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
         addressId = selectedAddressId || null;
       }
 
-      // 3. Create order
-      const order = await createOrder({
-        user_id: customerId,
-        address_id: addressId,
-        total_price: grandTotal > 0 ? grandTotal : null,
-        fulfillment_status: "pending",
-        payment_status: "pending",
-      });
+      let orderId: string;
 
-      // 4. Create garment orders + items
-      for (const draft of garmentDrafts) {
-        const garment = garments.find((g) => g.id === draft.garmentId);
-        const basePrice = garment?.base_price ?? null;
-
-        const go = await createTableRow<{ id: string }>("garment_orders", {
-          order_id: order.id,
-          garment_id: draft.garmentId,
-          price: draft.computedTotal > 0 ? draft.computedTotal : basePrice,
-          status: "pending",
+      if (draftOrderId) {
+        // ── Finalize the existing draft ──
+        // Re-sync garments (idempotent no-op if unchanged), then flip the
+        // order from "draft" → "pending" and attach the address.
+        await persistDraftOrder();
+        orderId = draftOrderId;
+        await updateTableRow("orders", orderId, {
+          user_id: customerId,
+          address_id: addressId,
+          total_price: grandTotal > 0 ? grandTotal : null,
+          fulfillment_status: "pending",
+          payment_status: "pending",
         });
+      } else {
+        // ── Fallback: full create (draft was never persisted) ──
+        const order = await createOrder({
+          user_id: customerId,
+          address_id: addressId,
+          total_price: grandTotal > 0 ? grandTotal : null,
+          fulfillment_status: "pending",
+          payment_status: "pending",
+        });
+        orderId = order.id;
 
-        for (const item of draft.draftItems) {
-          await createTableRow<GarmentOrderItemRow>("garment_orders_items", {
-            garment_order_id: go.id,
-            type: item.type,
-            garment_style_component_id: item.garment_style_component_id,
-            variation_id: item.variation_id,
-            variation_type_id: item.variation_type_id,
-            addon_id: item.addon_id,
-            addon_variation_id: item.addon_variation_id,
-            placement: item.placement,
-            price: item.price,
-            label_snapshot: item.label_snapshot,
+        for (const draft of garmentDrafts) {
+          const garment = garments.find((g) => g.id === draft.garmentId);
+          const basePrice = garment?.base_price ?? null;
+          const go = await createTableRow<{ id: string }>("garment_orders", {
+            order_id: orderId,
+            garment_id: draft.garmentId,
+            price: draft.computedTotal > 0 ? draft.computedTotal : basePrice,
+            status: "pending",
           });
+          for (const item of draft.draftItems) {
+            await createTableRow<GarmentOrderItemRow>("garment_orders_items", {
+              garment_order_id: go.id,
+              type: item.type,
+              garment_style_component_id: item.garment_style_component_id,
+              variation_id: item.variation_id,
+              variation_type_id: item.variation_type_id,
+              addon_id: item.addon_id,
+              addon_variation_id: item.addon_variation_id,
+              placement: item.placement,
+              price: item.price,
+              label_snapshot: item.label_snapshot,
+            });
+          }
         }
       }
 
-      // 5. Create measurement job (if requested)
+      // 3. Create measurement job (if requested)
       if (jobChoice === "schedule" && selectedSlot) {
         await createTableRow<MeasurementJobRow>("measurement_jobs", {
           user_id: customerId,
-          order_id: order.id,
+          order_id: orderId,
           style_captain_id: selectedCaptainId || null,
           scheduled_at: selectedSlot.start_at,
           status: "scheduled" as JobStatus,
@@ -467,7 +708,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
       }
 
       handleClose();
-      router.push(`/admin/orders/${order.id}`);
+      router.push(`/admin/orders/${orderId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create order");
     } finally {
@@ -484,6 +725,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
       open={open}
       onClose={handleClose}
       title="Create New Order"
+      className="max-w-5xl"
       footer={
         <div className="flex items-center justify-between gap-3">
           <div className="text-xs text-muted">
@@ -503,11 +745,11 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
             )}
             {!isLastStep ? (
               <button
-                onClick={() => setStep((s) => s + 1)}
-                disabled={!stepValid || submitting}
+                onClick={handleNext}
+                disabled={!stepValid || submitting || persistingDraft}
                 className="rounded-lg bg-ink-navy px-5 py-2 text-xs font-semibold text-chalk-white transition hover:bg-tape disabled:opacity-40"
               >
-                Next →
+                {persistingDraft && step === 1 ? "Saving draft…" : "Next →"}
               </button>
             ) : (
               <button
@@ -634,13 +876,19 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
               </div>
               <select
                 value={draft.garmentId}
-                onChange={(e) =>
+                onChange={(e) => {
                   updateGarmentDraft(draft.id, {
                     garmentId: e.target.value,
                     draftItems: [],
                     computedTotal: 0,
-                  })
-                }
+                  });
+                  // Clear AI prefill when garment changes
+                  setPrefilledByDraft((prev) => {
+                    const next = { ...prev };
+                    delete next[draft.id];
+                    return next;
+                  });
+                }}
                 className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
               >
                 <option value="">{garmentsLoading ? "Loading…" : "— Select garment —"}</option>
@@ -654,23 +902,129 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
               {/* Inline editor for this garment */}
               {draft.garmentId && (
                 <div className="mt-2">
-                  <GarmentOrderEditor
-                    key={draft.id}
-                    garmentId={draft.garmentId}
-                    garmentOrderId="draft"
-                    initialItems={[]}
-                    basePrice={
-                      garments.find((g) => g.id === draft.garmentId)?.base_price ?? null
-                    }
-                    draftMode
-                    draftSaving={submitting}
-                    onDraftChange={(items) =>
-                      updateGarmentDraft(draft.id, { draftItems: items })
-                    }
-                    onComputedTotalChange={(total) =>
-                      updateGarmentDraft(draft.id, { computedTotal: total })
-                    }
-                  />
+                  {prefilledByDraft[draft.id] ? (
+                    /* ── AI prefilled: show reference image on top, editor below — no tabs ── */
+                    <div className="space-y-3">
+                      {/* Reference image */}
+                      <div className="flex items-start justify-between gap-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={prefilledByDraft[draft.id].imageUrl}
+                          alt="Reference design"
+                          className="max-h-[280px] rounded-lg border border-hairline object-contain"
+                        />
+                        <button
+                          onClick={() => {
+                            setPrefilledByDraft((prev) => {
+                              const next = { ...prev };
+                              delete next[draft.id];
+                              return next;
+                            });
+                            updateGarmentDraft(draft.id, {
+                              draftItems: [],
+                              computedTotal: 0,
+                            });
+                          }}
+                          className="shrink-0 rounded-md border border-hairline-strong px-2 py-1 text-[11px] text-muted hover:bg-mist-navy"
+                        >
+                          Reset
+                        </button>
+                      </div>
+
+                      {/* Editor with prefilled selections.
+                          key includes the iteration counter so the editor
+                          remounts whenever the AI returns new selections. */}
+                      <GarmentOrderEditor
+                        key={`${draft.id}-prefilled-${draftIterations[draft.id] ?? 0}`}
+                        garmentId={draft.garmentId}
+                        garmentOrderId="draft"
+                        initialItems={prefilledByDraft[draft.id].items}
+                        basePrice={
+                          garments.find((g) => g.id === draft.garmentId)?.base_price ?? null
+                        }
+                        draftMode
+                        draftSaving={submitting}
+                        onDraftChange={(items) =>
+                          updateGarmentDraft(draft.id, { draftItems: items })
+                        }
+                        onComputedTotalChange={(total) =>
+                          updateGarmentDraft(draft.id, { computedTotal: total })
+                        }
+                      />
+
+                      {/* Composer (upload · mic · text) for further AI
+                          refinement. Shares the draft's thread id so it keeps
+                          the conversation context from the Analyze step. */}
+                      <DesignFromImage
+                        garmentId={draft.garmentId}
+                        draftMode
+                        composerOnly
+                        threadId={draftThreadIds[draft.id]}
+                        onDraftChange={(items, imageUrl) =>
+                          applyAIDraft(draft.id, items, imageUrl)
+                        }
+                      />
+                    </div>
+                  ) : (
+                    /* ── Tabbed: AI upload vs manual select ── */
+                    <>
+                      <div className="mb-2 flex gap-1 border-b border-hairline">
+                        <button
+                          onClick={() =>
+                            setDraftTabs((prev) => ({ ...prev, [draft.id]: "upload" }))
+                          }
+                          className={`border-b-2 px-3 py-1.5 text-xs font-medium transition ${
+                            (draftTabs[draft.id] ?? "upload") === "upload"
+                              ? "border-ink-navy text-ink-navy"
+                              : "border-transparent text-muted hover:text-ink"
+                          }`}
+                        >
+                          Upload Reference
+                        </button>
+                        <button
+                          onClick={() =>
+                            setDraftTabs((prev) => ({ ...prev, [draft.id]: "manual" }))
+                          }
+                          className={`border-b-2 px-3 py-1.5 text-xs font-medium transition ${
+                            draftTabs[draft.id] === "manual"
+                              ? "border-ink-navy text-ink-navy"
+                              : "border-transparent text-muted hover:text-ink"
+                          }`}
+                        >
+                          Manual Select
+                        </button>
+                      </div>
+
+                      {(draftTabs[draft.id] ?? "upload") === "upload" ? (
+                        <DesignFromImage
+                          garmentId={draft.garmentId}
+                          draftMode
+                          threadId={draftThreadIds[draft.id]}
+                          onDraftChange={(items, imageUrl) =>
+                            applyAIDraft(draft.id, items, imageUrl)
+                          }
+                        />
+                      ) : (
+                        <GarmentOrderEditor
+                          key={draft.id}
+                          garmentId={draft.garmentId}
+                          garmentOrderId="draft"
+                          initialItems={[]}
+                          basePrice={
+                            garments.find((g) => g.id === draft.garmentId)?.base_price ?? null
+                          }
+                          draftMode
+                          draftSaving={submitting}
+                          onDraftChange={(items) =>
+                            updateGarmentDraft(draft.id, { draftItems: items })
+                          }
+                          onComputedTotalChange={(total) =>
+                            updateGarmentDraft(draft.id, { computedTotal: total })
+                          }
+                        />
+                      )}
+                    </>
+                  )}
                 </div>
               )}
             </div>

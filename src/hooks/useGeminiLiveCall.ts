@@ -18,7 +18,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getStylistComponents, generateDesign } from "@/lib/api/stylist";
 
-export type CallStatus = "idle" | "connecting" | "connected" | "ended" | "error";
+export type CallStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "ended"
+  | "error";
+
+export interface CloseDetail {
+  code: number;
+  reason: string;
+  wasClean: boolean;
+  timestamp: number;
+}
 
 export interface TranscriptEntry {
   id: number;
@@ -79,6 +92,7 @@ export function useGeminiLiveCall() {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [designImages, setDesignImages] = useState<DesignImage[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [closeDetail, setCloseDetail] = useState<CloseDetail | null>(null);
   const [muted, setMuted] = useState(false);
 
   // Refs
@@ -102,6 +116,22 @@ export function useGeminiLiveCall() {
   const mutedRef = useRef(false);
   const statusRef = useRef<CallStatus>("idle");
   const setupDoneRef = useRef(false);
+  const receivedAudioRef = useRef(false); // true once we get any audio from the model
+
+  // Anti-idle: Gemini Live tears down idle bidi streams (1006) when the mic goes
+  // quiet — notably during the tool-call fetch gap. We keep the stream "alive" by
+  // mixing a very low-amplitude synthesized keyboard-typing sound into the
+  // Gemini-bound mic signal. It is near-silent to humans but registers as
+  // continuous activity to Gemini's VAD. Never routed to the user's speakers.
+  const antiIdleRef = useRef(true);
+  const keyPhaseRef = useRef(0); // tracks position in the typing pattern
+
+  // Auto-reconnect: when Gemini tears the stream down mid-call (1006 after audio),
+  // we transparently re-establish the session instead of ending the call.
+  const reconnectAttemptsRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 3;
+  const manualDisconnectRef = useRef(false); // true when the user ended the call
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     statusRef.current = status;
@@ -196,11 +226,16 @@ export function useGeminiLiveCall() {
         }
 
         // Send tool_response back to Google via the proxy
-        // Using the exact format from the reference: tool_response (snake_case)
+        // Gemini Live API expects function_responses array inside tool_response
         const toolResponseMsg = {
           tool_response: {
-            id: call.id,
-            response: responseObj,
+            function_responses: [
+              {
+                id: call.id,
+                name: call.name,
+                response: responseObj,
+              },
+            ],
           },
         };
 
@@ -255,6 +290,13 @@ export function useGeminiLiveCall() {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
       const input = e.inputBuffer.getChannelData(0);
+
+      // Anti-idle: mix a faint synthesized keyboard-typing sound into the mic
+      // signal so Gemini's VAD always sees activity (prevents mid-call 1006
+      // teardown during quiet moments / tool-call fetch gaps). Very low amplitude.
+      if (antiIdleRef.current) {
+        mixKeyboardIdle(input, keyPhaseRef);
+      }
 
       // Resample from ctx.sampleRate (usually 48000) to 16000
       const downsampled = downsampleBuffer(input, ctx.sampleRate, AUDIO_INPUT_RATE);
@@ -421,6 +463,7 @@ export function useGeminiLiveCall() {
               ]);
             }
             if (part.inlineData?.data) {
+              receivedAudioRef.current = true;
               playAudioChunk(part.inlineData.data);
             }
           }
@@ -470,45 +513,68 @@ export function useGeminiLiveCall() {
 
   // ── Connect (start the call) ────────────────────────────────────────
 
-  const connect = useCallback(async () => {
-    setStatus("connecting");
+  // Ref so the onclose handler can trigger connect() for auto-reconnect without
+  // a stale closure / dependency cycle. Assigned below after connect() is defined.
+  const connectRef = useRef<((opts?: { isReconnect?: boolean }) => Promise<void>) | null>(null);
+
+  const connect = useCallback(async (opts?: { isReconnect?: boolean }) => {
+    const isReconnect = opts?.isReconnect ?? false;
+    manualDisconnectRef.current = false;
+
+    if (isReconnect) {
+      // Preserve transcript + designs across a transparent reconnect.
+      setStatus("reconnecting");
+    } else {
+      setStatus("connecting");
+      setTranscript([]);
+      setDesignImages([]);
+      reconnectAttemptsRef.current = 0;
+    }
     setErrorMsg(null);
-    setTranscript([]);
-    setDesignImages([]);
+    setCloseDetail(null);
     setupDoneRef.current = false;
+    receivedAudioRef.current = false;
 
     try {
-      // 1. Get user media (front camera + mic)
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      streamRef.current = stream;
-
-      // 2. Initialize output audio context at 24kHz (for playback)
       const AudioCtx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
 
-      outputAudioCtxRef.current = new AudioCtx({ sampleRate: AUDIO_OUTPUT_RATE });
+      // 1. Get user media (front camera + mic) — reuse on reconnect to avoid
+      //    re-prompting / camera flicker.
+      let stream = streamRef.current;
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        streamRef.current = stream;
+      }
+
+      // 2. Initialize output audio context at 24kHz (for playback) — reuse if open
+      if (!outputAudioCtxRef.current) {
+        outputAudioCtxRef.current = new AudioCtx({ sampleRate: AUDIO_OUTPUT_RATE });
+      }
       if (outputAudioCtxRef.current.state === "suspended") {
         await outputAudioCtxRef.current.resume();
       }
       nextAudioTimeRef.current = 0;
 
-      // 3. Initialize input audio context at 16kHz (for capture)
-      inputAudioCtxRef.current = new AudioCtx({ sampleRate: AUDIO_INPUT_RATE });
+      // 3. Initialize input audio context at 16kHz (for capture) — reuse if open
+      if (!inputAudioCtxRef.current) {
+        inputAudioCtxRef.current = new AudioCtx({ sampleRate: AUDIO_INPUT_RATE });
+      }
       if (inputAudioCtxRef.current.state === "suspended") {
         await inputAudioCtxRef.current.resume();
       }
 
-      // 4. Attach video
-      if (videoRef.current) {
+      // 4. Attach video (if not already attached)
+      if (videoRef.current && videoRef.current.srcObject !== stream) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => {});
       }
@@ -602,16 +668,59 @@ export function useGeminiLiveCall() {
           `[GeminiLive] WebSocket closed: code=${event.code}, reason="${event.reason}", wasClean=${event.wasClean}`,
         );
 
+        // Store close detail for the UI modal
+        const detail: CloseDetail = {
+          code: event.code,
+          reason: event.reason || "(no reason provided)",
+          wasClean: event.wasClean,
+          timestamp: Date.now(),
+        };
+        setCloseDetail(detail);
+
         stopVideoStreaming();
         stopAudioStreaming();
 
+        // User ended the call intentionally — never reconnect.
+        if (manualDisconnectRef.current) {
+          setStatus("ended");
+          return;
+        }
+
+        // Mid-call abnormal close (1006 = Gemini/Vertex tore down the bidi stream,
+        // which it does non-deterministically on idle/duration/quota limits).
+        // Attempt a transparent reconnect so the user isn't dropped.
+        const isMidCallDrop =
+          setupDoneRef.current && (event.code === 1006 || event.code === 1011);
+
+        if (isMidCallDrop && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+          reconnectAttemptsRef.current += 1;
+          const attempt = reconnectAttemptsRef.current;
+          console.log(
+            `[GeminiLive] Mid-call drop (code ${event.code}) — auto-reconnect attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS}`,
+          );
+          setStatus("reconnecting");
+          const delay = Math.min(1000 * attempt, 3000); // 1s, 2s, 3s backoff
+          reconnectTimerRef.current = setTimeout(() => {
+            connectRef.current?.({ isReconnect: true });
+          }, delay);
+          return;
+        }
+
+        // Reconnect exhausted OR a setup-time failure — surface to the user.
+        if (isMidCallDrop) {
+          console.log("[GeminiLive] Reconnect attempts exhausted — ending call");
+        }
+
+        // Build human-readable error message
+        const reasonText = event.reason || getCloseCodeExplanation(event.code);
+        const parts: string[] = ["Call ended abruptly."];
+        parts.push(`Code ${event.code}: ${reasonText}`);
+
         if (!setupDoneRef.current) {
-          const parts: string[] = ["Connection to the designer was lost."];
-          if (event.reason) parts.push(event.reason);
-          parts.push(`(WebSocket close code: ${event.code})`);
           setErrorMsg(parts.join(" "));
           setStatus("error");
         } else if (statusRef.current !== "ended" && statusRef.current !== "error") {
+          setErrorMsg(parts.join(" "));
           setStatus("ended");
         }
       };
@@ -630,9 +739,22 @@ export function useGeminiLiveCall() {
     stopAudioStreaming,
   ]);
 
+  // Keep the ref in sync so onclose can call the latest connect().
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
+
   // ── Disconnect ──────────────────────────────────────────────────────
 
   const disconnect = useCallback(() => {
+    // Mark intentional so the onclose handler doesn't trigger auto-reconnect.
+    manualDisconnectRef.current = true;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    reconnectAttemptsRef.current = 0;
+
     stopVideoStreaming();
     stopAudioStreaming();
 
@@ -676,6 +798,11 @@ export function useGeminiLiveCall() {
 
   useEffect(() => {
     return () => {
+      manualDisconnectRef.current = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       stopVideoStreaming();
       stopAudioStreaming();
       if (wsRef.current) {
@@ -702,6 +829,7 @@ export function useGeminiLiveCall() {
     transcript,
     designImages,
     errorMsg,
+    closeDetail,
     muted,
     videoRef,
     canvasRef,
@@ -712,6 +840,49 @@ export function useGeminiLiveCall() {
 }
 
 // ── Audio helpers ───────────────────────────────────────────────────────
+
+/**
+ * Mix a faint, continuously-varying "keyboard typing" sound into a mic buffer.
+ *
+ * Gemini Live's VAD tears down idle bidi streams (1006) when input goes quiet —
+ * which happens during the tool-call HTTP fetch gap and any natural pause. This
+ * synthesizes low-amplitude mechanical-keypress-like bursts that keep the stream
+ * "alive" without being audible to a human (amplitude ~0.004–0.022).
+ *
+ * It mutates `buffer` in place and advances `phaseRef` so the typing pattern
+ * continues seamlessly across consecutive process frames.
+ *
+ * Pattern: a slow "typing cadence" (~5 keys/sec). Each "keypress" is a short
+ * decaying burst of noise (a real key is mostly a click/thock). Between presses
+ * the level drops to a low floor so there's always some energy but it never
+ * sounds like continuous static if it were ever audible.
+ */
+function mixKeyboardIdle(buffer: Float32Array, phaseRef: { current: number }) {
+  const sampleRate = 48000; // input ctx rate (resampled later); close enough for cadence
+  const KEY_PERIOD = sampleRate / 5; // ~5 keypresses per second
+  const KEYPRESS_LEN = Math.floor(sampleRate * 0.018); // 18ms click
+  const FLOOR = 0.004; // resting energy between presses
+  const PEAK = 0.022; // peak energy during a click
+
+  for (let i = 0; i < buffer.length; i++) {
+    const phase = phaseRef.current++;
+    const posInPeriod = phase % KEY_PERIOD;
+
+    let amp: number;
+    if (posInPeriod < KEYPRESS_LEN) {
+      // Decaying click envelope (fast attack, exponential decay = thock-like)
+      const decay = Math.exp(-posInPeriod / (KEYPRESS_LEN * 0.35));
+      amp = FLOOR + (PEAK - FLOOR) * decay;
+    } else {
+      amp = FLOOR;
+    }
+
+    // White noise shaped by the envelope: noise gives the mechanical texture,
+    // the envelope gives the cadence.
+    const noise = Math.random() * 2 - 1;
+    buffer[i] = buffer[i] + amp * noise;
+  }
+}
 
 function downsampleBuffer(buffer: Float32Array, fromRate: number, toRate: number): Float32Array | null {
   if (toRate === fromRate) return buffer;
@@ -753,4 +924,23 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
     parts.push(String.fromCharCode.apply(null, Array.from(chunk)));
   }
   return btoa(parts.join(""));
+}
+
+function getCloseCodeExplanation(code: number): string {
+  switch (code) {
+    case 1000:
+      return "Normal closure";
+    case 1001:
+      return "Endpoint going away";
+    case 1006:
+      return "Abnormal closure — connection lost (usually Google's VAD timeout or network issue)";
+    case 1007:
+      return "Invalid payload data — usually a malformed JSON message sent to Gemini";
+    case 1008:
+      return "Policy violation — usually an API key or configuration issue";
+    case 1011:
+      return "Internal server error — the proxy or Gemini had an unexpected error";
+    default:
+      return "Unknown WebSocket close code";
+  }
 }
