@@ -242,8 +242,8 @@ export default function LibraryPage() {
 
         {/* Grid body — one full-bleed hero row per design */}
         <div className="px-4 pt-4">
-          {/* MYOD banner — always shown above the collection */}
-          <MyodBanner />
+          {/* MYOD banner — hidden for now (re-enable with <MyodBanner />) */}
+          {/* <MyodBanner /> */}
 
           {listLoading && items.length === 0 ? (
             <GridSkeleton />
