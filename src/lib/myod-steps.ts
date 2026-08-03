@@ -65,6 +65,41 @@ export function placementLabel(slug: string): string {
   return map[slug] ?? slug.replace(/_/g, " ");
 }
 
+/**
+ * Build a {slug: label} state dict for the Pyodide SVG renderer, from the
+ * current selections. Unselected choice-components fall back to their default
+ * option label so the renderer always gets a complete picture. Toggles are
+ * included as "on"/"off".
+ */
+export function buildSvgState(
+  steps: DesignStep[],
+  selections: Selections,
+): Record<string, string> {
+  const state: Record<string, string> = {};
+  for (const step of steps) {
+    for (const comp of step.components) {
+      const slug = comp.slug ?? comp.id;
+      const sel = selections[comp.id];
+      if (comp.kind === "toggle") {
+        const on = !!sel && sel.variationId === "__toggle_on__";
+        state[slug] = on ? "on" : "off";
+        continue;
+      }
+      // Resolve the chosen variation, else the default, else the first option.
+      const chosenId = sel?.variationId ?? comp.defaultOptionId ?? comp.options[0]?.id;
+      const opt = comp.options.find((o) => o.id === chosenId);
+      if (!opt) continue;
+      // Use the slug-derived key; for components with sub-types, add a "_type".
+      state[slug] = opt.label;
+      if (sel?.variationTypeId && opt.subOptions) {
+        const sub = opt.subOptions.find((s) => s.id === sel.variationTypeId);
+        if (sub) state[`${slug}_type`] = sub.label;
+      }
+    }
+  }
+  return state;
+}
+
 /** Description text helper — English-first, like labelText. */
 export function descText(
   descriptions: Record<string, string> | null | undefined,

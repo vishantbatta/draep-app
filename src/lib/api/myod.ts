@@ -15,6 +15,59 @@ export interface MyodResult {
   suggestions: string[];
 }
 
+export interface MyodSvgResult {
+  svg: string;
+}
+
+/**
+ * EXPERIMENT: generate a vector SVG of the blouse from the design brief via
+ * gemini-3.6-flash (fast text model). Returns raw SVG markup for inline render.
+ */
+export async function blouseSvg(
+  designBrief: string,
+  garmentId?: string,
+): Promise<MyodSvgResult> {
+  return apiPost<MyodSvgResult>("/myod/svg", {
+    design_brief: designBrief,
+    ...(garmentId ? { garment_id: garmentId } : {}),
+  });
+}
+
+export interface MyodSvgCodeResult {
+  code: string;
+}
+
+/**
+ * EXPERIMENT (sandboxed): ask the model for a Python function that renders the
+ * blouse as SVG for ANY state. The FE runs it in a Pyodide WASM sandbox and
+ * calls it locally per step (milliseconds). The function is generated once.
+ */
+export async function blouseSvgCode(
+  designBrief: string,
+  garmentId?: string,
+): Promise<MyodSvgCodeResult> {
+  return apiPost<MyodSvgCodeResult>("/myod/svg-code", {
+    design_brief: designBrief,
+    ...(garmentId ? { garment_id: garmentId } : {}),
+  });
+}
+
+/**
+ * EXPERIMENT: ask the model for a JAVASCRIPT function that renders the blouse
+ * as SVG for any state. The FE runs it natively via `new Function` (no Pyodide,
+ * no WASM download) — microseconds per render. Dynamic: reads the live catalog
+ * state so newly added components are handled automatically.
+ */
+export async function blouseJsCode(
+  designBrief: string,
+  garmentId?: string,
+): Promise<MyodSvgCodeResult> {
+  return apiPost<MyodSvgCodeResult>("/myod/js-code", {
+    design_brief: designBrief,
+    ...(garmentId ? { garment_id: garmentId } : {}),
+  });
+}
+
 /**
  * Generate the first garment photo from the initial design brief.
  *

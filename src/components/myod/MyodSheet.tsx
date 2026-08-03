@@ -25,10 +25,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Sparkles, Close } from "@/components/ui/icons";
 import { getGarmentTree, listGarments } from "@/lib/api/catalog";
-import { refineBlouse } from "@/lib/api/myod";
+import { blouseJsCode, blouseSvg, refineBlouse } from "@/lib/api/myod";
 import {
   buildDesignBrief,
   buildDesignSteps,
+  buildSvgState,
   describeSelection,
   labelText,
   placementLabel,
@@ -41,6 +42,7 @@ import {
 } from "@/lib/myod-steps";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
+import { useJsSvg } from "@/hooks/useJsSvg";
 import type { GarmentTreeOut } from "@/types/api";
 
 type Phase = "loading-tree" | "ready" | "generating" | "error";
@@ -64,6 +66,14 @@ export function MyodSheet({ onTryItOn }: Props) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageSelections, setImageSelections] = useState<Selections>({});
   const genTokenRef = useRef(0);
+
+  // EXPERIMENT: SVG render mode. Two sub-modes:
+  //  - "svg"       : regenerate SVG from the brief each step (LLM per step)
+  //  - "svg-code"  : generate a Python fn ONCE, run it in Pyodide per step (fast)
+  const [renderMode, setRenderMode] = useState<"image" | "svg" | "svg-code">("image");
+  const [svgMarkup, setSvgMarkup] = useState<string | null>(null);
+  const jsSvg = useJsSvg();
+  const [jsFnReady, setJsFnReady] = useState(false);
 
   const [chatInput, setChatInput] = useState("");
   const [chatError, setChatError] = useState(false);
@@ -123,9 +133,67 @@ export function MyodSheet({ onTryItOn }: Props) {
     [steps],
   );
 
-  // ── Refine the image in place ───────────────────────────────────────
+  // ── Apply a change: refine the image, OR regenerate the SVG ─────────
   const applyChange = useCallback(
     async (changeDescription: string, allSelections: Selections) => {
+      // SVG-CODE mode: generate a JS renderer fn once, then run it natively
+      // per step (microseconds). The expensive LLM call happens only the first
+      // time (or if the fn isn't ready). Dynamic — the fn reads the live
+      // catalog state, so newly added components are handled automatically.
+      if (renderMode === "svg-code") {
+        const token = ++genTokenRef.current;
+        setChatError(false);
+        setPhase("generating");
+        lastChangeRef.current = { change: changeDescription, selections: allSelections };
+        try {
+          if (!jsFnReady) {
+            const brief = buildDesignBrief(steps, allSelections);
+            const { code } = await blouseJsCode(brief, tree?.id);
+            await jsSvg.defineFn(code);
+            setJsFnReady(true);
+          }
+          const state = buildSvgState(steps, allSelections);
+          const svg = await jsSvg.renderSvg(state);
+          if (token !== genTokenRef.current) return;
+          setSvgMarkup(svg);
+          setImageSelections(allSelections);
+          setPhase("ready");
+          track({ event: "myod_succeeded" });
+        } catch (err) {
+          if (token !== genTokenRef.current) return;
+          setChatError(true);
+          setErrorMsg(err instanceof Error ? err.message : "Something went wrong.");
+          setPhase("ready");
+          track({ event: "myod_failed", error: err instanceof Error ? err.message : undefined });
+        }
+        return;
+      }
+
+      // SVG mode: regenerate the vector drawing from the full brief each step
+      // (no image-to-image; the SVG is rebuilt from scratch each step).
+      if (renderMode === "svg") {
+        const token = ++genTokenRef.current;
+        setChatError(false);
+        setPhase("generating");
+        lastChangeRef.current = { change: changeDescription, selections: allSelections };
+        const brief = buildDesignBrief(steps, allSelections);
+        try {
+          const result = await blouseSvg(brief, tree?.id);
+          if (token !== genTokenRef.current) return;
+          setSvgMarkup(result.svg);
+          setImageSelections(allSelections);
+          setPhase("ready");
+          track({ event: "myod_succeeded" });
+        } catch (err) {
+          if (token !== genTokenRef.current) return;
+          setChatError(true);
+          setErrorMsg(err instanceof Error ? err.message : "Something went wrong.");
+          setPhase("ready");
+          track({ event: "myod_failed", error: err instanceof Error ? err.message : undefined });
+        }
+        return;
+      }
+
       if (!imageUrl) return;
       const token = ++genTokenRef.current;
       setChatError(false);
@@ -158,7 +226,7 @@ export function MyodSheet({ onTryItOn }: Props) {
         track({ event: "myod_failed", error: err instanceof Error ? err.message : undefined });
       }
     },
-    [imageUrl, steps, tree?.id, toggleIds],
+    [imageUrl, steps, tree?.id, toggleIds, renderMode, jsFnReady, jsSvg],
   );
 
   const retryLast = useCallback(() => {
@@ -240,11 +308,46 @@ export function MyodSheet({ onTryItOn }: Props) {
     setPhase("ready");
   }, []);
 
+  // Switch render mode. Going to SVG triggers an immediate SVG generation from
+  // the current selections (treating unchosen as defaults via imageSelections).
+  const switchRenderMode = useCallback(
+    (mode: "image" | "svg" | "svg-code") => {
+      if (mode === renderMode) return;
+      setRenderMode(mode);
+      if (mode === "svg" || mode === "svg-code") {
+        // Generate an SVG (or the renderer fn) from the current effective state.
+        const effective = Object.keys(selections).length ? selections : imageSelections;
+        void applyChange("switch to vector view", effective);
+      }
+    },
+    [renderMode, selections, imageSelections, applyChange],
+  );
+
   return (
     <div className="relative mx-auto flex w-full max-w-column flex-col gap-4 px-4 pb-6">
-      {/* Try it on — top right (sticky). Primary action = tape-gradient pill. */}
-      {imageUrl && (
-        <div className="pointer-events-none sticky top-2 z-20 -mb-2 flex justify-end">
+      {/* Try it on + render-mode toggle — top right (sticky). */}
+      <div className="pointer-events-none sticky top-2 z-20 -mb-2 flex items-start justify-end gap-2">
+        {/* EXPERIMENT: render-mode segmented toggle (Photo / Vector / Vector fn) */}
+        <div className="pointer-events-auto flex items-center rounded-pill border border-hairline-strong bg-chalk-white/90 p-0.5 shadow-card backdrop-blur">
+          {(["image", "svg", "svg-code"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => switchRenderMode(m)}
+              disabled={phase === "generating"}
+              className={
+                "rounded-pill px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide transition-all disabled:opacity-50 " +
+                (renderMode === m
+                  ? "bg-tape text-chalk-white"
+                  : "text-muted hover:text-ink-navy")
+              }
+              style={renderMode === m ? { backgroundImage: "var(--tape-gradient)" } : undefined}
+            >
+              {m === "image" ? "Photo" : m === "svg" ? "Vector" : "Vector fn"}
+            </button>
+          ))}
+        </div>
+        {imageUrl && renderMode === "image" && (
           <button
             type="button"
             onClick={handleTryItOn}
@@ -255,8 +358,8 @@ export function MyodSheet({ onTryItOn }: Props) {
             <Sparkles size={13} />
             {strings.myod.tryOnCta}
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <AnimatePresence mode="wait">
         {phase === "loading-tree" && <LoadingTree key="lt" />}
@@ -271,7 +374,12 @@ export function MyodSheet({ onTryItOn }: Props) {
             exit={{ opacity: 0 }}
             className="flex flex-col gap-4"
           >
-            <ImageStage imageUrl={imageUrl} generating={phase === "generating"} />
+            <ImageStage
+              imageUrl={imageUrl}
+              generating={phase === "generating"}
+              renderMode={renderMode}
+              svgMarkup={svgMarkup}
+            />
 
             {activeStep && (
               <StepCards
@@ -284,7 +392,9 @@ export function MyodSheet({ onTryItOn }: Props) {
 
             {chatError && (
               <div className="flex items-center justify-between gap-2 rounded-card border border-error-border bg-error-bg px-3 py-2">
-                <p className="text-caption text-error-text">{strings.myod.chatError}</p>
+                <p className="text-caption text-error-text">
+                  {errorMsg ?? strings.myod.chatError}
+                </p>
                 <button
                   type="button"
                   onClick={retryLast}
@@ -391,22 +501,48 @@ function useMicToggle(opts: {
 /*  Image stage                                                 */
 /* ============================================================ */
 
-function ImageStage({ imageUrl, generating }: { imageUrl: string | null; generating: boolean }) {
+function ImageStage({
+  imageUrl,
+  generating,
+  renderMode,
+  svgMarkup,
+}: {
+  imageUrl: string | null;
+  generating: boolean;
+  renderMode: "image" | "svg" | "svg-code";
+  svgMarkup: string | null;
+}) {
+  // In either SVG mode, the "content" is the SVG markup; else the image URL.
+  const isSvg = renderMode !== "image";
+  const hasContent = isSvg ? !!svgMarkup : !!imageUrl;
   return (
     <div className="relative overflow-hidden rounded-card border border-hairline bg-mist-navy">
       <AnimatePresence mode="wait">
-        {imageUrl && !generating ? (
-          <motion.img
-            key={imageUrl}
-            src={imageUrl}
-            alt="Your MYOD blouse design"
-            className="mx-auto block max-h-[44vh] w-auto max-w-full object-contain"
-            initial={{ scale: 1.04, opacity: 0.4 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-            // eslint-disable-next-line @next/next/no-img-element
-          />
+        {hasContent && !generating ? (
+          isSvg && svgMarkup ? (
+            <motion.div
+              key={svgMarkup.slice(0, 40)}
+              className="mx-auto flex h-[44vh] w-full items-center justify-center p-4 [&_svg]:h-full [&_svg]:max-h-full [&_svg]:w-auto"
+              initial={{ opacity: 0.4, scale: 1.04 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              // eslint-disable-next-line react/no-danger
+              dangerouslySetInnerHTML={{ __html: svgMarkup }}
+            />
+          ) : (
+            <motion.img
+              key={imageUrl ?? ""}
+              src={imageUrl ?? undefined}
+              alt="Your MYOD blouse design"
+              className="mx-auto block max-h-[44vh] w-auto max-w-full object-contain"
+              initial={{ scale: 1.04, opacity: 0.4 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              // eslint-disable-next-line @next/next/no-img-element
+            />
+          )
         ) : (
           <motion.div
             key="loading"
@@ -422,7 +558,7 @@ function ImageStage({ imageUrl, generating }: { imageUrl: string | null; generat
 
       <div className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-pill bg-ink-navy/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-chalk-white backdrop-blur-md">
         <Sparkles size={10} />
-        AI design
+        {isSvg ? "AI vector" : "AI design"}
       </div>
     </div>
   );
@@ -1059,14 +1195,11 @@ function GeneratingLoader() {
           {strings.myod.generating}
         </motion.p>
 
-        {/* Timed progress bar — CSS-driven fill 0→100% over exactly 60s. */}
+        {/* Timed progress bar — CSS-driven width 0→100% over exactly 60s. */}
         <div className="h-1.5 w-full overflow-hidden rounded-pill bg-tape-silver">
           <div
             className="h-full rounded-full"
             style={{
-              width: "100%",
-              transform: "scaleX(0)",
-              transformOrigin: "left",
               backgroundImage: "var(--tape-gradient)",
               animation: "myod-progress-fill 60s linear forwards",
             }}
