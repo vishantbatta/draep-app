@@ -242,6 +242,9 @@ export default function LibraryPage() {
 
         {/* Grid body — one full-bleed hero row per design */}
         <div className="px-4 pt-4">
+          {/* MYOD banner — always shown above the collection */}
+          <MyodBanner />
+
           {listLoading && items.length === 0 ? (
             <GridSkeleton />
           ) : listError ? (
@@ -615,6 +618,56 @@ function ItemGroup({
 function ItemRow({ item }: { item: ResolvedItemOut }) {
   return (
     <li className="text-body text-ink">{composeItemLabel(item)}</li>
+  );
+}
+
+/* ============================================================ */
+/*  MYOD banner                                                  */
+/* ============================================================ */
+
+/**
+ * MYOD (Make Your Own Draep) banner — entry point to /library/myod where the
+ * user can design a blouse step by step.
+ *
+ * On-brand per Brand Book §8: white card surface, hairline border, --shadow-card,
+ * the tape-strip seam as the signature motif, mono eyebrow, navy heading, and
+ * a tape-gradient CTA pill (the only place the gradient appears on a card).
+ */
+function MyodBanner() {
+  return (
+    <Link
+      href="/library/myod"
+      onClick={() => track({ event: "myod_opened", source: "library" })}
+      className="group mb-4 flex w-full flex-col overflow-hidden rounded-card border border-hairline bg-chalk-white text-left shadow-card transition-all ease-brand hover:-translate-y-0.5 hover:shadow-brand active:scale-[0.99]"
+    >
+      {/* Tape-strip seam — the brand signature (draep.html .tape-strip) */}
+      <div aria-hidden className="lp-tape-strip" />
+
+      <div className="flex items-start gap-3 p-4">
+        {/* Symbol mark — DraepSymbol (Brand Book §1), color variant */}
+        <span aria-hidden className="mt-0.5 shrink-0 text-draep-orange">
+          <Sparkles size={22} />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <span className="eyebrow">{strings.myod.bannerEyebrow}</span>
+          <p className="mt-1 font-heading text-h3 font-semibold leading-snug text-ink-navy">
+            {strings.myod.bannerTitle}
+          </p>
+          <p className="mt-0.5 text-caption leading-snug text-muted">
+            {strings.myod.bannerBody}
+          </p>
+
+          {/* CTA — tape-gradient pill, the single gradient element (Brand Book §8) */}
+          <span className="mt-3 inline-flex items-center gap-1.5 rounded-pill bg-tape px-3.5 py-1.5 text-caption font-semibold text-chalk-white shadow-primary transition-transform ease-brand group-hover:translate-x-0.5"
+            style={{ backgroundImage: "var(--tape-gradient)" }}
+          >
+            {strings.myod.bannerCta}
+            <ChevronRight size={14} />
+          </span>
+        </div>
+      </div>
+    </Link>
   );
 }
 

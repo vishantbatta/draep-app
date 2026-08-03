@@ -244,6 +244,7 @@ export interface StyleComponentCreateInput {
   descriptions?: Record<string, string> | null;
   asset_urls?: string[] | null;
   importance?: string | null;
+  default_variation_id?: string | null;
 }
 
 export interface StyleComponentUpdateInput {
@@ -254,6 +255,7 @@ export interface StyleComponentUpdateInput {
   descriptions?: Record<string, string> | null;
   asset_urls?: string[] | null;
   importance?: string | null;
+  default_variation_id?: string | null;
 }
 
 export async function createStyleComponent(input: StyleComponentCreateInput): Promise<StyleComponent> {
@@ -300,6 +302,7 @@ export interface VariationCreateInput {
   ideal_for?: string[] | null;
   not_ideal_for?: string[] | null;
   price?: number | null;
+  default_type_id?: string | null;
 }
 
 export interface VariationUpdateInput {
@@ -312,6 +315,7 @@ export interface VariationUpdateInput {
   ideal_for?: string[] | null;
   not_ideal_for?: string[] | null;
   price?: number | null;
+  default_type_id?: string | null;
 }
 
 export async function createVariation(input: VariationCreateInput): Promise<Variation> {

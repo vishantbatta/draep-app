@@ -79,6 +79,7 @@ export interface VariationOut {
 
 export interface ComponentOut {
   id: string;
+  slug: string | null;
   labels: Record<string, string> | null;
   descriptions: Record<string, string> | null;
   asset_urls: string[] | null;

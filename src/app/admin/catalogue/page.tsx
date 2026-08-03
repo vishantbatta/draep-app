@@ -934,6 +934,22 @@ function CatalogueFormModal({
   // Available style components for this garment (fetched for the addon form)
   const [availableComponents, setAvailableComponents] = useState<StyleComponent[]>([]);
   const [componentsLoading, setComponentsLoading] = useState(false);
+
+  // ── Default child pickers ──
+  // Style Component → default variation
+  const [defaultVariationId, setDefaultVariationId] = useState<string>(
+    (d?.default_variation_id as string) ?? "",
+  );
+  const [componentVariations, setComponentVariations] = useState<Variation[]>([]);
+  // Variation → default variation-type
+  const [defaultTypeId, setDefaultTypeId] = useState<string>((d?.default_type_id as string) ?? "");
+  const [variationTypes, setVariationTypes] = useState<VariationType[]>([]);
+  // Addon → default addon variation
+  const [defaultAddonVariationId, setDefaultAddonVariationId] = useState<string>(
+    (d?.default_variation_id as string) ?? "",
+  );
+  const [addonVariations, setAddonVariations] = useState<AddonVariation[]>([]);
+  const [defaultChildrenLoading, setDefaultChildrenLoading] = useState(false);
   const [style, setStyle] = useState<string>((d?.style as string) ?? "");
   const [shape, setShape] = useState<string>((d?.shape as string) ?? "");
   const [size, setSize] = useState<string>((d?.size as string) ?? "");
@@ -965,6 +981,48 @@ function CatalogueFormModal({
       .catch(() => setAvailableComponents([]))
       .finally(() => setComponentsLoading(false));
   }, [target.kind, view]);
+
+  // ── Fetch candidate children for the "default" pickers (edit mode only) ──
+  // For Style Component → its variations; Variation → its types; Addon → its variations.
+  useEffect(() => {
+    if (target.mode !== "edit") return;
+    setDefaultChildrenLoading(true);
+
+    if (target.kind === "component") {
+      const componentId = d?.id as string | undefined;
+      if (!componentId) { setDefaultChildrenLoading(false); return; }
+      fetchByParent<Variation>("garment_style_component_variations", "component_id", componentId)
+        .then(setComponentVariations)
+        .catch(() => setComponentVariations([]))
+        .finally(() => setDefaultChildrenLoading(false));
+    } else if (target.kind === "variation") {
+      const variationId = d?.id as string | undefined;
+      if (!variationId) { setDefaultChildrenLoading(false); return; }
+      fetchByParent<VariationType>("garment_style_component_variation_types", "variation_id", variationId)
+        .then(setVariationTypes)
+        .catch(() => setVariationTypes([]))
+        .finally(() => setDefaultChildrenLoading(false));
+    } else if (target.kind === "addon") {
+      const addonId = d?.id as string | undefined;
+      if (!addonId) { setDefaultChildrenLoading(false); return; }
+      fetchByParent<AddonVariation>("garment_addon_variations", "addon_id", addonId)
+        .then(setAddonVariations)
+        .catch(() => setAddonVariations([]))
+        .finally(() => setDefaultChildrenLoading(false));
+    } else {
+      setDefaultChildrenLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target.kind, target.mode]);
+
+  // When switching targets, clear the default-child lists so stale options
+  // from a previous entity don't leak into the new form.
+  useEffect(() => {
+    setComponentVariations([]);
+    setVariationTypes([]);
+    setAddonVariations([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target.kind, target.mode]);
 
   // Modal title
   const titleMap: Record<EditKind, string> = {
@@ -1019,6 +1077,7 @@ function CatalogueFormModal({
               asset_urls: assetUrls,
               importance: importance.trim() || null,
               priority_order: priorityNum,
+              default_variation_id: defaultVariationId || null,
             });
           } else {
             const id = d!.id as string;
@@ -1029,6 +1088,7 @@ function CatalogueFormModal({
               asset_urls: assetUrls,
               importance: importance.trim() || null,
               priority_order: priorityNum,
+              default_variation_id: defaultVariationId || null,
             } as StyleComponentUpdateInput);
           }
           break;
@@ -1045,6 +1105,7 @@ function CatalogueFormModal({
               asset_urls: assetUrls,
               price: priceNum,
               priority_order: priorityNum,
+              default_type_id: defaultTypeId || null,
             });
           } else {
             const id = d!.id as string;
@@ -1055,6 +1116,7 @@ function CatalogueFormModal({
               asset_urls: assetUrls,
               price: priceNum,
               priority_order: priorityNum,
+              default_type_id: defaultTypeId || null,
             } as VariationUpdateInput);
           }
           break;
@@ -1107,6 +1169,7 @@ function CatalogueFormModal({
             placements: placementsArr.length > 0 ? placementsArr : null,
             price: priceNum,
             is_default_on: isDefaultOn,
+            default_variation_id: defaultAddonVariationId || null,
             priority_order: priorityNum,
           };
 
@@ -1234,6 +1297,35 @@ function CatalogueFormModal({
           </div>
         )}
 
+        {/* Style Component \u2192 Default Variation picker */}
+        {target.kind === "component" && (
+          <Field label="Default Variation" hint="Pre-selected variation for this component">
+            {target.mode === "edit" ? (
+              defaultChildrenLoading ? (
+                <div className="py-2 text-[13px] text-muted">Loading variations\u2026</div>
+              ) : componentVariations.length === 0 ? (
+                <div className="rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-[12px] text-muted">
+                  No variations yet. Add variations first, then set a default.
+                </div>
+              ) : (
+                <Select
+                  value={defaultVariationId}
+                  onChange={setDefaultVariationId}
+                  placeholder="None"
+                  options={componentVariations.map((v) => ({
+                    value: v.id,
+                    label: getLabel(v.labels, v.slug, v.id),
+                  }))}
+                />
+              )
+            ) : (
+              <div className="rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-[12px] text-muted">
+                Save the component first, then add variations to choose a default.
+              </div>
+            )}
+          </Field>
+        )}
+
         {/* Variation / VariationType: price + priority */}
         {(target.kind === "variation" || target.kind === "variationType") && (
           <div className="grid grid-cols-2 gap-3">
@@ -1244,6 +1336,35 @@ function CatalogueFormModal({
               <TextInput value={priority} onChange={setPriority} type="number" placeholder="0" />
             </Field>
           </div>
+        )}
+
+        {/* Variation \u2192 Default Variation Type picker */}
+        {target.kind === "variation" && (
+          <Field label="Default Variation Type" hint="Pre-selected variation type for this variation">
+            {target.mode === "edit" ? (
+              defaultChildrenLoading ? (
+                <div className="py-2 text-[13px] text-muted">Loading variation types\u2026</div>
+              ) : variationTypes.length === 0 ? (
+                <div className="rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-[12px] text-muted">
+                  No variation types yet. Add types first, then set a default.
+                </div>
+              ) : (
+                <Select
+                  value={defaultTypeId}
+                  onChange={setDefaultTypeId}
+                  placeholder="None"
+                  options={variationTypes.map((t) => ({
+                    value: t.id,
+                    label: getLabel(t.labels, t.slug, t.id),
+                  }))}
+                />
+              )
+            ) : (
+              <div className="rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-[12px] text-muted">
+                Save the variation first, then add variation types to choose a default.
+              </div>
+            )}
+          </Field>
         )}
 
         {/* Addon-specific */}
@@ -1281,6 +1402,33 @@ function CatalogueFormModal({
 
             <Field label="Placements" hint="Comma-separated, e.g. neck, sleeve">
               <TextInput value={placements} onChange={setPlacements} placeholder="neck, sleeve" />
+            </Field>
+
+            {/* Default Variation picker */}
+            <Field label="Default Variation" hint="Pre-selected add-on variation">
+              {target.mode === "edit" ? (
+                defaultChildrenLoading ? (
+                  <div className="py-2 text-[13px] text-muted">Loading variations…</div>
+                ) : addonVariations.length === 0 ? (
+                  <div className="rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-[12px] text-muted">
+                    No variations yet. Add add-on variations first, then set a default.
+                  </div>
+                ) : (
+                  <Select
+                    value={defaultAddonVariationId}
+                    onChange={setDefaultAddonVariationId}
+                    placeholder="None"
+                    options={addonVariations.map((v) => ({
+                      value: v.id,
+                      label: getLabel(v.labels, v.slug, v.id),
+                    }))}
+                  />
+                )
+              ) : (
+                <div className="rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-[12px] text-muted">
+                  Save the add-on first, then add variations to choose a default.
+                </div>
+              )}
             </Field>
 
             {/* Style Component multi-select */}

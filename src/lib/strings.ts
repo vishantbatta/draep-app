@@ -218,6 +218,30 @@ export const strings = {
     errorRetry: "Try again",
   },
 
+  myod: {
+    // Banner CTA on the library page
+    bannerEyebrow: "MYOD",
+    bannerTitle: "Make your own Draep",
+    bannerBody: "Design a blouse step by step — our AI builds it as you go.",
+    bannerCta: "Start designing",
+    // Chat-first configurator
+    sheetTitle: "Make Your Own Draep",
+    chooseEyebrow: "Choose your",
+    loadingTree: "Loading your design options…",
+    generating: "Designing…",
+    done: "Done",
+    tryOnCta: "Try it on",
+    // Chat bar
+    chatPlaceholder: "Describe a change…  e.g. make the neckline deeper",
+    chatSend: "Apply",
+    chatMic: "Speak",
+    chatListening: "Listening…",
+    chatError: "Couldn't apply that. Try again.",
+    // Errors
+    errorTitle: "Couldn't design that",
+    errorRetry: "Try again",
+  },
+
   stylist: {
     title: "Call a designer",
     subtitle: "Talk to our AI stylist over video",

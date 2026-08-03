@@ -14,6 +14,7 @@ export * as serviceAreaApi from "./serviceArea";
 export * as checkoutApi from "./checkout";
 export * as bookingApi from "./booking";
 export * as tryOnApi from "./tryon";
+export * as myodApi from "./myod";
 export * as stylistApi from "./stylist";
 
 export { ApiError, getToken, setToken, clearToken } from "./client";

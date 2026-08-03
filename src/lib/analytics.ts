@@ -38,7 +38,14 @@ export type AnalyticsEvent =
       design_image_url: string;
       share_method: "save" | "whatsapp" | "more";
     }
-  | { event: "tryon_refined"; instruction: string };
+  | { event: "tryon_refined"; instruction: string }
+  // MYOD (Make Your Own Draep) funnel
+  | { event: "myod_opened"; source: "library" | "style" }
+  | { event: "myod_started"; instruction: string }
+  | { event: "myod_succeeded" }
+  | { event: "myod_failed"; error?: string }
+  | { event: "myod_refined"; instruction: string }
+  | { event: "myod_tried_on" };
 
 export function track(event: AnalyticsEvent): void {
   if (typeof window === "undefined") return;
