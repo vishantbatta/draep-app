@@ -411,7 +411,11 @@ export function describeSelection(
   const option = comp.options.find((o) => o.id === selection.variationId);
   if (!option) return "";
   const value = describeOption(option, selection.variationTypeId);
-  return `${comp.label} → ${value}`;
+  // Include the chosen option's description so the model knows what the change
+  // means visually (e.g. princess cut = vertical bust-to-hem seams).
+  let line = `${comp.label} → ${value}`;
+  if (option.description) line += ` (${option.description})`;
+  return line;
 }
 
 /**
