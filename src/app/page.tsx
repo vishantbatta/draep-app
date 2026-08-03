@@ -9,6 +9,7 @@
  */
 
 import { useEffect } from "react";
+import Link from "next/link";
 import {
   Calendar,
   Ruler,
@@ -634,6 +635,15 @@ export default function LandingPage() {
           <div className="font-mono text-[12.5px] text-white/50">
             Custom tailoring infrastructure · Bengaluru, IN
           </div>
+        </div>
+        <div className="lp-wrap mt-[18px] flex flex-wrap items-center gap-x-[16px] gap-y-[6px] font-mono text-[12px] text-white/45">
+          <Link href="/tnc" className="underline-offset-4 hover:text-white/80 hover:underline">
+            Terms &amp; conditions
+          </Link>
+          <span aria-hidden>·</span>
+          <Link href="/privacy" className="underline-offset-4 hover:text-white/80 hover:underline">
+            Privacy policy
+          </Link>
         </div>
       </footer>
     </main>
