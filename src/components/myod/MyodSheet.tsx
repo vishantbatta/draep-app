@@ -569,85 +569,76 @@ function ExtrasRow({
   const placementActive = hasPlacement && !!selection;
 
   return (
-    <div className="rounded-card border border-hairline bg-chalk-white p-3 shadow-card">
-      <p className="mb-2 text-caption font-semibold text-ink-navy">{component.label}</p>
+    <div className="rounded-card border border-hairline bg-chalk-white p-2.5 shadow-card">
+      <p className="mb-1.5 text-[12px] font-semibold leading-tight text-ink-navy">{component.label}</p>
 
-      {/* Options — 2-column grid; each option's types render under it. */}
-      <div className="grid grid-cols-2 gap-2">
-        {component.options.map((opt) => {
-          const selected = opt.id === selectedId;
-          const pending = opt.id === pendingTypeId;
-          const hasTypes = !!opt.subOptions && opt.subOptions.length > 0;
-          // Show types under this option if it's pending (just tapped) or selected.
-          const showTypes = hasTypes && (pending || selected);
-          return (
-            <div key={opt.id} className="flex flex-col gap-1.5">
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => {
-                  if (hasTypes) {
-                    // Has types → reveal them, wait for a type choice (no commit).
-                    setPendingTypeId(opt.id);
-                  } else {
-                    // No types → commit immediately.
-                    setPendingTypeId(opt.id);
-                    onSelect({ variationId: opt.id, placement: selection?.placement });
-                  }
-                }}
-                className={
-                  "rounded-pill border px-2.5 py-1.5 text-[12px] transition-all active:scale-[0.97] disabled:opacity-50 " +
-                  (selected || pending
-                    ? "border-accent-text bg-mist-navy text-ink-navy"
-                    : "border-hairline bg-chalk-white text-muted hover:border-navy-interactive")
-                }
-              >
+      {/* Step 1 — variation dropdown. */}
+      {component.options.length > 0 ? (
+        <>
+          <select
+            disabled={disabled}
+            value={pendingTypeId ?? ""}
+            onChange={(e) => {
+              const opt = component.options.find((o) => o.id === e.target.value);
+              if (!opt) return;
+              setPendingTypeId(opt.id);
+              if (!opt.subOptions || opt.subOptions.length === 0) {
+                // No types → commit immediately.
+                onSelect({ variationId: opt.id, placement: selection?.placement });
+              }
+              // Has types → wait for Step 2 (no commit).
+            }}
+            className="w-full rounded-pill border border-hairline bg-chalk-white px-2.5 py-1.5 text-[12px] text-ink-navy focus:border-accent-text focus:outline-none disabled:opacity-50"
+          >
+            <option value="" disabled>
+              Choose {component.label}…
+            </option>
+            {component.options.map((opt) => (
+              <option key={opt.id} value={opt.id}>
                 {opt.label}
-              </button>
+              </option>
+            ))}
+          </select>
 
-              {/* Types for THIS variation only (under the chip) */}
-              <AnimatePresence>
-                {showTypes && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="flex flex-wrap gap-1 overflow-hidden pl-0.5"
-                  >
-                    {opt.subOptions!.map((sub) => {
-                      const subSelected = selected && sub.id === selection?.variationTypeId;
-                      return (
-                        <button
-                          key={sub.id}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => {
-                            setPendingTypeId(opt.id);
-                            onSelect({
-                              variationId: opt.id,
-                              variationTypeId: sub.id,
-                              placement: selection?.placement,
-                            });
-                          }}
-                          className={
-                            "rounded-pill border px-2 py-0.5 text-[11px] transition-all active:scale-[0.97] disabled:opacity-50 " +
-                            (subSelected
-                              ? "border-accent-text bg-chalk-white text-ink-navy"
-                              : "border-hairline bg-chalk-white text-muted hover:border-navy-interactive")
-                          }
-                        >
-                          {sub.label}
-                        </button>
-                      );
-                    })}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          );
-        })}
-        {component.options.length === 0 && hasPlacement && (
-          // Placement-only addon with no variations (e.g. Net work): a single "Add" chip.
+          {/* Step 2 — type dropdown, only for the chosen variation if it has types. */}
+          {(() => {
+            const chosen = component.options.find((o) => o.id === pendingTypeId);
+            if (!chosen?.subOptions || chosen.subOptions.length === 0) return null;
+            const chosenType = selection?.variationTypeId;
+            return (
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <span className="shrink-0 text-[11px] font-medium text-muted">Type:</span>
+                <select
+                  disabled={disabled}
+                  value={chosenType ?? ""}
+                  onChange={(e) => {
+                    const subId = e.target.value;
+                    if (!subId) return;
+                    setPendingTypeId(chosen.id);
+                    onSelect({
+                      variationId: chosen.id,
+                      variationTypeId: subId,
+                      placement: selection?.placement,
+                    });
+                  }}
+                  className="min-w-0 flex-1 rounded-pill border border-hairline bg-chalk-white px-2 py-1 text-[11px] text-ink-navy focus:border-accent-text focus:outline-none disabled:opacity-50"
+                >
+                  <option value="" disabled>
+                    Select type…
+                  </option>
+                  {chosen.subOptions.map((sub) => (
+                    <option key={sub.id} value={sub.id}>
+                      {sub.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })()}
+        </>
+      ) : (
+        // No variations: placement-only addon (e.g. Net work) → single Add chip.
+        hasPlacement && (
           <button
             type="button"
             disabled={disabled}
@@ -659,7 +650,7 @@ function ExtrasRow({
               )
             }
             className={
-              "rounded-pill border px-2.5 py-1 text-[12px] transition-all active:scale-[0.97] disabled:opacity-50 " +
+              "rounded-pill border px-2 py-0.5 text-[11px] leading-tight transition-all active:scale-[0.97] disabled:opacity-50 " +
               (placementActive
                 ? "border-accent-text bg-mist-navy text-ink-navy"
                 : "border-hairline bg-chalk-white text-muted hover:border-navy-interactive")
@@ -667,8 +658,8 @@ function ExtrasRow({
           >
             {placementActive ? "Added" : "+ Add"}
           </button>
-        )}
-      </div>
+        )
+      )}
 
       {/* Placement picker (Latkan, Key Hole, Net) */}
       <AnimatePresence>
@@ -677,9 +668,9 @@ function ExtrasRow({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="mt-2 flex flex-wrap gap-1.5 overflow-hidden pl-1"
+            className="mt-1.5 flex flex-wrap gap-1 overflow-hidden pl-0.5"
           >
-            <span className="self-center text-[11px] text-muted">Place on:</span>
+            <span className="self-center text-[10px] text-muted">Place on:</span>
             {component.placements!.map((p) => {
               const pSelected = selection?.placement === p;
               return (
@@ -695,7 +686,7 @@ function ExtrasRow({
                     })
                   }
                   className={
-                    "rounded-pill border px-2 py-0.5 text-[11px] transition-all active:scale-[0.97] disabled:opacity-40 " +
+                    "rounded-pill border px-1.5 py-0.5 text-[10px] leading-tight transition-all active:scale-[0.97] disabled:opacity-40 " +
                     (pSelected
                       ? "border-accent-text bg-chalk-white text-ink-navy"
                       : "border-hairline bg-chalk-white text-muted hover:border-navy-interactive")
@@ -991,22 +982,6 @@ function ChatBar({
  * The sketch strokes animate in via stroke-dashoffset; the pen hand sways.
  */
 function GeneratingLoader() {
-  // Timed progress 0→100% over 60s. Eased so it doesn't stall at the end.
-  const [progress, setProgress] = useState(0);
-  useEffect(() => {
-    const DURATION = 60_000; // exactly 1 minute, 0 → 100%
-    const start = performance.now();
-    let raf = 0;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / DURATION);
-      // Linear so the bar moves steadily from 0 to 100 over the full minute.
-      setProgress(t * 100);
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -1084,14 +1059,16 @@ function GeneratingLoader() {
           {strings.myod.generating}
         </motion.p>
 
-        {/* Timed progress bar — fills over ~1 minute */}
+        {/* Timed progress bar — CSS-driven fill 0→100% over exactly 60s. */}
         <div className="h-1.5 w-full overflow-hidden rounded-pill bg-tape-silver">
           <div
             className="h-full rounded-full"
             style={{
-              width: `${progress}%`,
+              width: "100%",
+              transform: "scaleX(0)",
+              transformOrigin: "left",
               backgroundImage: "var(--tape-gradient)",
-              transition: "width 120ms linear",
+              animation: "myod-progress-fill 60s linear forwards",
             }}
           />
         </div>

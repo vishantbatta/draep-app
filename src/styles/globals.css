@@ -171,6 +171,18 @@
     }
   }
 
+  /* MYOD generating progress — fills 0→100% over exactly 60s (linear),
+     compositor-driven via scaleX so it stays smooth even when the tab is
+     backgrounded and requestAnimationFrame throttles. */
+  @keyframes myod-progress-fill {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+
   /* Reduced motion: disable all landing-page animations. */
   @media (prefers-reduced-motion: reduce) {
     .lp-reveal {
