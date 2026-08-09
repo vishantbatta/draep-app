@@ -1,7 +1,12 @@
 /**
  * Style-captain API client — thin wrapper around fetch.
- * Reads the JWT from localStorage (key: draep_sc_token) and injects
- * the Authorization header.
+ *
+ * Auth model: a short-lived access JWT (key: draep_sc_token) + a long-lived
+ * refresh token (key: draep_sc_refresh). On a 401 the wrapper transparently
+ * calls /refresh (single-flight across concurrent requests), swaps the tokens,
+ * and retries the original call exactly once. A refresh failure is terminal —
+ * the session is dead and we dispatch an "sc:unauthorized" CustomEvent so the
+ * layout can redirect to login.
  */
 
 // Relative so all calls are same-origin (proxied to backend via next.config.mjs
@@ -9,6 +14,7 @@
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 const TOKEN_KEY = "draep_sc_token";
+const REFRESH_TOKEN_KEY = "draep_sc_refresh";
 const USER_KEY = "draep_sc_user";
 
 export function getSCToken(): string | null {
@@ -20,9 +26,38 @@ export function setSCToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token);
 }
 
-export function clearSCToken(): void {
+function getSCRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+function setSCRefreshToken(token: string): void {
+  localStorage.setItem(REFRESH_TOKEN_KEY, token);
+}
+
+/** Clear all stored style-captain credentials (access + refresh + user). */
+export function clearSCTokens(): void {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+}
+
+/** Back-compat shim — old call sites still call clearSCToken(). */
+export function clearSCToken(): void {
+  clearSCTokens();
+}
+
+/**
+ * Thrown when the session is terminally invalid (no refresh token, refresh
+ * failed, or the retried request still 401'd). Carries kind="sc_unauthorized"
+ * so the layout can detect "session dead" vs a normal API error.
+ */
+export class SCAuthError extends Error {
+  readonly kind = "sc_unauthorized" as const;
+  constructor(message = "Style-captain session expired") {
+    super(message);
+    this.name = "SCAuthError";
+  }
 }
 
 export function getSCUser(): SCUser | null {
@@ -136,32 +171,156 @@ export interface SCMetric {
 
 // ─── Fetch wrapper ──────────────────────────────────────────────────────────
 
+/** Pull `error.message` out of the {error:{...}} envelope, with a fallback. */
+async function readErrorMessage(res: Response, fallbackPrefix: string) {
+  const body = await res.json().catch(() => ({}));
+  return (
+    (body as { error?: { message?: string } })?.error?.message ??
+    `${fallbackPrefix} (${res.status})`
+  );
+}
+
+/** Tell the layout the session is dead so it can redirect to login. */
+function signalSessionDead(): void {
+  clearSCTokens();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("sc:unauthorized"));
+  }
+}
+
+/**
+ * Call /style-captain/refresh using fetch directly (NOT scFetch — that would
+ * recurse on a 401). Single-flighted via `refreshInFlight` so concurrent 401s
+ * coalesce into one network request and all awaiters get the same result.
+ * Resolves true on success (tokens swapped), false on terminal failure.
+ */
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function doRefresh(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const refreshToken = getSCRefreshToken();
+    if (!refreshToken) return false;
+    try {
+      const res = await fetch(`${API_URL}/style-captain/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!res.ok) return false;
+      const data = (await res.json()) as {
+        access_token: string;
+        refresh_token: string;
+      };
+      setSCToken(data.access_token);
+      setSCRefreshToken(data.refresh_token);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
+}
+
 async function scFetch<T>(
   path: string,
   options?: RequestInit & { auth?: boolean },
 ): Promise<T> {
   const { auth = true, headers = {}, ...rest } = options ?? {};
-  const finalHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(headers as Record<string, string>),
+
+  const buildHeaders = (): Record<string, string> => {
+    const h: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(headers as Record<string, string>),
+    };
+    if (auth) {
+      const token = getSCToken();
+      if (token) h["Authorization"] = `Bearer ${token}`;
+    }
+    return h;
   };
 
-  if (auth) {
-    const token = getSCToken();
-    if (!token) throw new Error("No style-captain token");
-    finalHeaders["Authorization"] = `Bearer ${token}`;
+  // First attempt.
+  if (auth && !getSCToken()) {
+    // No access token at all — try a refresh before we even fire the request.
+    const ok = await doRefresh();
+    if (!ok) {
+      signalSessionDead();
+      throw new SCAuthError();
+    }
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
+  let res = await fetch(`${API_URL}${path}`, {
     ...rest,
-    headers: finalHeaders,
+    headers: buildHeaders(),
   });
 
+  // 401 on an authed request → refresh (single-flight) and retry exactly once.
+  if (res.status === 401 && auth) {
+    const ok = await doRefresh();
+    if (!ok) {
+      signalSessionDead();
+      throw new SCAuthError();
+    }
+    res = await fetch(`${API_URL}${path}`, {
+      ...rest,
+      headers: buildHeaders(),
+    });
+    if (res.status === 401) {
+      signalSessionDead();
+      throw new SCAuthError();
+    }
+  }
+
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const message =
-      (body as { error?: { message?: string } })?.error?.message ??
-      `Request failed (${res.status})`;
+    const message = await readErrorMessage(res, "Request failed");
+    throw new Error(message);
+  }
+
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+/**
+ * Run a raw fetch (used for multipart uploads that bypass scFetch) with the
+ * same 401 → refresh-single-flight → retry-once semantics. `run(token)` issues
+ * the actual request with the given bearer token; we handle auth-retry.
+ */
+async function withRefresh<T>(
+  run: (token: string) => Promise<Response>,
+): Promise<T> {
+  let token = getSCToken();
+  if (!token) {
+    const ok = await doRefresh();
+    if (!ok) {
+      signalSessionDead();
+      throw new SCAuthError();
+    }
+    token = getSCToken();
+  }
+
+  let res = await run(token!);
+
+  if (res.status === 401) {
+    const ok = await doRefresh();
+    if (!ok) {
+      signalSessionDead();
+      throw new SCAuthError();
+    }
+    token = getSCToken();
+    res = await run(token!);
+    if (res.status === 401) {
+      signalSessionDead();
+      throw new SCAuthError();
+    }
+  }
+
+  if (!res.ok) {
+    const message = await readErrorMessage(res, "Upload failed");
     throw new Error(message);
   }
 
@@ -172,15 +331,17 @@ async function scFetch<T>(
 // ─── Endpoints ──────────────────────────────────────────────────────────────
 
 export async function scLogin(phone: string, password: string): Promise<SCUser> {
-  const data = await scFetch<{ token: string; user: SCUser }>(
-    "/style-captain/login",
-    {
-      method: "POST",
-      auth: false,
-      body: JSON.stringify({ phone, password }),
-    },
-  );
-  setSCToken(data.token);
+  const data = await scFetch<{
+    access_token: string;
+    refresh_token: string;
+    user: SCUser;
+  }>("/style-captain/login", {
+    method: "POST",
+    auth: false,
+    body: JSON.stringify({ phone, password }),
+  });
+  setSCToken(data.access_token);
+  setSCRefreshToken(data.refresh_token);
   setSCUser(data.user);
   return data.user;
 }
@@ -306,66 +467,56 @@ export async function scUploadPhotos(
   jobId: string,
   files: File[],
 ): Promise<SCPhotoUploadResult[]> {
-  const token = getSCToken();
-  if (!token) throw new Error("No style-captain token");
-
   const formData = new FormData();
   for (const f of files) {
     formData.append("files", f);
   }
-
-  const res = await fetch(
-    `${API_URL}/style-captain/jobs/${jobId}/photos`,
-    {
+  return withRefresh<SCPhotoUploadResult[]>((token) =>
+    fetch(`${API_URL}/style-captain/jobs/${jobId}/photos`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
       body: formData,
-    },
+    }),
   );
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const message =
-      (body as { error?: { message?: string } })?.error?.message ??
-      `Upload failed (${res.status})`;
-    throw new Error(message);
-  }
-
-  return res.json() as Promise<SCPhotoUploadResult[]>;
 }
 
 export async function scUploadVoiceNote(
   jobId: string,
   file: Blob,
 ): Promise<SCPhotoUploadResult> {
-  const token = getSCToken();
-  if (!token) throw new Error("No style-captain token");
-
   const formData = new FormData();
   formData.append("file", file);
+  return withRefresh<SCPhotoUploadResult>((token) =>
+    fetch(`${API_URL}/style-captain/jobs/${jobId}/voice-note`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    }),
+  );
+}
 
-  const res = await fetch(
-    `${API_URL}/style-captain/jobs/${jobId}/voice-note`,
-    {
+/**
+ * Revoke the current refresh token server-side (logout this device).
+ * Best-effort: clears local tokens first for instant UX, then fires the
+ * request. Safe to call with no/expired access token — failures are swallowed.
+ */
+export async function scLogout(): Promise<void> {
+  const refreshToken = getSCRefreshToken();
+  const token = getSCToken();
+  clearSCTokens();
+  if (!refreshToken || !token) return;
+  try {
+    await fetch(`${API_URL}/style-captain/logout`, {
       method: "POST",
       headers: {
+        "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: formData,
-    },
-  );
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const message =
-      (body as { error?: { message?: string } })?.error?.message ??
-      `Upload failed (${res.status})`;
-    throw new Error(message);
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+  } catch {
+    // best-effort — local creds already cleared
   }
-
-  return res.json() as Promise<SCPhotoUploadResult>;
 }
 
 export interface SCWalkInResult {

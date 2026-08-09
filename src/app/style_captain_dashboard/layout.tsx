@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { clearSCToken, getSCToken, getSCUser, type SCUser } from "@/lib/style-captain-api";
+import {
+  clearSCToken,
+  getSCToken,
+  getSCUser,
+  scLogout,
+  type SCUser,
+} from "@/lib/style-captain-api";
 
 const LOGIN_PATH = "/style_captain_dashboard/login";
 
@@ -32,6 +38,25 @@ export default function StyleCaptainLayout({
     setReady(true);
   }, [router, pathname]);
 
+  // Terminal-auth listener: the API client dispatches "sc:unauthorized" when a
+  // refresh fails (refresh token invalid/expired/stolen). The client has
+  // already cleared local creds; we just redirect to login. No per-page change.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      clearSCToken();
+      if (pathname !== LOGIN_PATH) router.replace(LOGIN_PATH);
+    };
+    window.addEventListener("sc:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("sc:unauthorized", onUnauthorized);
+  }, [router, pathname]);
+
+  const handleLogout = useCallback(() => {
+    // Local creds cleared first inside scLogout for instant UX; the server
+    // revoke is fire-and-forget. Ignore errors either way.
+    void scLogout();
+    router.replace(LOGIN_PATH);
+  }, [router]);
+
   if (!ready) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-warm-sand">
@@ -43,11 +68,6 @@ export default function StyleCaptainLayout({
   // Login page renders standalone (no app shell)
   if (pathname === LOGIN_PATH) {
     return <>{children}</>;
-  }
-
-  function handleLogout() {
-    clearSCToken();
-    router.replace(LOGIN_PATH);
   }
 
   return (
