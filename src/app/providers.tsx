@@ -1,29 +1,28 @@
 "use client";
 
 /**
- * Root client provider — bootstraps auth session + booking draft on mount.
+ * Root client provider — bootstraps the auth session on mount.
  *
  * Sequence:
- *   1. Wait for Zustand persist to hydrate (both auth + booking stores)
+ *   1. Wait for Zustand persist to hydrate the auth store
  *   2. Bootstrap auth: validate existing token or mint anonymous session
- *   3. Initialize booking draft once auth is ready
  *
  * This guarantees every API call from any screen has a valid bearer token.
+ *
+ * NOTE: the booking draft is intentionally NOT initialized here. Doing so
+ * created a server-side draft order (POST /orders) on every full page load,
+ * leaking orphan `draft` rows into the DB. Drafts are now created lazily by
+ * the actual entry points that need them: the /design layout, and the
+ * "Build from scratch" / "Upload" CTAs on /style (see booking-store.initDraft).
  */
 
 import { useEffect, useRef } from "react";
 
 import { useAuthStore } from "@/lib/auth-store";
-import { useBookingStore } from "@/lib/booking-store";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const authHydrated = useAuthStore((s) => s.hydrated);
-  const token = useAuthStore((s) => s.token);
   const bootstrap = useAuthStore((s) => s.bootstrap);
-
-  const bookingHydrated = useBookingStore((s) => s.hydrated);
-  const draft = useBookingStore((s) => s.draft);
-  const initDraft = useBookingStore((s) => s.initDraft);
 
   // Bootstrap auth session on mount (after hydration)
   const authBootstrapped = useRef(false);
@@ -35,16 +34,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
       });
     }
   }, [authHydrated, bootstrap]);
-
-  // Initialize booking draft after auth is ready
-  const draftInitFired = useRef(false);
-  useEffect(() => {
-    // Wait for booking store hydration AND auth token to exist
-    if (bookingHydrated && !draft && !draftInitFired.current && token) {
-      draftInitFired.current = true;
-      initDraft();
-    }
-  }, [bookingHydrated, draft, initDraft, token]);
 
   return <>{children}</>;
 }
