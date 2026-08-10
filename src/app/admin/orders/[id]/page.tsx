@@ -1306,7 +1306,7 @@ export default function OrderDetailPage() {
           <details className="group mt-4">
             <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-muted hover:text-ink-navy">
               <span className="inline-block transition-transform duration-150 group-open:rotate-90">▸</span>{" "}
-              This order's acquisition source <span className="text-[10px] font-normal normal-case">(optional, auto-saves)</span>
+              This order&apos;s acquisition source <span className="text-[10px] font-normal normal-case">(optional, auto-saves)</span>
             </summary>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               {ACQUISITION_FIELDS.map((f) => (
@@ -1322,7 +1322,7 @@ export default function OrderDetailPage() {
             </div>
             {customer && (customer.acquisition_source || customer.acquisition_campaign || customer.acquisition_medium) && (
               <div className="mt-3 rounded-lg border border-hairline bg-mist-navy/20 px-3 py-2 text-[11px] text-muted">
-                Customer's original first-touch:{" "}
+                Customer&apos;s original first-touch:{" "}
                 <span className="font-medium text-ink">
                   {[
                     customer.acquisition_source,
