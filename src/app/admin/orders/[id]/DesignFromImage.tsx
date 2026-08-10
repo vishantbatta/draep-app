@@ -26,6 +26,7 @@ import {
   applyDesignFromAI,
   createTableRow,
   fetchGarmentTree,
+  uploadDesignImage,
   type AISelection,
   type AIAddon,
   type AIUnknownItem,
@@ -46,6 +47,12 @@ interface DesignFromImageProps {
   onSaveComplete?: (items: GarmentOrderItemRow[]) => void;
   /** Called with draft items + last reference image URL (draft mode only). */
   onDraftChange?: (items: DraftItem[], imageUrl: string) => void;
+  /**
+   * Fired with JUST a reference-image URL the moment it is uploaded at
+   * selection time (before any AI analysis), so the parent can persist it to
+   * assets_shared immediately without disturbing the editor's current items.
+   */
+  onImageUrl?: (imageUrl: string) => void;
   /**
    * Apply mode (composerOnly): fired with the raw AI selections + add-ons +
    * reference image URL on every AI response, so the parent can prefill a
@@ -209,6 +216,7 @@ export function DesignFromImage({
   draftMode = false,
   onSaveComplete,
   onDraftChange,
+  onImageUrl,
   onApplyDraft,
   onCancel,
   initialMessage,
@@ -240,6 +248,11 @@ export function DesignFromImage({
   const [textDraft, setTextDraft] = useState("");
   const [pendingImage, setPendingImage] = useState<File | null>(null);
   const [pendingImagePreview, setPendingImagePreview] = useState<string | null>(null);
+  // Hosted URL for the selected image, populated as soon as the upload
+  // triggered at selection time resolves. `null` while the upload is in flight
+  // (pendingImage set but no URL yet) or when no image is selected.
+  const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [recording, setRecording] = useState(false);
 
   // Refs
@@ -375,6 +388,21 @@ export function DesignFromImage({
     [draftMode, lastImageUrl, onDraftChange, onApplyDraft],
   );
 
+  /**
+   * Push JUST a reference-image URL up to the parent (no AI selections),
+   * e.g. the moment an image is uploaded at selection time — so the draft
+   * order persists it as assets_shared right away, before any analysis.
+   * Uses the dedicated `onImageUrl` callback when available so the parent can
+   * record the image WITHOUT touching the editor's current items.
+   */
+  const pushImageUrlUp = useCallback(
+    (imageUrl: string) => {
+      if (!imageUrl) return;
+      onImageUrl?.(imageUrl);
+    },
+    [onImageUrl],
+  );
+
   // ── Unknown-item validation (#2) ─────────────────────────────────────
   /**
    * An unknown is only actionable (can be "+ Add"-ed) when its parent_id
@@ -422,17 +450,26 @@ export function DesignFromImage({
     const sendText = rawText.trim();
     const sendImage = pendingImage;
     const sendImagePreview = pendingImagePreview;
+    // Prefer the hosted URL produced by the upload-on-select step. Only fall
+    // back to re-sending the raw File if that upload failed (in which case
+    // the /chat endpoint will accept the multipart file and save it itself).
+    const sendImageUrl = pendingImageUrl;
 
     setTextDraft("");
     setPendingImage(null);
     setPendingImagePreview(null);
+    setPendingImageUrl(null);
 
     setLoading(true);
     try {
       const result: ChatDesignResult = await chatDesign(
         threadIdRef.current,
         garmentId,
-        { text: sendText || undefined, image: sendImage ?? undefined },
+        {
+          text: sendText || undefined,
+          imageUrl: sendImageUrl ?? undefined,
+          image: sendImageUrl ? undefined : sendImage ?? undefined,
+        },
       );
 
       // Add the user message AFTER the response, using the backend-hosted
@@ -442,7 +479,7 @@ export function DesignFromImage({
         id: makeId(),
         text: hasText ? sendText : undefined,
         imageUrl: hasImage
-          ? result.image_url ?? sendImagePreview ?? undefined
+          ? result.image_url ?? sendImageUrl ?? sendImagePreview ?? undefined
           : undefined,
       };
       setMessages((prev) => [...prev, userMsg]);
@@ -489,6 +526,7 @@ export function DesignFromImage({
       if (sendImage) {
         setPendingImage(sendImage);
         setPendingImagePreview(sendImagePreview);
+        setPendingImageUrl(sendImageUrl);
       }
     } finally {
       setLoading(false);
@@ -497,7 +535,7 @@ export function DesignFromImage({
 
   // ── Image selection ──────────────────────────────────────────────────
 
-  const handleFileSelect = (file: File) => {
+  const handleFileSelect = async (file: File) => {
     if (!file.type.startsWith("image/")) {
       setError("Please select an image file (JPG, PNG, WebP).");
       return;
@@ -523,8 +561,30 @@ export function DesignFromImage({
       return;
     }
     setError(null);
+    // Show the local preview instantly, then upload so the image is persisted
+    // (and the draft order can save it as assets_shared) the moment it's
+    // picked — before any analysis. The hosted URL is reused at analyze time
+    // so we never upload the same bytes twice.
     setPendingImage(file);
     setPendingImagePreview(URL.createObjectURL(file));
+    setPendingImageUrl(null);
+    setUploadingImage(true);
+    try {
+      const url = await uploadDesignImage(file);
+      setPendingImageUrl(url);
+      setLastImageUrl(url);
+      pushImageUrlUp(url);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? `Couldn't save image: ${e.message}`
+          : "Couldn't save image. Try again.",
+      );
+      // Keep the local preview + File so the user can still send; the analyze
+      // call will fall back to uploading the raw bytes.
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -692,6 +752,7 @@ export function DesignFromImage({
         garmentOrderId,
         currentSelections,
         currentAddons,
+        lastImageUrl ?? null,
       );
       onSaveComplete?.(res.items);
     } catch (e) {
@@ -721,6 +782,8 @@ export function DesignFromImage({
     setError(null);
     setTextDraft("");
     setPendingImage(null);
+    setPendingImageUrl(null);
+    setUploadingImage(false);
     if (pendingImagePreview) {
       URL.revokeObjectURL(pendingImagePreview);
       setPendingImagePreview(null);
@@ -728,7 +791,7 @@ export function DesignFromImage({
   };
 
   const hasResult = currentSelections.length > 0 || currentAddons.length > 0;
-  const canSend = (textDraft.trim() || pendingImage) && !loading;
+  const canSend = (textDraft.trim() || pendingImage) && !loading && !uploadingImage;
 
   // Whether the conversation has started (first message sent)
   const conversationStarted = messages.length > 0 || loading;
@@ -750,16 +813,25 @@ export function DesignFromImage({
             alt="Pending"
             className="h-16 w-16 rounded-lg border border-hairline object-cover"
           />
-          <button
-            onClick={() => {
-              URL.revokeObjectURL(pendingImagePreview);
-              setPendingImagePreview(null);
-              setPendingImage(null);
-            }}
-            className="rounded-md border border-hairline-strong px-2 py-1 text-[11px] text-muted hover:bg-mist-navy"
-          >
-            Remove
-          </button>
+          <div className="flex flex-col gap-1">
+            <button
+              onClick={() => {
+                URL.revokeObjectURL(pendingImagePreview);
+                setPendingImagePreview(null);
+                setPendingImage(null);
+                setPendingImageUrl(null);
+              }}
+              className="rounded-md border border-hairline-strong px-2 py-1 text-[11px] text-muted hover:bg-mist-navy"
+            >
+              Remove
+            </button>
+            {uploadingImage && (
+              <span className="text-[10px] text-muted">Saving…</span>
+            )}
+            {pendingImageUrl && (
+              <span className="text-[10px] text-tape">Saved</span>
+            )}
+          </div>
         </div>
       )}
 
@@ -917,6 +989,7 @@ export function DesignFromImage({
                       if (pendingImagePreview) URL.revokeObjectURL(pendingImagePreview);
                       setPendingImagePreview(null);
                       setPendingImage(null);
+                      setPendingImageUrl(null);
                       setError(null);
                     }}
                     className="rounded-lg border border-hairline-strong px-3 py-1.5 text-xs font-medium text-muted hover:bg-mist-navy"
@@ -925,10 +998,10 @@ export function DesignFromImage({
                   </button>
                   <button
                     onClick={() => sendMessage()}
-                    disabled={loading}
+                    disabled={loading || uploadingImage}
                     className="rounded-lg bg-ink-navy px-4 py-1.5 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
                   >
-                    Analyze with AI
+                    {uploadingImage ? "Saving image…" : "Analyze with AI"}
                   </button>
                 </div>
               </div>

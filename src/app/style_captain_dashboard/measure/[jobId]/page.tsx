@@ -398,6 +398,8 @@ export default function MeasureJobPage() {
             style_captain_id: null,
             order_number: scJob.order_number,
             slot: scJob.slot as OrderRow["slot"],
+            // Carry the recorded voice note so the PDF includes the QR + link.
+            voice_note_asset_url: voiceNoteUrl,
           }
         : null;
 

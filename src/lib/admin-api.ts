@@ -708,6 +708,12 @@ export interface OrderRow {
   slot: OrderSlot;
   created_at?: string;
   updated_at?: string;
+  /**
+   * Optional voice note (audio asset URL) recorded by the style captain at
+   * the end of a measurement job (`orders.voice_note_asset_url`). Generic
+   * table fetches populate it at runtime even on older typed callers.
+   */
+  voice_note_asset_url?: string | null;
 }
 
 /** Safely render an order's `slot` value as a string, regardless of
@@ -1593,6 +1599,40 @@ export async function analyzeDesignImage(
 }
 
 /**
+ * POST /admin/design-ai/upload
+ * Upload a reference image and get its hosted URL (no AI call).
+ *
+ * Used to persist the design-inspiration image the moment it is selected,
+ * so the draft order can save it immediately and the analyze step can reuse
+ * the hosted URL instead of re-uploading the raw bytes.
+ */
+export async function uploadDesignImage(image: File): Promise<string> {
+  const token = getAdminToken();
+  if (!token) throw new Error("No admin token");
+
+  const formData = new FormData();
+  formData.append("image", image);
+
+  const res = await fetch(`${API_URL}/admin/design-ai/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    const msg =
+      (detail as Record<string, unknown>)?.detail ??
+      (detail as Record<string, unknown>)?.message ??
+      `Upload failed (${res.status})`;
+    throw new Error(typeof msg === "string" ? msg : "Upload failed");
+  }
+
+  const data = (await res.json()) as { image_url: string };
+  return data.image_url;
+}
+
+/**
  * POST /admin/design-ai/apply
  * Apply AI-generated selections to a garment order (replaces existing items).
  */
@@ -1600,6 +1640,7 @@ export async function applyDesignFromAI(
   garmentOrderId: string,
   selections: AISelection[],
   addons: AIAddon[],
+  imageUrl?: string | null,
 ): Promise<ApplyDesignResult> {
   return adminFetch<ApplyDesignResult>("/admin/design-ai/apply", {
     method: "POST",
@@ -1607,6 +1648,7 @@ export async function applyDesignFromAI(
       garment_order_id: garmentOrderId,
       selections,
       addons,
+      ...(imageUrl ? { image_url: imageUrl } : {}),
     }),
   });
 }
@@ -1625,11 +1667,16 @@ export interface ChatDesignResult {
  * POST /admin/design-ai/chat
  * Send a message (text and/or image) to the conversational design AI.
  * Maintains thread state on the backend via thread_id.
+ *
+ * The image may be supplied as either a raw `File` (multipart upload) or an
+ * `imageUrl` pointing at an image already saved via `uploadDesignImage`. The
+ * URL path is preferred — it avoids re-uploading the bytes and reuses the
+ * file persisted at selection time.
  */
 export async function chatDesign(
   threadId: string,
   garmentId: string,
-  options: { text?: string; image?: File },
+  options: { text?: string; image?: File; imageUrl?: string },
 ): Promise<ChatDesignResult> {
   const token = getAdminToken();
   if (!token) throw new Error("No admin token");
@@ -1638,6 +1685,7 @@ export async function chatDesign(
   formData.append("thread_id", threadId);
   formData.append("garment_id", garmentId);
   if (options.text) formData.append("text", options.text);
+  if (options.imageUrl) formData.append("image_url", options.imageUrl);
   if (options.image) formData.append("image", options.image);
 
   const res = await fetch(`${API_URL}/admin/design-ai/chat`, {

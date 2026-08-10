@@ -33,6 +33,10 @@ import type {
 } from "./admin-api";
 import { publicAssetAbsoluteUrl, resolveAssetUrl } from "./admin-api";
 
+// Lazily imported inside downloadMeasurementJobPdf so the QR encoder never
+// bloats the main bundle for callers that never build a PDF.
+type QrLib = typeof import("qrcode");
+
 // ─── Style selections (optional extension) ─────────────────────────────────
 
 /** A garment order paired with its design items, for the PDF style pages. */
@@ -123,29 +127,63 @@ function absUrl(u: string | null | undefined): string {
   );
 }
 
+/**
+ * Resolve an asset URL to a FULLY-QUALIFIED absolute URL for things opened
+ * OUTSIDE the browser context: PDF link annotations and QR codes. Unlike
+ * `absUrl` (which deliberately collapses to a same-origin relative path so
+ * in-browser <img>/fetch go through the Next.js proxy), a QR code scanned by
+ * a phone or a link clicked inside a PDF viewer has no "current origin" to
+ * resolve against — a relative `/uploads/foo.mp3` is useless there. So we
+ * always emit the real backend origin (the FastAPI StaticFiles host that
+ * actually serves /uploads/*).
+ */
+const BE_ORIGIN = (
+  process.env.NEXT_PUBLIC_API_URL ?? "/api/v1"
+).replace(/\/api\/v\d+$/, "");
+
+function externalAbsUrl(u: string | null | undefined): string {
+  if (!u) return "";
+  if (/^https?:\/\//i.test(u)) return u;
+  return `${BE_ORIGIN}${u.startsWith("/") ? "" : "/"}${u}`;
+}
+
 // ─── Section builders ────────────────────────────────────────────────────
 
 function coverPage(
   job: MeasurementJobRow,
   customer: UserRow | null,
   order: OrderRow | null,
-  address: AddressRow | null,
+  voiceNote?: { url: string; qrDataUrl: string } | null,
 ): string {
   const ord = order ?? null;
 
-  // Build address display
-  const addrParts: string[] = [];
-  if (address?.address_line_1) addrParts.push(esc(address.address_line_1));
-  if (address?.address_line_2) addrParts.push(esc(address.address_line_2));
-  const cityLine = [
-    address?.city,
-    address?.state,
-    address?.pincode,
-  ].filter(Boolean).map(esc).join(", ");
-  if (cityLine) addrParts.push(cityLine);
-  const addrHtml = addrParts.length > 0
-    ? addrParts.join("<br/>")
-    : "<em class='muted'>No address on file</em>";
+  // Voice-note CTA. The PDF body is rasterized to JPEG, so inline <a> links
+  // don't survive — we render a QR (works on phone or print) AND a visual
+  // "Listen" button. After rasterizing the cover page we overlay a real PDF
+  // link annotation on top of that button's position (see the jsPDF loop), so
+  // the button is genuinely clickable in digital PDF viewers. Rendered only
+  // when a voice note URL was recorded at the end of the measurement job.
+  const voiceNoteUrl = voiceNote?.url;
+  const voiceNoteBlock = voiceNote?.qrDataUrl
+    ? `<div class="voice-note-cta">
+         <div class="voice-note-qr">
+           <img src="${voiceNote.qrDataUrl}" alt="Voice note QR code" />
+         </div>
+         <div class="voice-note-copy">
+           <h2>🎙️ Voice Note</h2>
+           <p>The style captain recorded an audio note during measurement.</p>
+           <p class="voice-note-instr">Scan the QR code, or tap the button, to listen.</p>
+         </div>
+         ${
+           voiceNoteUrl
+             ? `<a href="${esc(voiceNoteUrl)}" class="voice-note-btn" target="_blank" rel="noopener">
+                  <span class="voice-note-btn-icon" aria-hidden="true">▶</span>
+                  Listen to recording
+                </a>`
+             : ""
+         }
+       </div>`
+    : "";
 
   return `
     <section class="page cover-page">
@@ -172,14 +210,12 @@ function coverPage(
           <h2>Customer Details</h2>
           <table class="kv">
             <tr><th>Name</th><td>${esc(customer?.name ?? "—")}</td></tr>
-            <tr><th>Phone</th><td>${esc(customer?.phone ?? "—")}</td></tr>
-            <tr><th>Email</th><td>${esc(customer?.email ?? "—")}</td></tr>
             <tr><th>Customer ID</th><td>${esc(customer?.id ?? job.user_id ?? "—")}</td></tr>
           </table>
-          <h2 style="margin-top:14pt;">Delivery Address</h2>
-          <div class="address-body">${addrHtml}</div>
         </div>
       </div>
+
+      ${voiceNoteBlock}
 
       <div class="cover-block notes-block">
         <h2>Notes</h2>
@@ -537,7 +573,6 @@ export async function downloadMeasurementJobPdf(
     job,
     customer,
     order,
-    address,
     bodyMeasurements,
     garmentMeasurements,
     styleSelections,
@@ -553,6 +588,29 @@ export async function downloadMeasurementJobPdf(
   const jsPDF = jspdfMod.jsPDF ?? jspdfMod.default;
 
   onProgress?.(0, 1, "Building layout…");
+
+  // Resolve an optional voice note recorded during the measurement job and
+  // encode it as a QR code so the tailor can scan-and-listen from the PDF.
+  // MUST be a fully-qualified absolute URL: a QR code is scanned by a phone
+  // (no browser origin to resolve against), and the PDF link annotation is
+  // clicked inside a PDF viewer. A relative "/uploads/..." would be useless
+  // in both contexts.
+  const voiceNoteUrl = externalAbsUrl(order?.voice_note_asset_url ?? null);
+  let voiceNote: { url: string; qrDataUrl: string } | null = null;
+  if (voiceNoteUrl) {
+    try {
+      const QR = (await import("qrcode")).default as QrLib;
+      const qrDataUrl = await QR.toDataURL(voiceNoteUrl, {
+        margin: 1,
+        width: 320,
+        color: { dark: "#1a1a1a", light: "#ffffff" },
+        errorCorrectionLevel: "M",
+      });
+      voiceNote = { url: voiceNoteUrl, qrDataUrl };
+    } catch (err) {
+      console.warn("[job-pdf] Failed to generate voice-note QR:", err);
+    }
+  }
 
   // Compute pagination. Page order is:
   //   1 cover  →  garment details  →  style selections  →  body measurements
@@ -600,7 +658,7 @@ export async function downloadMeasurementJobPdf(
   </style>
 </head>
 <body>
-  ${coverPage(job, customer, order, address ?? null)}
+  ${coverPage(job, customer, order, voiceNote)}
   ${garmentSections}
   ${styleSections}
   ${bodySections.join("")}
@@ -703,6 +761,34 @@ export async function downloadMeasurementJobPdf(
       const imgH = (canvas.height * imgW) / canvas.width;
       if (i === 0) {
         pdf.addImage(imgData, "JPEG", 0, 0, imgW, Math.min(imgH, pageHeightMm));
+
+        // Overlay a REAL clickable link annotation over the "Listen to
+        // recording" button. The rasterized JPEG has no links; jsPDF's
+        // link() adds a transparent clickable region at mm coordinates,
+        // so the button works in any digital PDF viewer. We map the
+        // button's DOM rect (relative to the cover .page) into PDF mm
+        // using the same px→mm scale as the image (pageWidthMm / 794).
+        const btn = el.querySelector<HTMLElement>(".voice-note-btn");
+        if (btn && voiceNote?.url) {
+          const pageRect = el.getBoundingClientRect();
+          const btnRect = btn.getBoundingClientRect();
+          const pxPerMm = 794 / pageWidthMm;
+          const linkXmm = (btnRect.left - pageRect.left) / pxPerMm;
+          const linkWmm = btnRect.width / pxPerMm;
+          // PDF y grows downward from the top, same as the DOM rect here.
+          const linkYmm = (btnRect.top - pageRect.top) / pxPerMm;
+          const linkHmm = btnRect.height / pxPerMm;
+          try {
+            pdf.link(linkXmm, linkYmm, linkWmm, linkHmm, {
+              url: voiceNote.url,
+            });
+          } catch (err) {
+            console.warn(
+              "[job-pdf] failed to attach voice-note link annotation:",
+              err,
+            );
+          }
+        }
       } else {
         pdf.addPage();
         pdf.addImage(imgData, "JPEG", 0, 0, imgW, Math.min(imgH, pageHeightMm));
@@ -1010,6 +1096,72 @@ const PRINT_CSS = `
     font-size: 10.5pt;
     line-height: 1.5;
     color: #0f172a;
+  }
+
+  /* Voice-note CTA on the cover page. Renders only when a voice note URL
+     was recorded. The PDF is rasterized to JPEG, so links aren't clickable —
+     the QR code is the tailor's way to open the audio on their phone. */
+  .voice-note-cta {
+    display: flex;
+    align-items: flex-start;
+    gap: 18pt;
+    margin: 0 0 20pt 0;
+    padding: 16pt 20pt;
+    border: 1px solid #cbd5e1;
+    border-left: 4pt solid #0f172a;
+    border-radius: 6pt;
+    background: #f8fafc;
+  }
+  .voice-note-copy { flex: 1 1 auto; min-width: 0; }
+  .voice-note-qr {
+    flex: 0 0 auto;
+    width: 120pt;
+    height: 120pt;
+    padding: 6pt;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 4pt;
+  }
+  .voice-note-qr img { width: 100%; height: 100%; object-fit: contain; }
+  .voice-note-copy h2 {
+    margin: 0 0 6pt 0;
+    font-size: 14pt;
+    color: #0f172a;
+    border: none;
+    padding: 0;
+  }
+  .voice-note-copy p {
+    margin: 0 0 4pt 0;
+    font-size: 11pt;
+    color: #334155;
+    line-height: 1.45;
+  }
+  .voice-note-copy .voice-note-instr {
+    font-size: 10pt;
+    color: #64748b;
+    font-style: italic;
+  }
+  /* "Listen to recording" button. In the rasterized PDF the <a> is overlaid
+     by a real PDF link annotation (see the jsPDF loop), so it stays clickable
+     in digital viewers; in print it reads as an obvious call-to-action. */
+  .voice-note-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8pt;
+    margin-top: 10pt;
+    padding: 9pt 20pt;
+    border: none;
+    border-radius: 999pt;
+    background: #0f172a;
+    color: #ffffff;
+    font-size: 11.5pt;
+    font-weight: 600;
+    text-decoration: none;
+    line-height: 1;
+  }
+  .voice-note-btn-icon {
+    font-size: 10pt;
+    line-height: 1;
   }
 
   /* Body measurement pages: 1 metric per page, large image for tailor */

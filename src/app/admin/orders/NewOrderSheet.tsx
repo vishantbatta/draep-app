@@ -40,6 +40,12 @@ interface GarmentDraft {
   garmentId: string;
   draftItems: DraftItem[];
   computedTotal: number;
+  /**
+   * AI reference image URLs captured from the "Upload Reference" design flow.
+   * Persisted onto `garment_orders.assets_shared` so the inspiration photo
+   * shows up on the order detail page and in the measurement-job PDF.
+   */
+  assetsShared: string[];
 }
 
 interface NewOrderSheetProps {
@@ -50,6 +56,34 @@ interface NewOrderSheetProps {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STEPS = ["Customer", "Garments & Style", "Address", "Measurement Job"] as const;
+
+// ─── Country codes (dialing prefixes) ──────────────────────────────────────
+// India is the default market — +91 first, the rest alphabetical by label.
+const COUNTRY_CODES = [
+  { code: "+91", label: "🇮🇳 +91" },
+  { code: "+1", label: "🇺🇸 +1" },
+  { code: "+44", label: "🇬🇧 +44" },
+  { code: "+61", label: "🇦🇺 +61" },
+  { code: "+971", label: "🇦🇪 +971" },
+  { code: "+65", label: "🇸🇬 +65" },
+] as const;
+
+// Indian mobile numbers are 10 digits after the country code.
+const PHONE_DIGIT_COUNT = 10;
+
+/**
+ * Sanitize a raw phone input down to the digits we want to store/search:
+ *  - strip every non-digit char (letters, +, dashes, spaces, brackets, dots…)
+ *  - drop a single leading 0 (e.g. "0987654321" → "9876543210")
+ * Trims to the first PHONE_DIGIT_COUNT digits so over-long pastes don't overflow.
+ */
+function sanitizePhone(raw: string): string {
+  const digits = raw.replace(/\D+/g, "");
+  const withoutLeadingZero = digits.startsWith("0")
+    ? digits.slice(1)
+    : digits;
+  return withoutLeadingZero.slice(0, PHONE_DIGIT_COUNT);
+}
 
 function formatPrice(v: number | null | undefined): string {
   if (v === null || v === undefined) return "—";
@@ -84,6 +118,8 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
 
   // ── Step 1: Customer ──────────────────────────────────────────────────────
   const [phoneInput, setPhoneInput] = useState("");
+  const [countryCode, setCountryCode] = useState<string>("+91");
+  const [phoneTouched, setPhoneTouched] = useState(false);
   const [foundUser, setFoundUser] = useState<UserRow | null>(null);
   const [searchingUser, setSearchingUser] = useState(false);
   const [newUserName, setNewUserName] = useState("");
@@ -166,6 +202,8 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
     setStep(0);
     setError(null);
     setPhoneInput("");
+    setCountryCode("+91");
+    setPhoneTouched(false);
     setFoundUser(null);
     setNewUserName("");
     setUserSearched(false);
@@ -204,9 +242,13 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
   }
 
   // ── Phone search (debounced) ──────────────────────────────────────────────
+  // phoneInput is already sanitized to digits only (see sanitizePhone on the
+  // input's onChange). We only hit the DB once we have a full, valid
+  // PHONE_DIGIT_COUNT-digit number — no search on partial keystrokes.
   useEffect(() => {
     if (phoneTimer.current) clearTimeout(phoneTimer.current);
-    if (!phoneInput.trim() || phoneInput.trim().length < 4) {
+    const cleanPhone = phoneInput.trim();
+    if (!cleanPhone || cleanPhone.length !== PHONE_DIGIT_COUNT) {
       setFoundUser(null);
       setUserSearched(false);
       setNonCustomerRole(null);
@@ -216,7 +258,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
     phoneTimer.current = setTimeout(async () => {
       try {
         const { rows } = await fetchTableRows<UserRow>("users", {
-          filters: { phone: phoneInput.trim() },
+          filters: { phone: cleanPhone },
           perPage: 1,
         });
         const user = rows[0] ?? null;
@@ -410,6 +452,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
         garmentId: "",
         draftItems: [],
         computedTotal: 0,
+        assetsShared: [],
       },
     ]);
   }
@@ -452,11 +495,60 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
       ...prev,
       [draftId]: { items: prefilled, imageUrl },
     }));
+    // Carry the AI reference image onto the draft so it is persisted as
+    // assets_shared when the garment_order is created/updated. Dedupe so
+    // repeated AI iterations on the same draft don't pile up copies.
+    setGarmentDrafts((prev) =>
+      prev.map((d) =>
+        d.id === draftId
+          ? {
+              ...d,
+              assetsShared: Array.from(
+                new Set([...d.assetsShared, imageUrl].filter(Boolean)),
+              ),
+            }
+          : d,
+      ),
+    );
     updateGarmentDraft(draftId, { draftItems: items });
     setDraftIterations((prev) => ({
       ...prev,
       [draftId]: (prev[draftId] ?? 0) + 1,
     }));
+  }
+
+  /**
+   * A reference image was uploaded at selection time (before any analysis).
+   * Record it onto the draft's assets_shared and persist the draft order
+   * immediately so the photo lands in the DB right away — the admin doesn't
+   * have to advance to the Address step. Unlike applyAIDraft this does NOT
+   * touch the editor's items, so manual edits are preserved. Only persists
+   * once a customer is resolvable (step 0 done); otherwise persistDraftOrder
+   * would create a user prematurely, so it defers to the normal Next flow.
+   */
+  function applyImageUrl(draftId: string, imageUrl: string) {
+    if (!imageUrl) return;
+    setGarmentDrafts((prev) =>
+      prev.map((d) =>
+        d.id === draftId
+          ? {
+              ...d,
+              assetsShared: Array.from(
+                new Set([...d.assetsShared, imageUrl].filter(Boolean)),
+              ),
+            }
+          : d,
+      ),
+    );
+    const customerReady = !!draftCustomerId || !!foundUser ||
+      (userSearched && !foundUser && newUserName.trim().length > 0);
+    if (customerReady) {
+      void Promise.resolve().then(() => {
+        persistDraftOrder().catch(() => {
+          // surfaced inside persistDraftOrder via setError
+        });
+      });
+    }
   }
 
   // ── Persist draft order (advance from Garments step) ──────────────────────
@@ -488,6 +580,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
         const newUser = await createTableRow<UserRow>("users", {
           name: newUserName.trim(),
           phone: phoneInput.trim(),
+          country_code: countryCode,
           role: "customer",
         });
         customerId = newUser.id;
@@ -529,6 +622,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
           await updateTableRow("garment_orders", existingGoId, {
             garment_id: draft.garmentId,
             price: draft.computedTotal > 0 ? draft.computedTotal : basePrice,
+            assets_shared: draft.assetsShared.length > 0 ? draft.assetsShared : null,
           });
           for (const item of draft.draftItems) {
             await createTableRow<GarmentOrderItemRow>("garment_orders_items", {
@@ -550,6 +644,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
             garment_id: draft.garmentId,
             price: draft.computedTotal > 0 ? draft.computedTotal : basePrice,
             status: "pending",
+            assets_shared: draft.assetsShared.length > 0 ? draft.assetsShared : null,
           });
           newGoIds[draft.id] = go.id;
           for (const item of draft.draftItems) {
@@ -620,6 +715,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
         const newUser = await createTableRow<UserRow>("users", {
           name: newUserName.trim(),
           phone: phoneInput.trim(),
+          country_code: countryCode,
           role: "customer",
         });
         customerId = newUser.id;
@@ -678,6 +774,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
             garment_id: draft.garmentId,
             price: draft.computedTotal > 0 ? draft.computedTotal : basePrice,
             status: "pending",
+            assets_shared: draft.assetsShared.length > 0 ? draft.assetsShared : null,
           });
           for (const item of draft.draftItems) {
             await createTableRow<GarmentOrderItemRow>("garment_orders_items", {
@@ -801,14 +898,40 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
             <label className="mb-1 block text-xs font-medium text-muted">
               Phone number <span className="text-red-500">*</span>
             </label>
-            <input
-              type="tel"
-              value={phoneInput}
-              onChange={(e) => setPhoneInput(e.target.value)}
-              placeholder="Enter customer phone number…"
-              className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2.5 text-sm focus:border-ink-navy focus:outline-none"
-              autoFocus
-            />
+            <div className="flex gap-2">
+              {/* Country code dropdown */}
+              <select
+                value={countryCode}
+                onChange={(e) => setCountryCode(e.target.value)}
+                className="shrink-0 rounded-lg border border-hairline-strong bg-chalk-white px-2.5 py-2.5 text-sm focus:border-ink-navy focus:outline-none"
+                aria-label="Country code"
+              >
+                {COUNTRY_CODES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              {/* Phone number (sanitized to digits only) */}
+              <input
+                type="tel"
+                inputMode="numeric"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(sanitizePhone(e.target.value))}
+                onBlur={() => setPhoneTouched(true)}
+                placeholder="10-digit mobile number"
+                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2.5 text-sm focus:border-ink-navy focus:outline-none"
+                autoFocus
+              />
+            </div>
+            {/* Validation only on blur (focus out) — not on every keystroke. */}
+            {phoneTouched &&
+              phoneInput.length > 0 &&
+              phoneInput.length !== PHONE_DIGIT_COUNT && (
+                <div className="mt-1 text-[11px] text-red-500">
+                  Enter a valid {PHONE_DIGIT_COUNT}-digit mobile number.
+                </div>
+              )}
             {searchingUser && (
               <div className="mt-1 text-[11px] text-muted">Searching…</div>
             )}
@@ -820,7 +943,8 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
               <div className="text-xs font-medium text-green-800">✓ Existing user found</div>
               <div className="mt-1 text-sm font-medium text-ink">{foundUser.name ?? "Unnamed"}</div>
               <div className="text-[11px] text-muted">
-                {foundUser.phone} {foundUser.email ? `• ${foundUser.email}` : ""}
+                {foundUser.country_code ?? countryCode} {foundUser.phone}
+                {foundUser.email ? ` • ${foundUser.email}` : ""}
               </div>
             </div>
           )}
@@ -881,6 +1005,9 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
                     garmentId: e.target.value,
                     draftItems: [],
                     computedTotal: 0,
+                    // Clear the AI reference image when the garment type
+                    // changes — the old inspiration photo no longer applies.
+                    assetsShared: [],
                   });
                   // Clear AI prefill when garment changes
                   setPrefilledByDraft((prev) => {
@@ -963,6 +1090,9 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
                         onDraftChange={(items, imageUrl) =>
                           applyAIDraft(draft.id, items, imageUrl)
                         }
+                        onImageUrl={(imageUrl) =>
+                          applyImageUrl(draft.id, imageUrl)
+                        }
                       />
                     </div>
                   ) : (
@@ -1002,6 +1132,9 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
                           threadId={draftThreadIds[draft.id]}
                           onDraftChange={(items, imageUrl) =>
                             applyAIDraft(draft.id, items, imageUrl)
+                          }
+                          onImageUrl={(imageUrl) =>
+                            applyImageUrl(draft.id, imageUrl)
                           }
                         />
                       ) : (

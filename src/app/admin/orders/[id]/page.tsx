@@ -52,6 +52,7 @@ import {
   aiResultToGarmentOrderItems,
 } from "./DesignFromImage";
 import type { AISelection, AIAddon } from "@/lib/admin-api";
+import { VoicePlayer } from "@/components/style-captain/VoicePlayer";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -496,6 +497,35 @@ export default function OrderDetailPage() {
       ...prev,
       [goId]: (prev[goId] ?? 0) + 1,
     }));
+  }
+
+  /**
+   * A reference image was uploaded at selection time for an existing garment
+   * order (apply mode). Persist it to garment_orders.assets_shared right away
+   * so it shows up on the order page + PDF without waiting for "Apply to
+   * Order". Deduped against any photos already recorded.
+   */
+  async function applyGOImageUrl(goId: string, imageUrl: string) {
+    if (!imageUrl) return;
+    const go = garmentOrders.find((g) => g.id === goId);
+    const existing = Array.isArray(go?.assets_shared) ? go!.assets_shared : [];
+    const next = Array.from(new Set([...existing, imageUrl].filter(Boolean)));
+    if (next.length === existing.length) return; // already present
+    // Optimistically update UI.
+    setGarmentOrders((prev) =>
+      prev.map((g) => (g.id === goId ? { ...g, assets_shared: next } : g)),
+    );
+    try {
+      await updateTableRow("garment_orders", goId, {
+        assets_shared: next.length > 0 ? next : null,
+      });
+    } catch (e) {
+      // Roll back on failure so the UI doesn't lie about persistence.
+      setGarmentOrders((prev) =>
+        prev.map((g) => (g.id === goId ? { ...g, assets_shared: existing } : g)),
+      );
+      flash(e instanceof Error ? e.message : "Failed to save reference image");
+    }
   }
 
   /** Lazily create + return a stable AI thread id for a garment order. */
@@ -1189,6 +1219,19 @@ export default function OrderDetailPage() {
           </div>
         </div>
 
+        {/* Voice note recorded during measurement, if any */}
+        {order.voice_note_asset_url ? (
+          <div className="mt-4 border-t border-hairline pt-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted">
+              Voice note
+            </div>
+            <p className="mt-0.5 text-[11px] text-muted">
+              Recorded by the style captain during measurement.
+            </p>
+            <VoicePlayer src={resolveAssetUrl(order.voice_note_asset_url) ?? order.voice_note_asset_url} />
+          </div>
+        ) : null}
+
         {/* Style captain assignment */}
         <div className="mt-4 border-t border-hairline pt-4">
           <div className="flex flex-wrap items-end gap-3">
@@ -1686,6 +1729,9 @@ export default function OrderDetailPage() {
                                 onApplyDraft={(selections, addons, imageUrl) =>
                                   applyGODesign(go.id, selections, addons, imageUrl)
                                 }
+                                onImageUrl={(imageUrl) =>
+                                  applyGOImageUrl(go.id, imageUrl)
+                                }
                               />
                             </div>
                           ) : (
@@ -1736,6 +1782,9 @@ export default function OrderDetailPage() {
                                       addons,
                                       imageUrl,
                                     )
+                                  }
+                                  onImageUrl={(imageUrl) =>
+                                    applyGOImageUrl(go.id, imageUrl)
                                   }
                                   onCancel={() => setEditingGOId(null)}
                                 />

@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
+import { VoicePlayer } from "./VoicePlayer";
 
 /**
  * VoiceNoteRecorder — single-step voice note capture.
@@ -198,12 +199,14 @@ export const VoiceNoteRecorder = memo(function VoiceNoteRecorder({
             Re-record
           </button>
         </div>
-        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-        <audio
-          controls
-          src={resolveUrl(assetUrl)}
-          className="mt-2 h-9 w-full"
-        />
+        {/*
+          Custom Web-Audio player (no native <audio>/<video>). MediaRecorder
+          output is WebM/Opus with no duration metadata, which Chrome's native
+          media elements handle unreliably (play button never enables). We
+          decode the bytes via AudioContext and drive playback ourselves, so
+          there's no native element that can get stuck.
+        */}
+        <VoicePlayer src={resolveUrl(assetUrl)} />
       </div>
     );
   }

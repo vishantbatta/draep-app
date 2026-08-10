@@ -27,6 +27,7 @@ import {
   type GarmentMeasurementGroup,
 } from "@/lib/admin-api";
 import { downloadMeasurementJobPdf } from "@/lib/job-pdf";
+import { VoicePlayer } from "@/components/style-captain/VoicePlayer";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -692,6 +693,24 @@ export default function MeasurementJobDetailPage() {
             Saved automatically on blur.
           </div>
         </div>
+
+        {/* Voice note recorded during measurement, if any */}
+        {order?.voice_note_asset_url ? (
+          <div className="mt-4 border-t border-hairline pt-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted">
+              Voice note
+            </div>
+            <p className="mt-0.5 text-[11px] text-muted">
+              Recorded by the style captain during measurement.
+            </p>
+            <VoicePlayer
+              src={
+                resolveAssetUrl(order.voice_note_asset_url) ??
+                order.voice_note_asset_url
+              }
+            />
+          </div>
+        ) : null}
       </div>
 
       {/* ─── Related: Order & Customer ───────────────────────────────────── */}
