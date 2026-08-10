@@ -42,6 +42,12 @@ export interface StyleSelectionGroup {
   garmentLabel: string;
   basePrice: number | null;
   items: GarmentOrderItemRow[];
+  /**
+   * Optional customer-uploaded design-inspiration photos for this garment
+   * order (mirrors GarmentOrderRow.assets_shared). When provided, a photo
+   * grid is rendered at the top of the garment's Style Selections page.
+   */
+  assetsShared?: string[] | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -81,6 +87,22 @@ function fmtValue(
   }
   if (reading.value_text) return esc(reading.value_text);
   return "—";
+}
+
+/**
+ * Slugify a name for use in a filename — keeps alphanumerics and spaces,
+ * collapses runs of whitespace / punctuation, trims, and clips the length.
+ * Returns "" when the name is empty so callers can omit the segment entirely.
+ */
+function nameSlug(s: string | null | undefined, maxLen = 40): string {
+  if (!s) return "";
+  return s
+    .trim()
+    .replace(/[^\p{L}\p{N}\s-]/gu, "") // keep letters/numbers (any script), spaces, hyphens
+    .replace(/\s+/g, " ")
+    .replace(/\s/g, "-")
+    .slice(0, maxLen)
+    .replace(/-+$/g, "");
 }
 
 /**
@@ -181,7 +203,7 @@ function formatOrderSlot(slot: unknown): string {
   return String(date);
 }
 
-/** 4 body-measurement rows on a single page. */
+/** One body-measurement per page — large image so a tailor can read it clearly. */
 function bodyMeasurementsPage(
   rows: BodyMeasurementWithMetric[],
   pageNum: number,
@@ -204,21 +226,23 @@ function bodyMeasurementsPage(
                 : `<div class="img-placeholder">No image</div>`
             }
           </div>
-          <div class="metric-content">
-            <div class="metric-names">
-              <div class="name name-en">${esc(labels.en ?? metric.code ?? "—")}</div>
-              ${labels.hi ? `<div class="name name-hi">${esc(labels.hi)}</div>` : ""}
-              ${labels.kn ? `<div class="name name-kn">${esc(labels.kn)}</div>` : ""}
+          <div class="metric-body">
+            <div class="metric-headline">
+              <div class="metric-names">
+                <div class="name name-en">${esc(labels.en ?? metric.code ?? "—")}</div>
+                ${labels.hi ? `<div class="name name-hi">${esc(labels.hi)}</div>` : ""}
+                ${labels.kn ? `<div class="name name-kn">${esc(labels.kn)}</div>` : ""}
+              </div>
+              <div class="metric-value">
+                <div class="value-label">Value</div>
+                <div class="value-text">${fmtValue(reading, metric)}</div>
+              </div>
             </div>
             <div class="metric-desc">
               ${descriptions.en ? `<div>${esc(descriptions.en)}</div>` : ""}
               ${descriptions.hi ? `<div class="desc-hi">${esc(descriptions.hi)}</div>` : ""}
               ${descriptions.kn ? `<div class="desc-kn">${esc(descriptions.kn)}</div>` : ""}
             </div>
-          </div>
-          <div class="metric-value">
-            <div class="value-label">Value</div>
-            <div class="value-text">${fmtValue(reading, metric)}</div>
           </div>
         </div>
       `;
@@ -421,6 +445,28 @@ function styleSelectionsPages(
         ? `<div class="user-note"><strong>Customer note:</strong> ${esc(g.garmentOrder.user_note)}</div>`
         : "";
 
+      // Customer-uploaded design-inspiration photos for this garment order.
+      // Uses data-pdf-src so inlineImagesAsCanvases() pre-rasterizes each
+      // image (same pattern as the material photos in garmentDetailsPages).
+      const assetsShared = (g.assetsShared ?? [])
+        .map((u) => (typeof u === "string" ? u : null))
+        .filter((u): u is string => Boolean(u));
+      const assetsBlock = assetsShared.length > 0
+        ? `<div class="style-photos">
+             <div class="style-photos-label">Design Inspiration (${assetsShared.length})</div>
+             <div class="photo-grid">
+               ${assetsShared
+                 .map(
+                   (u) =>
+                     `<img src="${absUrl(u)}"
+                            data-pdf-src="${esc(u)}"
+                            alt="${esc(g.garmentLabel)} design inspiration" />`,
+                 )
+                 .join("")}
+             </div>
+           </div>`
+        : "";
+
       const currentPageNum = pageNum++;
       return `
         <section class="page garment-page style-page">
@@ -435,6 +481,8 @@ function styleSelectionsPages(
             <span class="meta-dim">GO ID: ${esc(g.garmentOrder.id.slice(0, 8))}</span>
             ${g.garmentOrder.status ? `<span class="meta-dim">Status: ${esc(g.garmentOrder.status.replace(/_/g, " "))}</span>` : ""}
           </div>
+
+          ${assetsBlock}
 
           ${tableHtml}
 
@@ -506,33 +554,41 @@ export async function downloadMeasurementJobPdf(
 
   onProgress?.(0, 1, "Building layout…");
 
-  // Compute pagination: 4 body rows per page
-  const bodyPerPage = 4;
+  // Compute pagination. Page order is:
+  //   1 cover  →  garment details  →  style selections  →  body measurements
+  // (Body measurements come LAST now: a tailor reads the garment/style spec
+  //  first, then the per-measurement guide pages.)
+  const bodyPerPage = 1;
   const bodyPages = Math.max(1, Math.ceil(bodyMeasurements.length / bodyPerPage));
   const garmentPages = Math.max(1, garmentMeasurements.length);
   const styleGroups = styleSelections ?? [];
   const stylePages = styleGroups.length;
   const totalPages =
-    1 /* cover */ + bodyPages + garmentPages + stylePages;
+    1 /* cover */ + garmentPages + stylePages + bodyPages;
 
-  // Slice body measurements into pages of 4
-  const bodySections: string[] = [];
-  for (let i = 0; i < bodyPages; i++) {
-    const slice = bodyMeasurements.slice(i * bodyPerPage, (i + 1) * bodyPerPage);
-    bodySections.push(bodyMeasurementsPage(slice, 2 + i, totalPages));
-  }
+  // Page-number offsets for each section (cover is page 1).
+  const garmentStart = 2;
+  const styleStart = garmentStart + garmentPages;
+  const bodyStart = styleStart + stylePages;
 
   const garmentSections = garmentDetailsPages(
     garmentMeasurements,
-    2 + bodyPages,
+    garmentStart,
     totalPages,
   );
 
   const styleSections = styleSelectionsPages(
     styleGroups,
-    2 + bodyPages + garmentPages,
+    styleStart,
     totalPages,
   );
+
+  // Slice body measurements into pages of 1 (large guide photo per page).
+  const bodySections: string[] = [];
+  for (let i = 0; i < bodyPages; i++) {
+    const slice = bodyMeasurements.slice(i * bodyPerPage, (i + 1) * bodyPerPage);
+    bodySections.push(bodyMeasurementsPage(slice, bodyStart + i, totalPages));
+  }
 
   const fullHtml = `<!doctype html>
 <html lang="en">
@@ -545,9 +601,9 @@ export async function downloadMeasurementJobPdf(
 </head>
 <body>
   ${coverPage(job, customer, order, address ?? null)}
-  ${bodySections.join("")}
   ${garmentSections}
   ${styleSections}
+  ${bodySections.join("")}
 </body>
 </html>`;
 
@@ -617,11 +673,13 @@ export async function downloadMeasurementJobPdf(
       const label =
         i === 0
           ? "Cover page"
-          : i <= bodyPages
-            ? `Body measurements page ${i}`
-            : i <= bodyPages + garmentPages
-              ? `Garment details page ${i - bodyPages}`
-              : `Style selections page ${i - bodyPages - garmentPages}`;
+          : i < garmentStart
+            ? "Cover page"
+            : i < styleStart
+              ? `Garment details page ${i - garmentStart + 1}`
+              : i < bodyStart
+                ? `Style selections page ${i - styleStart + 1}`
+                : `Body measurements page ${i - bodyStart + 1}`;
       onProgress?.(i, pageEls.length, `Rendering ${label}…`);
 
       // Allow the browser to paint the progress update before the
@@ -629,7 +687,7 @@ export async function downloadMeasurementJobPdf(
       await nextPaint();
 
       const canvas = await html2canvas(el, {
-        scale: 2, // 2x for crisp output (~144 DPI)
+        scale: 3, // 3x for crisp output (~216 DPI)
         backgroundColor: "#ffffff",
         logging: false,
         useCORS: true,
@@ -654,7 +712,9 @@ export async function downloadMeasurementJobPdf(
     onProgress?.(pageEls.length, pageEls.length, "Saving file…");
     await nextPaint();
 
-    const filename = `DRAEP-Measurement-${(job.id ?? "report").slice(0, 8)}.pdf`;
+    const custSlug = nameSlug(customer?.name);
+    const namePart = custSlug ? `-${custSlug}` : "";
+    const filename = `DRAEP-Measurement${namePart}-${(job.id ?? "report").slice(0, 8)}.pdf`;
     const blob = pdf.output("blob");
     saveAs(blob, filename);
   } finally {
@@ -780,39 +840,61 @@ async function inlineImagesAsCanvases(root: HTMLElement): Promise<void> {
     // Determine the target display size from computed style so the canvas
     // fills the same box the <img> was occupying.
     const computed = window.getComputedStyle(img);
-    const targetW = parseInt(computed.width, 10) || decoded.naturalWidth;
-    const targetH = parseInt(computed.height, 10) || decoded.naturalHeight;
+    // `object-fit` decides whether we crop-to-fill (cover) or preserve the
+    // whole image (contain / auto). For the large metric guide photos we use
+    // natural-aspect sizing (height: auto) — the rendered box already matches
+    // the image aspect, so we must NOT crop. For fixed-square photo grids
+    // (object-fit: cover) we keep the cover crop.
+    const objectFit = computed.objectFit;
+    const useCover = objectFit === "cover";
+    const naturalAspect = decoded.naturalWidth / decoded.naturalHeight;
+
+    let targetW = parseInt(computed.width, 10) || decoded.naturalWidth;
+    let targetH = parseInt(computed.height, 10) || decoded.naturalHeight;
+    if (!useCover) {
+      // Honor the image's true aspect ratio: derive height from the rendered
+      // width so the canvas matches the image exactly (no stretch, no crop).
+      // Respect the CSS max-height cap if present.
+      let h = targetW / naturalAspect;
+      const maxH = parseInt(computed.maxHeight, 10);
+      if (Number.isFinite(maxH) && maxH > 0 && h > maxH) {
+        h = maxH;
+        targetW = h * naturalAspect; // shrink width to keep aspect at the cap
+      }
+      targetH = h;
+    }
 
     const canvas = document.createElement("canvas");
-    // 2x for crisp PDF output at the same display size.
-    canvas.width = Math.max(1, targetW) * 2;
-    canvas.height = Math.max(1, targetH) * 2;
-    canvas.style.width = `${targetW}px`;
-    canvas.style.height = `${targetH}px`;
+    // 3x for crisp PDF output at the same display size.
+    canvas.width = Math.max(1, Math.round(targetW)) * 3;
+    canvas.height = Math.max(1, Math.round(targetH)) * 3;
+    canvas.style.width = `${Math.round(targetW)}px`;
+    canvas.style.height = `${Math.round(targetH)}px`;
     canvas.style.display = img.style.display || "block";
     canvas.style.borderRadius = computed.borderRadius;
     canvas.style.border = computed.border;
-    canvas.style.objectFit = "cover";
+    canvas.style.objectFit = useCover ? "cover" : "contain";
     canvas.style.background = computed.background;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) continue;
-    ctx.scale(2, 2);
-    // Use 'cover' semantics — match the CSS `object-fit: cover` of .photo-grid img.
-    // Compute source/dest rectangles to fill the target box while preserving aspect.
-    const imgAspect = decoded.naturalWidth / decoded.naturalHeight;
-    const boxAspect = targetW / targetH;
-    let sx = 0, sy = 0, sw = decoded.naturalWidth, sh = decoded.naturalHeight;
-    if (imgAspect > boxAspect) {
-      // Image wider than box — crop horizontally.
-      sw = decoded.naturalHeight * boxAspect;
-      sx = (decoded.naturalWidth - sw) / 2;
-    } else if (imgAspect < boxAspect) {
-      // Image taller than box — crop vertically.
-      sh = decoded.naturalWidth / boxAspect;
-      sy = (decoded.naturalHeight - sh) / 2;
+    ctx.scale(3, 3);
+    if (useCover) {
+      // Cover semantics — fill the fixed box, cropping the overflow.
+      const boxAspect = targetW / targetH;
+      let sx = 0, sy = 0, sw = decoded.naturalWidth, sh = decoded.naturalHeight;
+      if (naturalAspect > boxAspect) {
+        sw = decoded.naturalHeight * boxAspect;
+        sx = (decoded.naturalWidth - sw) / 2;
+      } else if (naturalAspect < boxAspect) {
+        sh = decoded.naturalWidth / boxAspect;
+        sy = (decoded.naturalHeight - sh) / 2;
+      }
+      ctx.drawImage(decoded, sx, sy, sw, sh, 0, 0, targetW, targetH);
+    } else {
+      // Contain / natural aspect — draw the WHOLE image, no crop.
+      ctx.drawImage(decoded, 0, 0, targetW, targetH);
     }
-    ctx.drawImage(decoded, sx, sy, sw, sh, 0, 0, targetW, targetH);
 
     // Preserve any classes (e.g., layout rules) and replace.
     canvas.className = img.className;
@@ -930,7 +1012,7 @@ const PRINT_CSS = `
     color: #0f172a;
   }
 
-  /* Body measurement pages: 4 rows per page */
+  /* Body measurement pages: 1 metric per page, large image for tailor */
   .body-page .page-header,
   .garment-page .page-header {
     display: flex;
@@ -944,30 +1026,31 @@ const PRINT_CSS = `
   }
 
   .metric-row {
-    display: grid;
-    grid-template-columns: 60pt 1fr 90pt;
-    gap: 12pt;
+    display: flex;
+    flex-direction: column;
+    gap: 14pt;
     border: 1px solid #e2e8f0;
-    border-radius: 6pt;
-    padding: 10pt;
-    margin-bottom: 12pt;
+    border-radius: 8pt;
+    padding: 14pt;
+    margin-bottom: 14pt;
     break-inside: avoid;
   }
-  .metric-row:nth-child(4n) {
-    page-break-after: always;
-  }
   .metric-image {
-    width: 60pt;
-    height: 60pt;
+    width: 100%;
+    /* No fixed height — the image sets the box height so its aspect ratio is
+       preserved exactly. max-height keeps it within one A4 page. */
+    max-height: 510pt;      /* ~18cm — fits below the header/value row */
     border: 1px solid #e2e8f0;
-    border-radius: 4pt;
+    border-radius: 6pt;
     overflow: hidden;
     background: #f8fafc;
   }
   .metric-image img,
   .metric-image canvas {
+    /* Fill the card width; height follows the image's natural aspect ratio. */
     width: 100%;
-    height: 100%;
+    height: auto;
+    max-height: 510pt;
     object-fit: contain;
     display: block;
   }
@@ -977,19 +1060,29 @@ const PRINT_CSS = `
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 7pt;
+    font-size: 10pt;
     color: #94a3b8;
   }
-  .metric-content { min-width: 0; }
-  .metric-names { margin-bottom: 4pt; }
-  .name { font-size: 11pt; line-height: 1.3; }
+  .metric-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10pt;
+  }
+  .metric-headline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16pt;
+  }
+  .metric-names { min-width: 0; }
+  .name { font-size: 13pt; line-height: 1.3; }
   .name-en { font-weight: 700; color: #0f172a; }
-  .name-hi { color: #1e293b; font-size: 10pt; }
-  .name-kn { color: #1e293b; font-size: 10pt; }
+  .name-hi { color: #1e293b; font-size: 12pt; }
+  .name-kn { color: #1e293b; font-size: 12pt; }
   .metric-desc {
-    font-size: 8.5pt;
+    font-size: 10pt;
     color: #475569;
-    line-height: 1.35;
+    line-height: 1.4;
   }
   .metric-desc div { margin-bottom: 2pt; }
   .desc-hi, .desc-kn { color: #64748b; }
@@ -997,20 +1090,21 @@ const PRINT_CSS = `
   .metric-value {
     text-align: center;
     border-left: 1px dashed #cbd5e1;
-    padding-left: 8pt;
+    padding-left: 18pt;
     display: flex;
     flex-direction: column;
     justify-content: center;
+    flex-shrink: 0;
   }
   .value-label {
-    font-size: 8pt;
+    font-size: 9pt;
     text-transform: uppercase;
     color: #94a3b8;
     letter-spacing: 1pt;
     margin-bottom: 4pt;
   }
   .value-text {
-    font-size: 14pt;
+    font-size: 22pt;
     font-weight: 700;
     color: #0f172a;
   }
@@ -1168,6 +1262,15 @@ const PRINT_CSS = `
     gap: 8pt;
     margin-bottom: 14pt;
     font-size: 10.5pt;
+  }
+  .style-photos { margin-bottom: 14pt; }
+  .style-photos-label {
+    font-size: 9pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8pt;
+    color: #475569;
+    margin-bottom: 6pt;
   }
   .addon-pill {
     background: #6d28d9 !important; /* purple, distinguishes from black */

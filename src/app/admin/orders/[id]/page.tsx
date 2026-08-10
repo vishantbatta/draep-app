@@ -755,13 +755,14 @@ export default function OrderDetailPage() {
             total_price: liveGO?.total_price ?? null,
             status: (go.status as GarmentOrderStatus | null) ?? null,
             user_note: go.user_note,
-            assets_shared: null,
+            assets_shared: liveGO?.assets_shared ?? null,
           },
           garmentLabel: garmentDisplayLabel(liveGO?.garment_id ?? go.garment_id),
           basePrice: (liveGO?.garment_id
             ? garmentMap.get(liveGO.garment_id)?.base_price
             : null) ?? null,
           items: itemsByGOId.get(go.id) ?? [],
+          assetsShared: liveGO?.assets_shared ?? null,
         };
       });
 
