@@ -13,6 +13,8 @@ import {
   type OrderRow,
   type MeasurementJobRow,
 } from "@/lib/admin-api";
+import { ACQUISITION_FIELDS } from "@/lib/acquisition";
+import { Chip } from "@/components/ui/Chip";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -83,12 +85,15 @@ function EditableText({
   onSave,
   type = "text",
   placeholder,
+  chips,
 }: {
   label: string;
   value: string | null;
   onSave: (v: string | null) => Promise<void>;
   type?: "text" | "email" | "tel";
   placeholder?: string;
+  /** Optional suggestion chips. Tap sets+saves; tap active clears. */
+  chips?: readonly string[];
 }) {
   const [draft, setDraft] = useState(value ?? "");
   const [saving, setSaving] = useState(false);
@@ -97,17 +102,29 @@ function EditableText({
     setDraft(value ?? "");
   }, [value]);
 
-  async function handleBlur() {
-    if (draft === (value ?? "")) return;
+  async function commit(next: string) {
+    const v = next.trim() === "" ? null : next.trim();
+    if (v === value) return;
     setSaving(true);
     try {
-      await onSave(draft.trim() === "" ? null : draft.trim());
+      await onSave(v);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Update failed");
       setDraft(value ?? "");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleBlur() {
+    if (draft === (value ?? "")) return;
+    await commit(draft);
+  }
+
+  function tapChip(opt: string) {
+    const next = draft === opt ? "" : opt;
+    setDraft(next);
+    void commit(next);
   }
 
   return (
@@ -125,6 +142,21 @@ function EditableText({
         className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-1.5 text-[13px] text-ink focus:border-ink-navy focus:outline-none disabled:opacity-50"
       />
       {saving && <span className="text-[10px] text-muted">Saving…</span>}
+      {chips && chips.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {chips.map((opt) => (
+            <Chip
+              key={opt}
+              selected={draft === opt}
+              ariaLabel={`${label}: ${opt}`}
+              onClick={() => tapChip(opt)}
+              className="min-h-[26px] px-2 py-0.5 text-[10px]"
+            >
+              {opt}
+            </Chip>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -426,6 +458,26 @@ export default function UserDetailPage() {
             </select>
           </div>
         </div>
+
+        {/* Acquisition (first-touch) — editable, auto-saves on blur */}
+        <details className="group mt-4 rounded-lg border border-hairline bg-chalk-white p-3">
+          <summary className="cursor-pointer text-xs font-medium text-muted hover:text-ink-navy">
+            <span className="inline-block transition-transform duration-150 group-open:rotate-90">▸</span>{" "}
+            Acquisition source <span className="text-[10px] font-normal">(first-touch, auto-saves)</span>
+          </summary>
+          <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
+            {ACQUISITION_FIELDS.map((f) => (
+              <EditableText
+                key={f.key}
+                label={f.label}
+                value={user[f.dbKey] ?? null}
+                onSave={(v) => handleUpdateField(f.dbKey, v)}
+                chips={f.options}
+                placeholder={f.options[0] ? `e.g. ${f.options[0]}` : `Enter ${f.label.toLowerCase()}…`}
+              />
+            ))}
+          </div>
+        </details>
       </div>
 
       {/* ─── Addresses ──────────────────────────────────────────────────────── */}

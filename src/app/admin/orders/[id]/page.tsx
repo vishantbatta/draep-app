@@ -45,6 +45,8 @@ import {
   type GarmentMeasurementGroup,
   type AddressRow,
 } from "@/lib/admin-api";
+import { ACQUISITION_FIELDS } from "@/lib/acquisition";
+import { Chip } from "@/components/ui/Chip";
 import { downloadMeasurementJobPdf, type StyleSelectionGroup } from "@/lib/job-pdf";
 import { GarmentOrderEditor } from "./GarmentOrderEditor";
 import {
@@ -212,6 +214,87 @@ function EditableNumber({
     >
       {formatPrice(value ?? null)}
     </button>
+  );
+}
+
+// ─── Inline-editable text field (auto-saves on blur) ─────────────────────────
+
+function EditableTextField({
+  label,
+  value,
+  onSave,
+  placeholder,
+  chips,
+}: {
+  label: string;
+  value: string | null | undefined;
+  onSave: (v: string | null) => Promise<void>;
+  placeholder?: string;
+  /** Optional suggestion chips. Tap sets+saves; tap active clears. */
+  chips?: readonly string[];
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDraft(value ?? "");
+  }, [value]);
+
+  async function commit(next: string) {
+    const v = next.trim() === "" ? null : next.trim();
+    if (v === (value ?? null)) return;
+    setSaving(true);
+    try {
+      await onSave(v);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Update failed");
+      setDraft(value ?? "");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleBlur() {
+    if (draft.trim() === (value ?? "")) return;
+    await commit(draft);
+  }
+
+  function tapChip(opt: string) {
+    const next = draft === opt ? "" : opt;
+    setDraft(next);
+    void commit(next);
+  }
+
+  return (
+    <div>
+      <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">
+        {label} {saving && <span className="text-[10px]">(saving…)</span>}
+      </label>
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={handleBlur}
+        placeholder={placeholder ?? `Enter ${label.toLowerCase()}…`}
+        disabled={saving}
+        className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-1.5 text-[13px] text-ink focus:border-ink-navy focus:outline-none disabled:opacity-50"
+      />
+      {chips && chips.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {chips.map((opt) => (
+            <Chip
+              key={opt}
+              selected={draft === opt}
+              ariaLabel={`${label}: ${opt}`}
+              onClick={() => tapChip(opt)}
+              className="min-h-[26px] px-2 py-0.5 text-[10px]"
+            >
+              {opt}
+            </Chip>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1217,6 +1300,40 @@ export default function OrderDetailPage() {
               <div className="text-sm text-ink">{formatOrderSlot(order.slot)}</div>
             </div>
           </div>
+
+          {/* Acquisition — this order's attribution (editable, auto-saves on blur).
+              Distinct from the customer's first-touch (kept on their profile). */}
+          <details className="group mt-4">
+            <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-muted hover:text-ink-navy">
+              <span className="inline-block transition-transform duration-150 group-open:rotate-90">▸</span>{" "}
+              This order's acquisition source <span className="text-[10px] font-normal normal-case">(optional, auto-saves)</span>
+            </summary>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
+              {ACQUISITION_FIELDS.map((f) => (
+                <EditableTextField
+                  key={f.key}
+                  label={f.label}
+                  value={order[f.dbKey]}
+                  onSave={(v) => handleUpdateOrderField({ [f.dbKey]: v } as Partial<OrderRow>)}
+                  chips={f.options}
+                  placeholder={f.options[0] ? `e.g. ${f.options[0]}` : `Enter ${f.label.toLowerCase()}…`}
+                />
+              ))}
+            </div>
+            {customer && (customer.acquisition_source || customer.acquisition_campaign || customer.acquisition_medium) && (
+              <div className="mt-3 rounded-lg border border-hairline bg-mist-navy/20 px-3 py-2 text-[11px] text-muted">
+                Customer's original first-touch:{" "}
+                <span className="font-medium text-ink">
+                  {[
+                    customer.acquisition_source,
+                    customer.acquisition_campaign,
+                    customer.acquisition_medium,
+                  ].filter(Boolean).join(" / ") || "—"}
+                </span>{" "}
+                (kept on their profile)
+              </div>
+            )}
+          </details>
         </div>
 
         {/* Voice note recorded during measurement, if any */}

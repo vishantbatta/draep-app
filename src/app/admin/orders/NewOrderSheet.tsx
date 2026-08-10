@@ -32,6 +32,12 @@ import {
 } from "@/lib/admin-api";
 import { GarmentOrderEditor, type DraftItem } from "./[id]/GarmentOrderEditor";
 import { DesignFromImage } from "./[id]/DesignFromImage";
+import { AcquisitionSection } from "@/components/acquisition/AcquisitionSection";
+import {
+  acquisitionPayload,
+  emptyAcquisition,
+  type AcquisitionState,
+} from "@/lib/acquisition";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -123,6 +129,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
   const [foundUser, setFoundUser] = useState<UserRow | null>(null);
   const [searchingUser, setSearchingUser] = useState(false);
   const [newUserName, setNewUserName] = useState("");
+  const [acquisition, setAcquisition] = useState<AcquisitionState>(emptyAcquisition);
   const [userSearched, setUserSearched] = useState(false);
   const [nonCustomerRole, setNonCustomerRole] = useState<string | null>(null);
   const phoneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -206,6 +213,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
     setPhoneTouched(false);
     setFoundUser(null);
     setNewUserName("");
+    setAcquisition(emptyAcquisition());
     setUserSearched(false);
     setNonCustomerRole(null);
     setGarmentDrafts([]);
@@ -582,6 +590,8 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
           phone: phoneInput.trim(),
           country_code: countryCode,
           role: "customer",
+          // New customer → acquisition is first-touch; mirror onto the user.
+          ...acquisitionPayload(acquisition),
         });
         customerId = newUser.id;
       }
@@ -596,6 +606,9 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
           total_price: grandTotal > 0 ? grandTotal : null,
           fulfillment_status: "draft",
           payment_status: null,
+          // Per-order attribution (last-touch for this conversion). Always
+          // written, whether the customer is new or existing.
+          ...acquisitionPayload(acquisition),
         });
         orderId = order.id;
         setDraftOrderId(orderId);
@@ -717,6 +730,8 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
           phone: phoneInput.trim(),
           country_code: countryCode,
           role: "customer",
+          // New customer → acquisition is first-touch; mirror onto the user.
+          ...acquisitionPayload(acquisition),
         });
         customerId = newUser.id;
       }
@@ -763,6 +778,9 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
           total_price: grandTotal > 0 ? grandTotal : null,
           fulfillment_status: "pending",
           payment_status: "pending",
+          // Per-order attribution (last-touch). New customers also mirrored
+          // it onto the user row above; existing customers → order only.
+          ...acquisitionPayload(acquisition),
         });
         orderId = order.id;
 
@@ -978,6 +996,25 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
                 />
               </div>
             </div>
+          )}
+
+          {/* Acquisition source — drives THIS ORDER's attribution.
+              For a new customer it is also mirrored onto the user (first-touch). */}
+          {(foundUser || (userSearched && !foundUser && !nonCustomerRole && newUserName.trim().length > 0)) && (
+            <AcquisitionSection
+              value={acquisition}
+              onChange={setAcquisition}
+              summaryLabel={
+                foundUser
+                  ? "Acquisition source (this order)"
+                  : "Acquisition source"
+              }
+              hint={
+                foundUser
+                  ? "Optional — what drove this order. (The customer's original source is kept on their profile.)"
+                  : "Optional — how this customer/order was acquired. Saved to both the customer and this order."
+              }
+            />
           )}
         </div>
       )}

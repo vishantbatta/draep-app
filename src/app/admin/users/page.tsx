@@ -7,6 +7,12 @@ import {
   fetchTableRows,
   type UserRow,
 } from "@/lib/admin-api";
+import { AcquisitionSection } from "@/components/acquisition/AcquisitionSection";
+import {
+  acquisitionPayload,
+  emptyAcquisition,
+  type AcquisitionState,
+} from "@/lib/acquisition";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -76,6 +82,9 @@ export default function UsersListPage() {
   const [fTimezone, setFTimezone] = useState("Asia/Kolkata");
   const [fPassword, setFPassword] = useState("");
 
+  // Acquisition (first-touch for this new user)
+  const [acquisition, setAcquisition] = useState<AcquisitionState>(emptyAcquisition());
+
   // Auto-dismiss flash after 4s
   useEffect(() => {
     if (!flash) return;
@@ -92,6 +101,7 @@ export default function UsersListPage() {
     setFCountryCode("+91");
     setFTimezone("Asia/Kolkata");
     setFPassword("");
+    setAcquisition(emptyAcquisition());
     setCreateFormError(null);
   }
 
@@ -107,6 +117,7 @@ export default function UsersListPage() {
       if (fCountryCode.trim()) data.country_code = fCountryCode.trim();
       if (fTimezone.trim()) data.timezone = fTimezone.trim();
       if (fPassword.trim()) data.password = fPassword.trim();
+      Object.assign(data, acquisitionPayload(acquisition));
 
       const created = await createTableRow<UserRow>("users", data);
       setShowCreateForm(false);
@@ -353,6 +364,16 @@ export default function UsersListPage() {
                 />
               </div>
             )}
+          </div>
+
+          {/* Acquisition source (first-touch) */}
+          <div className="mt-4">
+            <AcquisitionSection
+              value={acquisition}
+              onChange={setAcquisition}
+              summaryLabel="Acquisition source"
+              hint="Optional — how this customer was acquired. Recorded as their original first-touch source."
+            />
           </div>
 
           {/* Error */}

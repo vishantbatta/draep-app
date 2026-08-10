@@ -714,6 +714,12 @@ export interface OrderRow {
    * table fetches populate it at runtime even on older typed callers.
    */
   voice_note_asset_url?: string | null;
+  // Per-order acquisition (last-touch for this conversion).
+  acquisition_source?: string | null;
+  acquisition_campaign?: string | null;
+  acquisition_medium?: string | null;
+  acquisition_term?: string | null;
+  acquisition_content?: string | null;
 }
 
 /** Safely render an order's `slot` value as a string, regardless of
@@ -802,6 +808,12 @@ export interface UserRow {
   country_code: string | null;
   created_at?: string;
   updated_at?: string;
+  // First-touch acquisition (write-once at customer creation).
+  acquisition_source?: string | null;
+  acquisition_campaign?: string | null;
+  acquisition_medium?: string | null;
+  acquisition_term?: string | null;
+  acquisition_content?: string | null;
 }
 
 export interface AddressRow {
