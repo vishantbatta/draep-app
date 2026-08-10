@@ -940,6 +940,7 @@ export const deleteMeasurementJob = (id: string) => deleteTableRow("measurement_
 export const deleteGarmentOrder = (id: string) => deleteTableRow("garment_orders", id);
 export const deleteGarmentOrderItem = (id: string) =>
   deleteTableRow("garment_orders_items", id);
+export const deleteOrder = (id: string) => deleteTableRow("orders", id);
 
 /** Fetch all style captains (users with role = "style_captain"). */
 export async function fetchStyleCaptains(): Promise<UserRow[]> {
@@ -948,6 +949,27 @@ export async function fetchStyleCaptains(): Promise<UserRow[]> {
     perPage: 100,
   });
   return rows;
+}
+
+/**
+ * Search users whose name OR phone contains `q` (case-insensitive, via the
+ * backend `contains` / ILIKE op under an OR group). Capped at 100 matches.
+ * Used by the orders list to find orders by customer name/phone — orders only
+ * carry user_id, so we resolve matching users first, then their orders.
+ */
+export async function searchUsersByNameOrPhone(q: string): Promise<UserRow[]> {
+  const trimmed = q.trim();
+  if (!trimmed) return [];
+  const filter: FilterNode = {
+    type: "group",
+    logic: "or",
+    children: [
+      { type: "filter", column: "name", op: "contains", value: trimmed },
+      { type: "filter", column: "phone", op: "contains", value: trimmed },
+    ],
+  };
+  const data = await fetchTableData("users", 1, 100, undefined, filter);
+  return data.rows as unknown as UserRow[];
 }
 
 // ─── Captain CRUD via dedicated /admin/captains endpoints ─────────────────────

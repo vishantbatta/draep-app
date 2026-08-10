@@ -4,11 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   fetchTableRows,
+  fetchTableData,
   fetchUserById,
+  updateOrder,
+  deleteOrder,
+  searchUsersByNameOrPhone,
   type OrderRow,
   type UserRow,
   type FulfillmentStatus,
   type PaymentStatus,
+  type FilterNode,
 } from "@/lib/admin-api";
 import { NewOrderSheet } from "./NewOrderSheet";
 
@@ -101,6 +106,16 @@ export default function OrdersListPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
 
+  // ── Multi-select + bulk actions ──────────────────────────────────────────
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkFulfillment, setBulkFulfillment] = useState<FulfillmentStatus | "">("");
+  const [bulkPayment, setBulkPayment] = useState<PaymentStatus | "">("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  // ── Customer search (name / phone) ───────────────────────────────────────
+  const [searchInput, setSearchInput] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+
   // ── Emit sidebar items ────────────────────────────────────────────────────
   useEffect(() => {
     window.dispatchEvent(
@@ -133,6 +148,52 @@ export default function OrdersListPage() {
     setLoading(true);
     setError(null);
     try {
+      // Build the status-filter leaf list (applies in both search and non-search paths)
+      const statusFilters: FilterNode[] = [];
+      if (filterFulfillment !== "all") {
+        statusFilters.push({ type: "filter", column: "fulfillment_status", op: "eq", value: filterFulfillment });
+      }
+      if (filterPayment !== "all") {
+        statusFilters.push({ type: "filter", column: "payment_status", op: "eq", value: filterPayment });
+      }
+
+      if (searchTerm.trim()) {
+        // Two-step: resolve matching users, then their orders.
+        const matchedUsers = await searchUsersByNameOrPhone(searchTerm);
+        if (matchedUsers.length === 0) {
+          setOrders([]);
+          setTotal(0);
+          return;
+        }
+        // Pre-seed the cache with the users we just found (no per-order fetch needed)
+        const seeded = new Map(userCache);
+        matchedUsers.forEach((u) => seeded.set(u.id, u));
+
+        // Filter orders to the matched user set (OR of eq on user_id) ANDed with status filters.
+        const userFilters: FilterNode[] = matchedUsers.map((u) => ({
+          type: "filter",
+          column: "user_id",
+          op: "eq",
+          value: u.id,
+        }));
+        const tree: FilterNode = {
+          type: "group",
+          logic: "and",
+          children: [
+            { type: "group", logic: "or", children: userFilters },
+            ...statusFilters,
+          ],
+        };
+
+        const data = await fetchTableData("orders", page, perPage, { column: "created_at", direction: "desc" }, tree);
+        const rows = data.rows as unknown as OrderRow[];
+        setOrders(rows);
+        setTotal(data.total);
+        setUserCache(seeded);
+        return;
+      }
+
+      // Non-search path: simple fetch with optional status filters (eq-only path)
       const filters: Record<string, string> = {};
       if (filterFulfillment !== "all") filters.fulfillment_status = filterFulfillment;
       if (filterPayment !== "all") filters.payment_status = filterPayment;
@@ -173,11 +234,25 @@ export default function OrdersListPage() {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, perPage, filterFulfillment, filterPayment]);
+  }, [page, perPage, filterFulfillment, filterPayment, searchTerm]);
 
   useEffect(() => {
     loadOrders();
   }, [loadOrders]);
+
+  // ── Debounce search input → search term ───────────────────────────────────
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // ── Clear selection whenever the view changes ─────────────────────────────
+  useEffect(() => {
+    setSelected(new Set());
+  }, [page, filterFulfillment, filterPayment, searchTerm]);
 
   // Auto-dismiss flash after 4s
   useEffect(() => {
@@ -187,6 +262,84 @@ export default function OrdersListPage() {
   }, [flash]);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
+
+  // ── Selection handlers ────────────────────────────────────────────────────
+  const toggleOrder = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const currentPageIds = orders.map((o) => o.id);
+  const allOnPageSelected =
+    currentPageIds.length > 0 && currentPageIds.every((id) => selected.has(id));
+
+  const toggleSelectAll = useCallback(() => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (currentPageIds.every((id) => next.has(id))) {
+        currentPageIds.forEach((id) => next.delete(id));
+      } else {
+        currentPageIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }, [currentPageIds]);
+
+  const clearSelection = useCallback(() => setSelected(new Set()), []);
+
+  // ── Bulk action handlers ───────────────────────────────────────────────────
+  const handleBulkStatus = useCallback(async () => {
+    const patch: Record<string, string> = {};
+    if (bulkFulfillment !== "") patch.fulfillment_status = bulkFulfillment;
+    if (bulkPayment !== "") patch.payment_status = bulkPayment;
+    if (Object.keys(patch).length === 0) return;
+
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    const results = await Promise.allSettled(
+      ids.map((id) => updateOrder(id, patch)),
+    );
+    const fulfilled = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.length - fulfilled;
+    setBulkBusy(false);
+
+    setFlash(
+      failed === 0
+        ? `Updated ${fulfilled} order${fulfilled !== 1 ? "s" : ""}.`
+        : `Updated ${fulfilled}, ${failed} failed.`,
+    );
+    setBulkFulfillment("");
+    setBulkPayment("");
+    clearSelection();
+    loadOrders();
+  }, [bulkFulfillment, bulkPayment, selected, clearSelection, loadOrders]);
+
+  const handleBulkDelete = useCallback(async () => {
+    const count = selected.size;
+    if (count === 0) return;
+    if (!window.confirm(`Delete ${count} order(s)? This cannot be undone.`)) return;
+
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    const results = await Promise.allSettled(
+      ids.map((id) => deleteOrder(id)),
+    );
+    const fulfilled = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.length - fulfilled;
+    setBulkBusy(false);
+
+    setFlash(
+      failed === 0
+        ? `Deleted ${fulfilled} order${fulfilled !== 1 ? "s" : ""}.`
+        : `Deleted ${fulfilled}, ${failed} failed.`,
+    );
+    clearSelection();
+    loadOrders();
+  }, [selected, clearSelection, loadOrders]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -225,6 +378,15 @@ export default function OrdersListPage() {
 
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        {/* Customer search */}
+        <input
+          type="text"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search customer name / phone…"
+          className="w-64 rounded-lg border border-hairline-strong bg-chalk-white px-3 py-1.5 text-xs text-ink placeholder:text-muted focus:border-ink-navy focus:outline-none"
+        />
+
         {/* Fulfillment filter */}
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-medium text-muted">Fulfillment:</span>
@@ -265,11 +427,13 @@ export default function OrdersListPage() {
           </select>
         </div>
 
-        {(filterFulfillment !== "all" || filterPayment !== "all") && (
+        {(filterFulfillment !== "all" || filterPayment !== "all" || searchTerm !== "") && (
           <button
             onClick={() => {
               setFilterFulfillment("all");
               setFilterPayment("all");
+              setSearchInput("");
+              setSearchTerm("");
               setPage(1);
             }}
             className="text-xs font-medium text-ink-navy underline hover:text-tape"
@@ -278,6 +442,73 @@ export default function OrdersListPage() {
           </button>
         )}
       </div>
+
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-ink-navy/30 bg-mist-navy/40 px-4 py-2.5">
+          <span className="text-xs font-semibold text-ink-navy">
+            {selected.size} selected
+          </span>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-muted">Fulfillment:</span>
+            <select
+              value={bulkFulfillment}
+              onChange={(e) => setBulkFulfillment(e.target.value as FulfillmentStatus | "")}
+              disabled={bulkBusy}
+              className="rounded-lg border border-hairline-strong bg-chalk-white px-2 py-1 text-xs text-ink focus:border-ink-navy focus:outline-none disabled:opacity-50"
+            >
+              <option value="">— unchanged —</option>
+              {FULFILLMENT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-muted">Payment:</span>
+            <select
+              value={bulkPayment}
+              onChange={(e) => setBulkPayment(e.target.value as PaymentStatus | "")}
+              disabled={bulkBusy}
+              className="rounded-lg border border-hairline-strong bg-chalk-white px-2 py-1 text-xs text-ink focus:border-ink-navy focus:outline-none disabled:opacity-50"
+            >
+              <option value="">— unchanged —</option>
+              {PAYMENT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={handleBulkStatus}
+            disabled={bulkBusy || (bulkFulfillment === "" && bulkPayment === "")}
+            className="rounded-lg bg-ink-navy px-3 py-1.5 text-xs font-semibold text-chalk-white transition hover:bg-tape disabled:opacity-40"
+          >
+            {bulkBusy ? "Applying…" : "Apply"}
+          </button>
+
+          <button
+            onClick={handleBulkDelete}
+            disabled={bulkBusy}
+            className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-40"
+          >
+            Delete
+          </button>
+
+          <button
+            onClick={clearSelection}
+            disabled={bulkBusy}
+            className="text-xs font-medium text-muted underline hover:text-ink-navy disabled:opacity-40"
+          >
+            Clear
+          </button>
+        </div>
+      )}
 
       {/* Loading / Error */}
       {loading && (
@@ -303,6 +534,15 @@ export default function OrdersListPage() {
               <table className="w-full min-w-[700px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-hairline bg-mist-navy/40 text-xs uppercase tracking-wide text-muted">
+                    <th className="w-10 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={allOnPageSelected}
+                        onChange={toggleSelectAll}
+                        aria-label="Select all on page"
+                        className="h-4 w-4 cursor-pointer rounded border-hairline-strong accent-ink-navy"
+                      />
+                    </th>
                     <th className="px-4 py-3 font-medium">Order #</th>
                     <th className="px-4 py-3 font-medium">Customer</th>
                     <th className="px-4 py-3 font-medium">Fulfillment</th>
@@ -321,8 +561,17 @@ export default function OrdersListPage() {
                       <tr
                         key={order.id}
                         onClick={() => router.push(`/admin/orders/${order.id}`)}
-                        className="cursor-pointer border-b border-hairline transition hover:bg-mist-navy/30 last:border-0"
+                        className={`cursor-pointer border-b border-hairline transition hover:bg-mist-navy/30 last:border-0 ${selected.has(order.id) ? "bg-mist-navy/40" : ""}`}
                       >
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selected.has(order.id)}
+                            onChange={() => toggleOrder(order.id)}
+                            aria-label={`Select order ${order.order_number ?? order.id.slice(0, 8)}`}
+                            className="h-4 w-4 cursor-pointer rounded border-hairline-strong accent-ink-navy"
+                          />
+                        </td>
                         <td className="px-4 py-3">
                           <div className="font-mono text-[13px] font-medium text-ink-navy">
                             {order.order_number ?? `#${truncateId(order.id)}`}
