@@ -14,6 +14,7 @@ export function formatDateTime(iso: string | null | undefined): string {
       month: "short",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: true,
     });
   } catch {
     return iso;

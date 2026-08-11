@@ -109,7 +109,7 @@ export function SchedulePanel({ onClose }: { onClose: () => void }) {
   const [overview, setOverview] = useState<SCScheduleOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [subTab, setSubTab] = useState<SubTab>("rules");
+  const [subTab, setSubTab] = useState<SubTab>("preview");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -189,7 +189,7 @@ export function SchedulePanel({ onClose }: { onClose: () => void }) {
 
               {/* Sub-tab switcher */}
               <div className="flex gap-1 rounded-pill border border-hairline bg-chalk-white p-1">
-                {(["rules", "blocks", "slots", "preview"] as const).map((t) => (
+                {(["preview", "rules", "blocks", "slots"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => setSubTab(t)}

@@ -30,7 +30,7 @@ export default function StyleCaptainDashboardPage() {
   const [user, setUser] = useState<SCUser | null>(null);
   const [activeJobs, setActiveJobs] = useState<SCJob[]>([]);
   const [recentJobs, setRecentJobs] = useState<SCJob[]>([]);
-  const [tab, setTab] = useState<"active" | "completed">("active");
+  const [tab, setTab] = useState<"active" | "missed" | "completed">("active");
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleOverview, setScheduleOverview] =
     useState<SCScheduleOverview | null>(null);
@@ -60,14 +60,28 @@ export default function StyleCaptainDashboardPage() {
     load();
   }, [load]);
 
+  // Split the live jobs into upcoming vs missed.
+  // "Missed" = assigned to this captain, scheduled, but past its slot time and
+  // never started/completed (i.e. scheduled_at < now). "Active" keeps only
+  // upcoming scheduled visits + anything already in_progress.
+  const nowIso = new Date().toISOString();
+  const missedJobs = activeJobs.filter(
+    (j) => j.status === "scheduled" && (j.scheduled_at ?? "") < nowIso,
+  );
+  const upcomingJobs = activeJobs.filter(
+    (j) => !(j.status === "scheduled" && (j.scheduled_at ?? "") < nowIso),
+  );
+
   const visibleJobs =
     tab === "active"
-      ? activeJobs
-      : [...recentJobs].sort((a, b) => {
-          const aTime = a.performed_at ?? a.created_at ?? "";
-          const bTime = b.performed_at ?? b.created_at ?? "";
-          return bTime.localeCompare(aTime);
-        });
+      ? upcomingJobs
+      : tab === "missed"
+        ? missedJobs
+        : [...recentJobs].sort((a, b) => {
+            const aTime = a.performed_at ?? a.created_at ?? "";
+            const bTime = b.performed_at ?? b.created_at ?? "";
+            return bTime.localeCompare(aTime);
+          });
 
   return (
     <div className="space-y-4">
@@ -87,7 +101,7 @@ export default function StyleCaptainDashboardPage() {
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <span className="inline-flex h-12 w-12 items-center justify-center rounded-pill bg-orange-badge-bg text-h4 font-semibold text-accent-text">
-              {activeJobs.length}
+              {upcomingJobs.length}
             </span>
             <span className="text-caption text-muted">open jobs</span>
           </div>
@@ -127,19 +141,42 @@ export default function StyleCaptainDashboardPage() {
 
       {/* ─── Tabs ───────────────────────────────────────────────────────── */}
       <div className="flex gap-1 rounded-pill border border-hairline bg-chalk-white p-1">
-        {(["active", "completed"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`tap flex-1 rounded-pill px-4 py-2 text-caption font-medium capitalize transition ${
-              tab === t
-                ? "bg-ink-navy text-chalk-white"
-                : "text-muted hover:text-ink-navy"
-            }`}
-          >
-            {t === "active" ? "Active" : "Recent"}
-          </button>
-        ))}
+        {(["active", "missed", "completed"] as const).map((t) => {
+          const count =
+            t === "active"
+              ? upcomingJobs.length
+              : t === "missed"
+                ? missedJobs.length
+                : recentJobs.length;
+          const label =
+            t === "active" ? "Active" : t === "missed" ? "Missed" : "Recent";
+          return (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`tap flex flex-1 items-center justify-center gap-1.5 rounded-pill px-3 py-2 text-caption font-medium transition ${
+                tab === t
+                  ? "bg-ink-navy text-chalk-white"
+                  : "text-muted hover:text-ink-navy"
+              } ${t === "missed" && count > 0 ? "!text-error-text" : ""}`}
+            >
+              {label}
+              {count > 0 && (
+                <span
+                  className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
+                    t === "missed"
+                      ? "bg-error-bg text-error-text"
+                      : tab === t
+                        ? "bg-chalk-white/20 text-chalk-white"
+                        : "bg-mist-navy text-muted"
+                  }`}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* ─── Error ──────────────────────────────────────────────────────── */}
@@ -157,12 +194,14 @@ export default function StyleCaptainDashboardPage() {
       ) : visibleJobs.length === 0 ? (
         <div className="rounded-card border border-dashed border-hairline-strong bg-chalk-white/50 px-6 py-12 text-center">
           <p className="text-body font-medium text-ink-navy">
-            No {tab === "active" ? "active" : "recent"} jobs
+            No {tab === "active" ? "active" : tab === "missed" ? "missed" : "recent"} jobs
           </p>
           <p className="mt-1 text-caption text-muted">
             {tab === "active"
               ? "New measurement requests will appear here."
-              : "Completed and cancelled jobs will show up here."}
+              : tab === "missed"
+                ? "Assigned visits you didn’t complete will show up here."
+                : "Completed and cancelled jobs will show up here."}
           </p>
         </div>
       ) : (
@@ -273,7 +312,11 @@ function ScheduleBanner({
 
 function JobCard({ job }: { job: SCJob }) {
   const router = useRouter();
-  const slotText = formatSlot(job.slot);
+  // Prefer scheduled_at (always populated) over the slot envelope, which is
+  // often null for these jobs and silently rendered "—".
+  const slotText = job.scheduled_at
+    ? formatDateTime(job.scheduled_at)
+    : formatSlot(job.slot);
   const garmentsText =
     job.garments.length > 0
       ? job.garments.map((g) => garmentName(g)).join(", ")
