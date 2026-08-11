@@ -25,8 +25,10 @@ import {
   type GarmentOrderMaterialRow,
   type BodyMeasurementWithMetric,
   type GarmentMeasurementGroup,
+  type AdminSlotOption,
 } from "@/lib/admin-api";
 import { downloadMeasurementJobPdf } from "@/lib/job-pdf";
+import { SlotPicker } from "@/components/admin/SlotPicker";
 import { VoicePlayer } from "@/components/style-captain/VoicePlayer";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -75,6 +77,25 @@ function isoToLocalInput(iso: string | null): string {
   }
 }
 
+/** Build a display slot object + date from an existing scheduled_at ISO. */
+function slotFromIso(iso: string | null): {
+  slot: AdminSlotOption | null;
+  date: string | null;
+} {
+  if (!iso) return { slot: null, date: null };
+  try {
+    const d = new Date(iso);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return {
+      slot: { start_at: iso, label: `${hh}:${mm}`, captain_ids: [] },
+      date: d.toISOString().slice(0, 10),
+    };
+  } catch {
+    return { slot: null, date: null };
+  }
+}
+
 function StatusBadge({ value }: { value: JobStatus | null }) {
   if (!value) return <span className="text-muted">—</span>;
   const cls = STATUS_STYLE[value] ?? "bg-gray-100 text-gray-600";
@@ -116,7 +137,9 @@ export default function MeasurementJobDetailPage() {
   const [pdfProgress, setPdfProgress] = useState<string | null>(null);
 
   // Local edit buffers (only for fields that need draft-then-save)
-  const [scheduledDraft, setScheduledDraft] = useState<string>("");
+  const [slotDate, setSlotDate] = useState<string | null>(null);
+  const [slot, setSlot] = useState<AdminSlotOption | null>(null);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [performedDraft, setPerformedDraft] = useState<string>("");
   const [notesDraft, setNotesDraft] = useState<string>("");
 
@@ -164,7 +187,9 @@ export default function MeasurementJobDetailPage() {
       }
       const j = jobRows[0];
       setJob(j);
-      setScheduledDraft(isoToLocalInput(j.scheduled_at));
+      const sched = slotFromIso(j.scheduled_at);
+      setSlot(sched.slot);
+      setSlotDate(sched.date);
       setPerformedDraft(isoToLocalInput(j.performed_at));
       setNotesDraft(j.notes ?? "");
 
@@ -281,9 +306,7 @@ export default function MeasurementJobDetailPage() {
 
   async function handleSaveScheduled() {
     if (!job) return;
-    const iso = scheduledDraft
-      ? new Date(scheduledDraft).toISOString()
-      : null;
+    const iso = slot?.start_at ?? null;
     await handleUpdateField("scheduled_at", { scheduled_at: iso });
   }
 
@@ -593,29 +616,13 @@ export default function MeasurementJobDetailPage() {
             </div>
           </div>
 
-          {/* Scheduled at (editable) */}
+          {/* Scheduled at (editable — uses the shared slot picker) */}
           <div>
             <div className="text-xs font-medium uppercase tracking-wide text-muted">
               Scheduled at
             </div>
-            <div className="mt-1 flex items-center gap-2">
-              <input
-                type="datetime-local"
-                value={scheduledDraft}
-                onChange={(e) => setScheduledDraft(e.target.value)}
-                disabled={savingField === "scheduled_at"}
-                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-1.5 text-sm focus:border-ink-navy focus:outline-none disabled:opacity-50"
-              />
-              <button
-                onClick={handleSaveScheduled}
-                disabled={
-                  savingField === "scheduled_at" ||
-                  scheduledDraft === isoToLocalInput(job.scheduled_at)
-                }
-                className="shrink-0 rounded-md bg-ink-navy px-3 py-1.5 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-40"
-              >
-                {savingField === "scheduled_at" ? "…" : "Save"}
-              </button>
+            <div className="mt-1 text-sm text-ink">
+              {slot ? formatDateTime(slot.start_at) : "—"}
             </div>
           </div>
 
@@ -674,6 +681,74 @@ export default function MeasurementJobDetailPage() {
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Reschedule (collapsible; full-width shared slot picker) */}
+        <div className="mt-4 border-t border-hairline pt-4">
+          <button
+            onClick={() => setRescheduleOpen((o) => !o)}
+            className="flex w-full items-center justify-between gap-2 text-left"
+          >
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">
+              Reschedule visit
+            </span>
+            <span className="flex items-center gap-2">
+              {slot && (
+                <span className="text-xs font-normal normal-case text-ink">
+                  {formatDateTime(slot.start_at)}
+                </span>
+              )}
+              <svg
+                className={`h-4 w-4 shrink-0 text-muted transition-transform ${
+                  rescheduleOpen ? "rotate-90" : ""
+                }`}
+                viewBox="0 0 20 20"
+                fill="none"
+              >
+                <path
+                  d="M7 5l5 5-5 5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+          </button>
+          {rescheduleOpen && (
+            <div className="mt-3">
+              <SlotPicker
+                selectedDate={slotDate}
+                selectedSlot={slot}
+                selectedCaptainId={job.style_captain_id ?? ""}
+                onDateChange={setSlotDate}
+                onSlotChange={setSlot}
+                onCaptainChange={() => {
+                  /* captain is edited in the field above */
+                }}
+                captains={captains}
+                hideCaptainSelect
+              />
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  onClick={handleSaveScheduled}
+                  disabled={
+                    savingField === "scheduled_at" ||
+                    (slot?.start_at ?? null) === (job.scheduled_at ?? null)
+                  }
+                  className="shrink-0 rounded-md bg-ink-navy px-3 py-1.5 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-40"
+                >
+                  {savingField === "scheduled_at" ? "…" : "Save schedule"}
+                </button>
+                <button
+                  onClick={() => setRescheduleOpen(false)}
+                  className="shrink-0 rounded-md border border-hairline-strong px-3 py-1.5 text-xs text-muted hover:bg-mist-navy"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Notes */}

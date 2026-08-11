@@ -18,7 +18,6 @@ import {
   fetchGarmentOrderItems,
   fetchGarments,
   fetchStyleCaptains,
-  fetchOpenSlots,
   garmentLabel,
   fetchJobReadings,
   type UserRow,
@@ -27,9 +26,9 @@ import {
   type GarmentOrderItemRow,
   type MeasurementJobRow,
   type JobStatus,
-  type AdminDaySlots,
   type AdminSlotOption,
 } from "@/lib/admin-api";
+import { SlotPicker } from "@/components/admin/SlotPicker";
 import { GarmentOrderEditor, type DraftItem } from "./[id]/GarmentOrderEditor";
 import { DesignFromImage } from "./[id]/DesignFromImage";
 import { AcquisitionSection } from "@/components/acquisition/AcquisitionSection";
@@ -102,15 +101,6 @@ function formatPrice(v: number | null | undefined): string {
 
 function truncateId(id: string): string {
   return id.slice(0, 8);
-}
-
-/** Convert "HH:MM" (24-hour) → "h:MM AM/PM" for display. */
-function formatTimeLabel(hhmm: string): string {
-  const [hStr, m] = hhmm.split(":");
-  const h = parseInt(hStr, 10);
-  const ampm = h >= 12 ? "PM" : "AM";
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${m} ${ampm}`;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -196,9 +186,6 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
   const [hasPreviousMeasurements, setHasPreviousMeasurements] = useState(false);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobChoice, setJobChoice] = useState<"skip" | "schedule" | "reuse">("schedule");
-  const [slotDays, setSlotDays] = useState<AdminDaySlots[]>([]);
-  const [slotsLoading, setSlotsLoading] = useState(false);
-  const [slotsError, setSlotsError] = useState<string | null>(null);
   const [selectedSlotDate, setSelectedSlotDate] = useState<string | undefined>();
   const [selectedSlot, setSelectedSlot] = useState<AdminSlotOption | undefined>();
   const [captains, setCaptains] = useState<UserRow[]>([]);
@@ -230,9 +217,6 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
     setExistingJobs([]);
     setHasPreviousMeasurements(false);
     setJobChoice("schedule");
-    setSlotDays([]);
-    setSlotsLoading(false);
-    setSlotsError(null);
     setSelectedSlotDate(undefined);
     setSelectedSlot(undefined);
     setSelectedCaptainId("");
@@ -321,26 +305,6 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
       .catch(() => {});
   }, [open, captains.length]);
 
-  // ── Load open slots when entering step 4 ──────────────────────────────────
-  useEffect(() => {
-    if (!open || step !== 3 || slotDays.length > 0) return;
-    setSlotsLoading(true);
-    setSlotsError(null);
-    fetchOpenSlots()
-      .then((res) => {
-        setSlotDays(res.days);
-        if (res.days.length > 0 && !selectedSlotDate) {
-          setSelectedSlotDate(res.days[0].date);
-        }
-      })
-      .catch((e) => {
-        setSlotsError(
-          e instanceof Error ? e.message : "Couldn't load available slots.",
-        );
-      })
-      .finally(() => setSlotsLoading(false));
-  }, [open, step]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Load addresses & existing measurements when user is found ─────────────
   useEffect(() => {
     if (!foundUser) {
@@ -394,21 +358,6 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
   const grandTotal = useMemo(
     () => garmentDrafts.reduce((sum, g) => sum + g.computedTotal, 0),
     [garmentDrafts],
-  );
-
-  // ── Slots for the currently selected date ──────────────────────────────────
-  const currentDaySlots = useMemo(
-    () => slotDays.find((d) => d.date === selectedSlotDate)?.slots ?? [],
-    [slotDays, selectedSlotDate],
-  );
-
-  // ── Captains available at the selected slot ────────────────────────────────
-  const availableCaptains = useMemo(
-    () =>
-      selectedSlot
-        ? captains.filter((c) => selectedSlot.captain_ids.includes(c.id))
-        : [],
-    [selectedSlot, captains],
   );
 
   // ── Step validation ───────────────────────────────────────────────────────
@@ -1510,112 +1459,15 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
               <div className="text-sm font-medium text-ink-navy">Schedule a new measurement job</div>
               {jobChoice === "schedule" && (
                 <div className="mt-3 space-y-4">
-                  {/* Loading */}
-                  {slotsLoading && (
-                    <div className="text-xs text-muted py-4 text-center">Loading available slots…</div>
-                  )}
-
-                  {/* Error */}
-                  {slotsError && !slotsLoading && (
-                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                      {slotsError}
-                    </div>
-                  )}
-
-                  {/* No slots */}
-                  {!slotsLoading && !slotsError && slotDays.length === 0 && (
-                    <div className="rounded-lg border border-hairline bg-mist-navy/10 px-3 py-4 text-center text-xs text-muted">
-                      No slots available in the next two weeks.
-                    </div>
-                  )}
-
-                  {/* Slot picker */}
-                  {!slotsLoading && !slotsError && slotDays.length > 0 && (
-                    <>
-                      {/* Date chips */}
-                      <div>
-                        <div className="mb-1.5 text-[11px] font-medium text-muted">Date</div>
-                        <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
-                          {slotDays.map((d) => {
-                            const dt = new Date(d.date + "T00:00:00");
-                            return (
-                              <button
-                                key={d.date}
-                                onClick={() => {
-                                  setSelectedSlotDate(d.date);
-                                  setSelectedSlot(undefined);
-                                  setSelectedCaptainId("");
-                                }}
-                                className={`flex flex-col items-center rounded-lg border px-1 py-1.5 transition ${
-                                  selectedSlotDate === d.date
-                                    ? "border-ink-navy bg-ink-navy text-chalk-white"
-                                    : "border-hairline-strong bg-chalk-white text-ink hover:bg-mist-navy/30"
-                                }`}
-                              >
-                                <span className="text-[9px] uppercase opacity-70">
-                                  {dt.toLocaleDateString("en-IN", { weekday: "short" })}
-                                </span>
-                                <span className="text-[11px] font-medium leading-tight">
-                                  {dt.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Time chips */}
-                      <div>
-                        <div className="mb-1.5 text-[11px] font-medium text-muted">
-                          {currentDaySlots.length > 0
-                            ? "Available times"
-                            : "No times on this day — pick another date."}
-                        </div>
-                        <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
-                          {currentDaySlots.map((s) => (
-                            <button
-                              key={s.start_at}
-                              onClick={() => {
-                                setSelectedSlot(s);
-                                setSelectedCaptainId("");
-                              }}
-                              className={`rounded-lg border px-2 py-1.5 text-[11px] font-medium transition ${
-                                selectedSlot?.start_at === s.start_at
-                                  ? "border-ink-navy bg-ink-navy text-chalk-white"
-                                  : "border-hairline-strong bg-chalk-white text-ink hover:bg-mist-navy/30"
-                              }`}
-                            >
-                              {formatTimeLabel(s.label)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Captain selection — only after a slot is picked */}
-                      {selectedSlot && (
-                        <div>
-                          <label className="mb-1 block text-[11px] font-medium text-muted">
-                            Style Captain{" "}
-                            <span className="text-muted">
-                              ({availableCaptains.length} available — auto-assigned if left blank)
-                            </span>
-                          </label>
-                          <select
-                            value={selectedCaptainId}
-                            onChange={(e) => setSelectedCaptainId(e.target.value)}
-                            className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
-                          >
-                            <option value="">— Auto-assign —</option>
-                            {availableCaptains.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name ?? c.phone ?? truncateId(c.id)}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-                    </>
-                  )}
+                  <SlotPicker
+                    selectedDate={selectedSlotDate ?? null}
+                    selectedSlot={selectedSlot ?? null}
+                    selectedCaptainId={selectedCaptainId}
+                    onDateChange={(d) => setSelectedSlotDate(d ?? undefined)}
+                    onSlotChange={(s) => setSelectedSlot(s ?? undefined)}
+                    onCaptainChange={setSelectedCaptainId}
+                    captains={captains}
+                  />
                 </div>
               )}
             </div>

@@ -27,6 +27,10 @@ import {
   deleteGarmentOrder,
   deleteGarmentOrderItem,
   deleteTableRow,
+  fetchOrderAdjustments,
+  createOrderAdjustment,
+  updateOrderAdjustment,
+  deleteOrderAdjustment,
   formatOrderSlot,
   type OrderRow,
   type GarmentOrderRow,
@@ -44,8 +48,11 @@ import {
   type BodyMeasurementWithMetric,
   type GarmentMeasurementGroup,
   type AddressRow,
+  type AdminSlotOption,
+  type OrderAdjustmentRow,
 } from "@/lib/admin-api";
 import { ACQUISITION_FIELDS } from "@/lib/acquisition";
+import { SlotPicker } from "@/components/admin/SlotPicker";
 import { Chip } from "@/components/ui/Chip";
 import { downloadMeasurementJobPdf, type StyleSelectionGroup } from "@/lib/job-pdf";
 import { GarmentOrderEditor } from "./GarmentOrderEditor";
@@ -126,6 +133,17 @@ function formatPrice(v: number | null | undefined): string {
   }).format(v);
 }
 
+/** Parse an OrderAdjustmentRow.label (JSON string like '{"en":"Rush fee"}') to text. */
+function adjustmentLabel(raw: string | null | undefined): string {
+  if (!raw) return "Adjustment";
+  try {
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return parsed.en ?? parsed[Object.keys(parsed)[0] ?? ""] ?? "Adjustment";
+  } catch {
+    return raw;
+  }
+}
+
 function formatDate(v: string | null | undefined): string {
   if (!v) return "—";
   const d = new Date(v);
@@ -141,6 +159,16 @@ function formatDate(v: string | null | undefined): string {
 
 function truncateId(id: string): string {
   return id.slice(0, 8);
+}
+
+/** Resolve a captain's display name from the loaded captains list by id. */
+function captainNameById(
+  captains: UserRow[],
+  id: string | null | undefined,
+): string | null {
+  if (!id) return null;
+  const c = captains.find((x) => x.id === id);
+  return c?.name ?? c?.phone ?? truncateId(c!.id) ?? null;
 }
 
 // ─── Small inline-editable field ──────────────────────────────────────────────
@@ -308,7 +336,6 @@ export default function OrderDetailPage() {
   const [order, setOrder] = useState<OrderRow | null>(null);
   const [customer, setCustomer] = useState<UserRow | null>(null);
   const [address, setAddress] = useState<AddressRow | null>(null);
-  const [captain, setCaptain] = useState<UserRow | null>(null);
   const [captains, setCaptains] = useState<UserRow[]>([]);
   const [garmentOrders, setGarmentOrders] = useState<GarmentOrderRow[]>([]);
   const [jobs, setJobs] = useState<MeasurementJobRow[]>([]);
@@ -316,6 +343,8 @@ export default function OrderDetailPage() {
   const [itemsByGO, setItemsByGO] = useState<Map<string, GarmentOrderItemRow[]>>(
     new Map(),
   );
+  // Admin discounts/fees. garment_order_id === null => whole-order scope.
+  const [adjustments, setAdjustments] = useState<OrderAdjustmentRow[]>([]);
   const [expandedGOs, setExpandedGOs] = useState<Set<string>>(new Set());
   const [garments, setGarments] = useState<GarmentRow[]>([]);
   const [garmentMap, setGarmentMap] = useState<Map<string, GarmentRow>>(
@@ -348,13 +377,13 @@ export default function OrderDetailPage() {
   const [showNewJobForm, setShowNewJobForm] = useState(false);
   const [newJobStatus, setNewJobStatus] = useState<JobStatus>("scheduled");
   const [newJobCaptainId, setNewJobCaptainId] = useState("");
-  const [newJobScheduledAt, setNewJobScheduledAt] = useState("");
+  const [newJobSlotDate, setNewJobSlotDate] = useState<string | null>(null);
+  const [newJobSlot, setNewJobSlot] = useState<AdminSlotOption | null>(null);
   const [newJobNotes, setNewJobNotes] = useState("");
   const [creatingJob, setCreatingJob] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [savingCaptain, setSavingCaptain] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
   // ── PDF download state ─────────────────────────────────────────────────────
@@ -377,6 +406,22 @@ export default function OrderDetailPage() {
   const [resettingGOId, setResettingGOId] = useState<string | null>(null);
   // For admin total_price override toggle
   const [priceOverrideGOId, setPriceOverrideGOId] = useState<string | null>(null);
+
+  // ── Inline reschedule state (per-job collapsible slot picker) ───────────────
+  const [rescheduleJobId, setRescheduleJobId] = useState<string | null>(null);
+  // Per-job slot drafts: jobId → { date, slot }
+  const [rescheduleDrafts, setRescheduleDrafts] = useState<
+    Record<string, { date: string | null; slot: AdminSlotOption | null }>
+  >({});
+
+  // ── Adjustment add-row drafts. One shared shape, keyed by a scope id:
+  // "order" for the whole-order block, or the garment_order_id per-GO block.
+  const [adjDrafts, setAdjDrafts] = useState<
+    Record<
+      string,
+      { type: "discount" | "fee"; label: string; rupees: string }
+    >
+  >({});
 
   function flash(msg: string) {
     setSaveMsg(msg);
@@ -444,21 +489,18 @@ export default function OrderDetailPage() {
           .then(({ rows }) => setAddress(rows[0] ?? null))
           .catch(() => {});
       }
-      if (ord.style_captain_id) {
-        fetchUserById(ord.style_captain_id)
-          .then(setCaptain)
-          .catch(() => {});
-      }
 
-      // 3. Load garment orders, jobs, transactions in parallel
-      const [gos, mj, tx] = await Promise.all([
+      // 3. Load garment orders, jobs, transactions, adjustments in parallel
+      const [gos, mj, tx, adj] = await Promise.all([
         fetchGarmentOrdersForOrder(orderId),
         fetchJobsForOrder(orderId),
         fetchTransactionsForOrder(orderId),
+        fetchOrderAdjustments(orderId),
       ]);
       setGarmentOrders(gos);
       setJobs(mj);
       setTransactions(tx);
+      setAdjustments(adj);
 
       // 4. Auto-expand the first garment order
       if (gos.length > 0) {
@@ -493,29 +535,6 @@ export default function OrderDetailPage() {
   }, [expandedGOs, garmentOrders, itemsByGO]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-  async function handleAssignCaptain(captainId: string | null) {
-    if (!order) return;
-    setSavingCaptain(true);
-    try {
-      await updateOrder(order.id, {
-        style_captain_id: captainId as string | null,
-      });
-      setOrder({ ...order, style_captain_id: captainId });
-      if (captainId) {
-        const u = await fetchUserById(captainId);
-        setCaptain(u);
-        flash("Style captain assigned");
-      } else {
-        setCaptain(null);
-        flash("Style captain unassigned");
-      }
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to assign captain");
-    } finally {
-      setSavingCaptain(false);
-    }
-  }
-
   async function handleUpdateOrderField(patch: Partial<OrderRow>) {
     if (!order) return;
     try {
@@ -664,9 +683,7 @@ export default function OrderDetailPage() {
         user_id: order.user_id,
         status: newJobStatus,
         style_captain_id: newJobCaptainId || null,
-        scheduled_at: newJobScheduledAt
-          ? new Date(newJobScheduledAt).toISOString()
-          : null,
+        scheduled_at: newJobSlot?.start_at ?? null,
         notes: newJobNotes.trim() || null,
       });
       setJobs((prev) => [created, ...prev]);
@@ -674,7 +691,8 @@ export default function OrderDetailPage() {
       setShowNewJobForm(false);
       setNewJobStatus("scheduled");
       setNewJobCaptainId("");
-      setNewJobScheduledAt("");
+      setNewJobSlotDate(null);
+      setNewJobSlot(null);
       setNewJobNotes("");
       flash("Measurement job created");
     } catch (e) {
@@ -759,6 +777,197 @@ export default function OrderDetailPage() {
     } catch (e) {
       alert(e instanceof Error ? e.message : "Update failed");
     }
+  }
+
+  // ── Adjustment (discount / fee) handlers ───────────────────────────────────
+  // Adjustments are signed paise rows in `order_adjustments`. A write goes
+  // through the generic table API; the backend resync hook recomputes the
+  // derived order.total_price after every create/update/delete. We also
+  // re-fetch the order row so the Total Price card reflects the new total.
+  async function refreshOrderTotal() {
+    if (!order) return;
+    const { rows } = await fetchTableRows<OrderRow>("orders", {
+      filters: { id: order.id },
+      perPage: 1,
+    });
+    if (rows[0]) setOrder(rows[0]);
+    // go.total_price is garment-adjustment-inclusive on the backend; refresh
+    // garment orders too so per-GO headers stay correct.
+    setGarmentOrders(await fetchGarmentOrdersForOrder(order.id));
+  }
+
+  async function handleCreateAdjustment(
+    input: {
+      garment_order_id: string | null;
+      type: "discount" | "fee";
+      label: string;
+      amountPaise: number;
+    },
+  ) {
+    if (!order) return;
+    // type + signed amount: discounts are negative, fees positive.
+    const signed =
+      input.type === "discount" ? -Math.abs(input.amountPaise) : Math.abs(input.amountPaise);
+    try {
+      await createOrderAdjustment({
+        order_id: order.id,
+        garment_order_id: input.garment_order_id,
+        type: input.type,
+        amount: signed,
+        label: JSON.stringify({ en: input.label || "Adjustment" }),
+        target_type: input.garment_order_id ? "garment_order" : "order",
+        source: "manual",
+      });
+      setAdjustments(await fetchOrderAdjustments(order.id));
+      await refreshOrderTotal();
+      flash(`${input.type === "discount" ? "Discount" : "Fee"} added`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Add adjustment failed");
+    }
+  }
+
+  async function handleDeleteAdjustment(id: string) {
+    if (!order) return;
+    try {
+      await deleteOrderAdjustment(id);
+      setAdjustments((prev) => prev.filter((a) => a.id !== id));
+      await refreshOrderTotal();
+      flash("Adjustment removed");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Delete adjustment failed");
+    }
+  }
+
+  /** Reusable adjustments list + add-row. garmentOrderId=null => order scope. */
+  function renderAdjustmentBlock(
+    scopeKey: string,
+    garmentOrderId: string | null,
+  ) {
+    const rows = adjustments.filter((a) =>
+      garmentOrderId === null
+        ? a.garment_order_id === null
+        : a.garment_order_id === garmentOrderId,
+    );
+    const draft = adjDrafts[scopeKey] ?? {
+      type: "discount" as const,
+      label: "",
+      rupees: "",
+    };
+    const setDraft = (patch: Partial<typeof draft>) =>
+      setAdjDrafts((prev) => ({
+        ...prev,
+        [scopeKey]: { ...draft, ...patch },
+      }));
+
+    return (
+      <div className="mt-2">
+        {rows.length > 0 ? (
+          <div className="space-y-1">
+            {rows.map((a) => {
+              const amt = a.amount ?? 0;
+              const isDiscount = amt < 0 || a.type === "discount";
+              return (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between rounded-md border border-hairline bg-mist-navy/20 px-2.5 py-1.5"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`rounded-pill px-1.5 py-0.5 text-[10px] font-medium ${
+                        isDiscount
+                          ? "bg-green-50 text-green-700"
+                          : "bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      {isDiscount ? "Discount" : "Fee"}
+                    </span>
+                    <span className="text-xs text-ink">
+                      {adjustmentLabel(a.label)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`font-mono text-xs ${
+                        isDiscount ? "text-green-700" : "text-amber-700"
+                      }`}
+                    >
+                      {formatPrice(amt)}
+                    </span>
+                    <button
+                      onClick={() => handleDeleteAdjustment(a.id)}
+                      title="Remove adjustment"
+                      className="flex h-5 w-5 items-center justify-center rounded text-red-500 transition hover:bg-red-50"
+                    >
+                      <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none">
+                        <path d="M3 5h10M6 5V3.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V5M5 5l.5 8a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1l.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="py-1 text-[11px] text-muted">No adjustments.</div>
+        )}
+
+        {/* Add-row */}
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-hairline-strong px-2.5 py-2">
+          <select
+            value={draft.type}
+            onChange={(e) =>
+              setDraft({ type: e.target.value as "discount" | "fee" })
+            }
+            className="rounded-md border border-hairline bg-white px-2 py-1 text-xs text-ink"
+          >
+            <option value="discount">Discount</option>
+            <option value="fee">Fee</option>
+          </select>
+          <input
+            type="text"
+            value={draft.label}
+            onChange={(e) => setDraft({ label: e.target.value })}
+            placeholder="Label (e.g. Festive discount)"
+            className="min-w-[10rem] flex-1 rounded-md border border-hairline bg-white px-2 py-1 text-xs text-ink"
+          />
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted">₹</span>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={draft.rupees}
+              onChange={(e) => setDraft({ rupees: e.target.value })}
+              placeholder="Amount"
+              className="w-20 rounded-md border border-hairline bg-white px-2 py-1 text-xs text-ink"
+            />
+          </div>
+          <button
+            onClick={() => {
+              const rupees = Number(draft.rupees);
+              if (!draft.rupees || Number.isNaN(rupees) || rupees <= 0) {
+                alert("Enter a positive amount in ₹.");
+                return;
+              }
+              handleCreateAdjustment({
+                garment_order_id: garmentOrderId,
+                type: draft.type,
+                label: draft.label.trim(),
+                amountPaise: Math.round(rupees * 100),
+              });
+              setAdjDrafts((prev) => {
+                const next = { ...prev };
+                delete next[scopeKey];
+                return next;
+              });
+            }}
+            className="rounded-md bg-ink-navy px-2.5 py-1 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90"
+          >
+            + Add
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // ── Resolve garment display label ──────────────────────────────────────────
@@ -952,6 +1161,51 @@ export default function OrderDetailPage() {
     setMeasurementsJobId(null);
     setDraftReadings(new Map());
     setNewMetricId("");
+  }
+
+  // ── Inline reschedule helpers ──────────────────────────────────────────────
+  function openReschedule(jobId: string, scheduledAt: string | null) {
+    // Seed the draft from the job's current scheduled_at (if any).
+    let seed: { date: string | null; slot: AdminSlotOption | null } = {
+      date: null,
+      slot: null,
+    };
+    if (scheduledAt) {
+      try {
+        const d = new Date(scheduledAt);
+        const hh = String(d.getHours()).padStart(2, "0");
+        const mm = String(d.getMinutes()).padStart(2, "0");
+        seed = {
+          slot: { start_at: scheduledAt, label: `${hh}:${mm}`, captain_ids: [] },
+          date: d.toISOString().slice(0, 10),
+        };
+      } catch {
+        /* leave null */
+      }
+    }
+    setRescheduleDrafts((prev) => ({ ...prev, [jobId]: seed }));
+    setRescheduleJobId(jobId);
+  }
+
+  function closeReschedule() {
+    setRescheduleJobId(null);
+  }
+
+  function setRescheduleDraft(
+    jobId: string,
+    patch: Partial<{ date: string | null; slot: AdminSlotOption | null }>,
+  ) {
+    setRescheduleDrafts((prev) => ({
+      ...prev,
+      [jobId]: { ...(prev[jobId] ?? { date: null, slot: null }), ...patch },
+    }));
+  }
+
+  async function handleSaveReschedule(jobId: string) {
+    const draft = rescheduleDrafts[jobId];
+    const iso = draft?.slot?.start_at ?? null;
+    await handleUpdateJob(jobId, { scheduled_at: iso });
+    setRescheduleJobId(null);
   }
 
   function setDraftField(
@@ -1272,15 +1526,14 @@ export default function OrderDetailPage() {
                 Total Price
               </div>
               <div className="font-mono text-sm text-ink">
-                {formatPrice(
-                  garmentOrders.reduce(
-                    (sum, go) => sum + (go.total_price ?? 0),
-                    0,
-                  ),
-                )}
+                {/* order.total_price is the backend-resynced grand total:
+                    Σ garment-order totals (each garment-adjustment-inclusive)
+                    + whole-order adjustments. Source of truth — do not sum
+                    client-side or it will drift from balance_due/payment_status. */}
+                {formatPrice(order.total_price)}
               </div>
               <div className="mt-0.5 text-[10px] text-muted">
-                Auto-calculated from garment orders.
+                Derived from garment orders + order-level adjustments.
               </div>
               <div className="mt-2 text-xs font-medium uppercase tracking-wide text-muted">
                 Advance Amount
@@ -1300,6 +1553,21 @@ export default function OrderDetailPage() {
               <div className="text-sm text-ink">{formatOrderSlot(order.slot)}</div>
             </div>
           </div>
+
+          {/* Order-level adjustments (whole-order discounts/fees).
+              These change the derived grand total (Total Price above) and the
+              balance the customer owes — the backend resyncs order.total_price
+              on every write. garment_order_id === null means whole-order scope. */}
+          <details className="group mt-4" open>
+            <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-muted hover:text-ink-navy">
+              <span className="inline-block transition-transform duration-150 group-open:rotate-90">▸</span>{" "}
+              Order adjustments{" "}
+              <span className="text-[10px] font-normal normal-case text-muted">
+                (discounts / fees on the whole order)
+              </span>
+            </summary>
+            {renderAdjustmentBlock("order", null)}
+          </details>
 
           {/* Acquisition — this order's attribution (editable, auto-saves on blur).
               Distinct from the customer's first-touch (kept on their profile). */}
@@ -1349,53 +1617,36 @@ export default function OrderDetailPage() {
           </div>
         ) : null}
 
-        {/* Style captain assignment */}
+        {/* Style captain — resolved from the measurement job(s).
+            Captains are assigned per job, not per order, so this is read-only. */}
         <div className="mt-4 border-t border-hairline pt-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <div className="text-xs font-medium uppercase tracking-wide text-muted">
-                Style Captain
-              </div>
-              {captain ? (
-                <div className="mt-0.5">
-                  <div className="text-sm font-medium text-ink">
-                    {captain.name ?? "Unnamed"}
-                  </div>
-                  <div className="text-xs text-muted">
-                    {captain.phone ?? captain.email ?? "—"}
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-0.5 text-sm text-muted">Unassigned</div>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <select
-                value={order.style_captain_id ?? ""}
-                onChange={(e) =>
-                  handleAssignCaptain(e.target.value || null)
-                }
-                disabled={savingCaptain}
-                className="rounded-lg border border-hairline-strong bg-chalk-white px-3 py-1.5 text-sm focus:border-ink-navy focus:outline-none disabled:opacity-50"
-              >
-                <option value="">— Unassigned —</option>
-                {captains.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name ?? c.phone ?? truncateId(c.id)}
-                  </option>
-                ))}
-              </select>
-              {order.style_captain_id && (
-                <button
-                  onClick={() => handleAssignCaptain(null)}
-                  disabled={savingCaptain}
-                  className="rounded-lg border border-red-200 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                >
-                  Unassign
-                </button>
-              )}
-            </div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted">
+            Style Captain
           </div>
+          {(() => {
+            const resolvedId =
+              order.style_captain_id ??
+              jobs.find((j) => j.style_captain_id)?.style_captain_id ??
+              null;
+            const resolved = resolvedId
+              ? captains.find((c) => c.id === resolvedId) ?? null
+              : null;
+            if (!resolved) {
+              return (
+                <div className="mt-0.5 text-sm text-muted">Unassigned</div>
+              );
+            }
+            return (
+              <div className="mt-0.5">
+                <div className="text-sm font-medium text-ink">
+                  {resolved.name ?? "Unnamed"}
+                </div>
+                <div className="text-xs text-muted">
+                  {resolved.phone ?? resolved.email ?? "—"}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Status dropdowns */}
@@ -2013,6 +2264,17 @@ export default function OrderDetailPage() {
                           </table>
                         </div>
                       )}
+
+                      {/* Garment-level adjustments (discounts/fees for this
+                          garment order only). These fold into go.total_price
+                          via the pricing engine; the header total above already
+                          includes them. */}
+                      <div className="mt-3">
+                        <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                          Adjustments
+                        </div>
+                        {renderAdjustmentBlock(go.id, go.id)}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2060,40 +2322,8 @@ export default function OrderDetailPage() {
                 </select>
               </label>
 
-              {/* Style captain */}
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-medium text-muted">
-                  Style Captain
-                </span>
-                <select
-                  value={newJobCaptainId}
-                  onChange={(e) => setNewJobCaptainId(e.target.value)}
-                  className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
-                >
-                  <option value="">— Unassigned —</option>
-                  {captains.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name ?? c.phone ?? truncateId(c.id)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {/* Scheduled at */}
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-medium text-muted">
-                  Scheduled at
-                </span>
-                <input
-                  type="datetime-local"
-                  value={newJobScheduledAt}
-                  onChange={(e) => setNewJobScheduledAt(e.target.value)}
-                  className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
-                />
-              </label>
-
               {/* Notes */}
-              <label className="block">
+              <label className="block sm:col-span-1 md:col-span-3">
                 <span className="mb-1 block text-[11px] font-medium text-muted">
                   Notes
                 </span>
@@ -2105,6 +2335,19 @@ export default function OrderDetailPage() {
                   className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
                 />
               </label>
+            </div>
+
+            {/* Slot + captain picker (shared with create-order flow) */}
+            <div className="mt-3">
+              <SlotPicker
+                selectedDate={newJobSlotDate}
+                selectedSlot={newJobSlot}
+                selectedCaptainId={newJobCaptainId}
+                onDateChange={setNewJobSlotDate}
+                onSlotChange={setNewJobSlot}
+                onCaptainChange={setNewJobCaptainId}
+                captains={captains}
+              />
             </div>
 
             <div className="mt-3 flex items-center gap-2">
@@ -2120,7 +2363,8 @@ export default function OrderDetailPage() {
                   setShowNewJobForm(false);
                   setNewJobStatus("scheduled");
                   setNewJobCaptainId("");
-                  setNewJobScheduledAt("");
+                  setNewJobSlotDate(null);
+                  setNewJobSlot(null);
                   setNewJobNotes("");
                 }}
                 className="rounded-lg border border-hairline-strong px-4 py-2 text-sm text-muted hover:bg-mist-navy"
@@ -2157,6 +2401,11 @@ export default function OrderDetailPage() {
                     </div>
                     <div className="text-[11px] text-muted">
                       Scheduled: {formatDate(job.scheduled_at)}
+                    </div>
+                    <div className="text-[11px] text-muted">
+                      Captain:{" "}
+                      {captainNameById(captains, job.style_captain_id) ??
+                        "Unassigned"}
                     </div>
                     {job.started_at && (
                       <div className="text-[11px] text-muted">
@@ -2199,11 +2448,68 @@ export default function OrderDetailPage() {
                         ? "Close"
                         : "Manage Measurements"}
                     </button>
+                    <button
+                      onClick={() =>
+                        rescheduleJobId === job.id
+                          ? closeReschedule()
+                          : openReschedule(job.id, job.scheduled_at)
+                      }
+                      className="rounded-md border border-hairline-strong px-2 py-1 text-xs font-medium text-ink-navy transition hover:bg-mist-navy"
+                    >
+                      {rescheduleJobId === job.id ? "Close" : "Reschedule"}
+                    </button>
                   </div>
                 </div>
                 {job.notes && (
                   <div className="mt-2 text-xs text-ink">
                     <span className="font-medium">Notes:</span> {job.notes}
+                  </div>
+                )}
+
+                {/* ── Inline reschedule panel ─────────────────────────────── */}
+                {rescheduleJobId === job.id && (
+                  <div className="mt-3 rounded-lg border border-tape/40 bg-tape/5 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                        Reschedule visit
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleSaveReschedule(job.id)}
+                          disabled={
+                            (rescheduleDrafts[job.id]?.slot?.start_at ?? null) ===
+                            (job.scheduled_at ?? null)
+                          }
+                          className="rounded-md bg-ink-navy px-3 py-1 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-40"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={closeReschedule}
+                          className="rounded-md border border-hairline-strong px-3 py-1 text-xs text-muted hover:bg-mist-navy"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                    <SlotPicker
+                      selectedDate={rescheduleDrafts[job.id]?.date ?? null}
+                      selectedSlot={rescheduleDrafts[job.id]?.slot ?? null}
+                      selectedCaptainId={job.style_captain_id ?? ""}
+                      onDateChange={(d) =>
+                        setRescheduleDraft(job.id, { date: d })
+                      }
+                      onSlotChange={(s) =>
+                        setRescheduleDraft(job.id, { slot: s })
+                      }
+                      onCaptainChange={(c) =>
+                        handleUpdateJob(job.id, {
+                          style_captain_id: c || null,
+                        })
+                      }
+                      captains={captains}
+                      hideCaptainSelect
+                    />
                   </div>
                 )}
 

@@ -770,6 +770,21 @@ export interface GarmentOrderItemRow {
   updated_at?: string;
 }
 
+/** Admin-authored discount/fee. garment_order_id === null => whole-order scope. */
+export interface OrderAdjustmentRow {
+  id: string;
+  order_id: string | null;
+  garment_order_id: string | null;
+  type: "discount" | "fee" | null;
+  amount: number | null; // signed paise: negative = discount, positive = fee
+  label: string | null; // JSON string from the generic API, e.g. '{"en":"Rush fee"}'
+  target_type: string | null;
+  source: string | null;
+  source_ref: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface MeasurementJobRow {
   id: string;
   user_id: string | null;
@@ -941,6 +956,26 @@ export const deleteGarmentOrder = (id: string) => deleteTableRow("garment_orders
 export const deleteGarmentOrderItem = (id: string) =>
   deleteTableRow("garment_orders_items", id);
 export const deleteOrder = (id: string) => deleteTableRow("orders", id);
+
+/** Fetch every adjustment for an order (both garment-level and order-level). */
+export async function fetchOrderAdjustments(
+  orderId: string,
+): Promise<OrderAdjustmentRow[]> {
+  const { rows } = await fetchTableRows<OrderAdjustmentRow>("order_adjustments", {
+    filters: { order_id: orderId },
+    perPage: 100,
+  });
+  return rows;
+}
+export const createOrderAdjustment = (
+  data: Partial<OrderAdjustmentRow> & { order_id: string },
+) => createTableRow<OrderAdjustmentRow>("order_adjustments", data as Record<string, unknown>);
+export const updateOrderAdjustment = (
+  id: string,
+  patch: Partial<OrderAdjustmentRow>,
+) => updateTableRow("order_adjustments", id, patch as Record<string, unknown>);
+export const deleteOrderAdjustment = (id: string) =>
+  deleteTableRow("order_adjustments", id);
 
 /** Fetch all style captains (users with role = "style_captain"). */
 export async function fetchStyleCaptains(): Promise<UserRow[]> {
