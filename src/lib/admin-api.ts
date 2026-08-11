@@ -1756,3 +1756,32 @@ export async function clearDesignThread(threadId: string): Promise<void> {
   });
 }
 
+
+// ── Scheduling settings (Slot Scheduling admin sub-tab) ────────────────────
+
+export interface SchedulingSettings {
+  slot_minutes: number;
+  buffer_minutes: number;
+  visit_minutes: number;
+  lead_time_minutes: number;
+  reschedule_cutoff_minutes: number;
+  booking_horizon_days: number;
+  scheduling_timezone: string;
+}
+
+export type SchedulingSettingsPatch = Partial<
+  Omit<SchedulingSettings, "scheduling_timezone">
+>;
+
+export async function getSchedulingSettings(): Promise<SchedulingSettings> {
+  return adminFetch<SchedulingSettings>("/admin/scheduling-settings");
+}
+
+export async function patchSchedulingSettings(
+  patch: SchedulingSettingsPatch,
+): Promise<SchedulingSettings> {
+  return adminFetch<SchedulingSettings>("/admin/scheduling-settings", {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}

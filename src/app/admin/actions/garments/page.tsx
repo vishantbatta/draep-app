@@ -28,6 +28,7 @@ const ACTION_TABS = [
   { key: "variation-types", label: "Variation Types", href: "/admin/actions/variation-types" },
   { key: "addons", label: "Add-ons", href: "/admin/actions/addons" },
   { key: "addon-variations", label: "Add-on Variations", href: "/admin/actions/addon-variations" },
+  { key: "slot-scheduling", label: "Slot Scheduling", href: "/admin/actions/slot-scheduling" },
 ] as const;
 
 type ActionTabKey = (typeof ACTION_TABS)[number]["key"];

@@ -98,6 +98,7 @@ function hhmmFromISO(iso: string): string {
 const SLOT_STATUS_COLORS: Record<string, string> = {
   open: "bg-success-bg text-success-text border-success-border",
   booked: "bg-mist-navy text-ink-navy border-navy-interactive/30",
+  buffered: "bg-warning-bg text-warning-text border-warning-border",
   manual: "bg-orange-badge-bg text-accent-text border-orange-highlight/40",
   blocked: "bg-error-bg text-error-text border-error-border",
 };
@@ -1184,7 +1185,7 @@ function PreviewSection() {
 
       {/* Legend */}
       <div className="flex flex-wrap gap-2">
-        {(["open", "booked", "manual", "blocked"] as const).map((s) => (
+        {(["open", "booked", "buffered", "manual", "blocked"] as const).map((s) => (
           <span
             key={s}
             className={`inline-flex items-center gap-1 rounded-pill border px-2 py-0.5 text-[10px] font-medium capitalize ${SLOT_STATUS_COLORS[s]}`}

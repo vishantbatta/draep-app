@@ -630,7 +630,7 @@ export interface SCScheduleOverview {
 export interface SCPreviewSlot {
   start_at: string;
   end_at: string | null;
-  status: "open" | "booked" | "manual" | "blocked";
+  status: "open" | "booked" | "buffered" | "manual" | "blocked";
 }
 
 export interface SCSchedulePreview {
