@@ -144,6 +144,71 @@ function adjustmentLabel(raw: string | null | undefined): string {
   }
 }
 
+// ─── Price breakdown construction (client-side) ──────────────────────────────
+// Mirrors be/app/core/pricing.py compute_price_for_order: a base_price line,
+// one line per priced item (snapshot leaf price), and garment-scoped
+// adjustment lines. Subtotals are NOT recomputed here — they read straight
+// from go.total_price / order.total_price, which the backend derives and
+// resyncs. We only build the display lines.
+
+interface BreakdownLine {
+  key: string;
+  label: string;
+  amount: number; // signed paise
+  kind: "base" | "item" | "discount" | "fee";
+}
+
+/** Build the per-garment-order breakdown lines from loaded data.
+ *  Only base price + priced items — adjustments are rendered as their own
+ *  block (with delete affordances) so the order is always:
+ *  items → adjustments → total. */
+function buildGarmentBreakdown(
+  go: GarmentOrderRow,
+  items: GarmentOrderItemRow[] | undefined,
+  basePrice: number | null,
+): BreakdownLine[] {
+  const lines: BreakdownLine[] = [];
+
+  // Base price line (only if the garment has one).
+  if (basePrice != null && basePrice !== 0) {
+    lines.push({
+      key: `${go.id}-base`,
+      label: "Base price",
+      amount: basePrice,
+      kind: "base",
+    });
+  }
+
+  // One line per priced item. Matches backend `if amount:` gate — items
+  // whose snapshot price is null/0 are hidden (unpriced or free selection).
+  for (const it of items ?? []) {
+    if (it.price == null || it.price === 0) continue;
+    lines.push({
+      key: it.id,
+      label: itemDisplayLabel(it),
+      amount: it.price,
+      kind: "item",
+    });
+  }
+
+  return lines;
+}
+
+/** Human label for a garment_orders_items row — prefers label_snapshot. */
+function itemDisplayLabel(it: GarmentOrderItemRow): string {
+  if (it.label_snapshot) {
+    try {
+      const parsed = JSON.parse(it.label_snapshot) as Record<string, string>;
+      const text = parsed.en ?? parsed[Object.keys(parsed)[0] ?? ""];
+      if (text) return text;
+    } catch {
+      return it.label_snapshot;
+    }
+  }
+  if (it.type === "add_on") return "Add-on";
+  return "Selection";
+}
+
 function formatDate(v: string | null | undefined): string {
   if (!v) return "—";
   const d = new Date(v);
@@ -404,8 +469,6 @@ export default function OrderDetailPage() {
   const [newMetricId, setNewMetricId] = useState("");
   // For "Reset design" pending state
   const [resettingGOId, setResettingGOId] = useState<string | null>(null);
-  // For admin total_price override toggle
-  const [priceOverrideGOId, setPriceOverrideGOId] = useState<string | null>(null);
 
   // ── Inline reschedule state (per-job collapsible slot picker) ───────────────
   const [rescheduleJobId, setRescheduleJobId] = useState<string | null>(null);
@@ -422,6 +485,9 @@ export default function OrderDetailPage() {
       { type: "discount" | "fee"; label: string; rupees: string }
     >
   >({});
+  // Per-scope add loading + per-row delete loading. scopeKey === "creating:<scopeKey>"
+  // means that block's Add button is submitting; an id means that row is deleting.
+  const [adjBusy, setAdjBusy] = useState<string | null>(null);
 
   function flash(msg: string) {
     setSaveMsg(msg);
@@ -649,11 +715,10 @@ export default function OrderDetailPage() {
     }
     setCreatingGO(true);
     try {
-      // Price will be auto-calculated from the design editor (via onComputedTotalChange)
+      // total_price is derived on the backend — never set it directly.
       const created = await createGarmentOrder({
         order_id: orderId,
         garment_id: newGOGarmentId,
-        total_price: null,
         user_note: newGONote.trim() || null,
         status: "pending",
       });
@@ -773,6 +838,8 @@ export default function OrderDetailPage() {
         }
         return next;
       });
+      // Any item write re-derives the garment + order totals server-side.
+      await refreshOrderTotal();
       flash("Item updated");
     } catch (e) {
       alert(e instanceof Error ? e.message : "Update failed");
@@ -801,13 +868,18 @@ export default function OrderDetailPage() {
       garment_order_id: string | null;
       type: "discount" | "fee";
       label: string;
-      amountPaise: number;
+      amountRupees: number;
     },
+    scopeKey: string,
   ) {
     if (!order) return;
-    // type + signed amount: discounts are negative, fees positive.
+    // Prices across this stack are stored in RUPEES (not paise) — the FE
+    // formatPrice() treats its input as rupees and BASE_STITCHING=600 shows
+    // as ₹600. The backend amount column is the same unit. So we store the
+    // rupee value directly; no ×100. Signed: discounts negative, fees positive.
     const signed =
-      input.type === "discount" ? -Math.abs(input.amountPaise) : Math.abs(input.amountPaise);
+      input.type === "discount" ? -Math.abs(input.amountRupees) : Math.abs(input.amountRupees);
+    setAdjBusy(`creating:${scopeKey}`);
     try {
       await createOrderAdjustment({
         order_id: order.id,
@@ -820,14 +892,21 @@ export default function OrderDetailPage() {
       });
       setAdjustments(await fetchOrderAdjustments(order.id));
       await refreshOrderTotal();
-      flash(`${input.type === "discount" ? "Discount" : "Fee"} added`);
+      flash(
+        `${input.type === "discount" ? "Discount" : "Fee"} of ₹${Math.abs(input.amountRupees)} added`,
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : "Add adjustment failed");
+    } finally {
+      setAdjBusy(null);
     }
   }
 
   async function handleDeleteAdjustment(id: string) {
     if (!order) return;
+    const ok = window.confirm("Remove this adjustment? This cannot be undone.");
+    if (!ok) return;
+    setAdjBusy(id);
     try {
       await deleteOrderAdjustment(id);
       setAdjustments((prev) => prev.filter((a) => a.id !== id));
@@ -835,6 +914,8 @@ export default function OrderDetailPage() {
       flash("Adjustment removed");
     } catch (e) {
       alert(e instanceof Error ? e.message : "Delete adjustment failed");
+    } finally {
+      setAdjBusy(null);
     }
   }
 
@@ -859,6 +940,14 @@ export default function OrderDetailPage() {
         [scopeKey]: { ...draft, ...patch },
       }));
 
+    const creating = adjBusy === `creating:${scopeKey}`;
+    const canSubmit =
+      !creating &&
+      !adjBusy &&
+      draft.rupees !== "" &&
+      !Number.isNaN(Number(draft.rupees)) &&
+      Number(draft.rupees) > 0;
+
     return (
       <div className="mt-2">
         {rows.length > 0 ? (
@@ -866,12 +955,15 @@ export default function OrderDetailPage() {
             {rows.map((a) => {
               const amt = a.amount ?? 0;
               const isDiscount = amt < 0 || a.type === "discount";
+              const rowBusy = adjBusy === a.id;
               return (
                 <div
                   key={a.id}
-                  className="flex items-center justify-between rounded-md border border-hairline bg-mist-navy/20 px-2.5 py-1.5"
+                  className={`flex items-center justify-between rounded-md border border-hairline bg-mist-navy/20 px-2.5 py-1.5 transition ${
+                    rowBusy ? "pointer-events-none opacity-50" : ""
+                  }`}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     <span
                       className={`rounded-pill px-1.5 py-0.5 text-[10px] font-medium ${
                         isDiscount
@@ -881,11 +973,11 @@ export default function OrderDetailPage() {
                     >
                       {isDiscount ? "Discount" : "Fee"}
                     </span>
-                    <span className="text-xs text-ink">
+                    <span className="truncate text-xs text-ink">
                       {adjustmentLabel(a.label)}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-2">
                     <span
                       className={`font-mono text-xs ${
                         isDiscount ? "text-green-700" : "text-amber-700"
@@ -895,12 +987,25 @@ export default function OrderDetailPage() {
                     </span>
                     <button
                       onClick={() => handleDeleteAdjustment(a.id)}
+                      disabled={rowBusy || !!adjBusy}
                       title="Remove adjustment"
-                      className="flex h-5 w-5 items-center justify-center rounded text-red-500 transition hover:bg-red-50"
+                      aria-label="Remove adjustment"
+                      className="flex h-5 w-5 items-center justify-center rounded text-red-500 transition hover:bg-red-50 disabled:opacity-40"
                     >
-                      <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none">
-                        <path d="M3 5h10M6 5V3.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V5M5 5l.5 8a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1l.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
+                      {rowBusy ? (
+                        <svg
+                          className="h-3 w-3 animate-spin text-muted"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                        >
+                          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                          <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                      ) : (
+                        <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none">
+                          <path d="M3 5h10M6 5V3.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V5M5 5l.5 8a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1l.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -912,13 +1017,18 @@ export default function OrderDetailPage() {
         )}
 
         {/* Add-row */}
-        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-hairline-strong px-2.5 py-2">
+        <div
+          className={`mt-2 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-hairline-strong px-2.5 py-2 transition ${
+            creating ? "pointer-events-none bg-mist-navy/30" : ""
+          }`}
+        >
           <select
             value={draft.type}
             onChange={(e) =>
               setDraft({ type: e.target.value as "discount" | "fee" })
             }
-            className="rounded-md border border-hairline bg-white px-2 py-1 text-xs text-ink"
+            disabled={creating}
+            className="rounded-md border border-hairline bg-white px-2 py-1 text-xs text-ink disabled:opacity-60"
           >
             <option value="discount">Discount</option>
             <option value="fee">Fee</option>
@@ -927,8 +1037,9 @@ export default function OrderDetailPage() {
             type="text"
             value={draft.label}
             onChange={(e) => setDraft({ label: e.target.value })}
+            disabled={creating}
             placeholder="Label (e.g. Festive discount)"
-            className="min-w-[10rem] flex-1 rounded-md border border-hairline bg-white px-2 py-1 text-xs text-ink"
+            className="min-w-[10rem] flex-1 rounded-md border border-hairline bg-white px-2 py-1 text-xs text-ink disabled:opacity-60"
           />
           <div className="flex items-center gap-1">
             <span className="text-xs text-muted">₹</span>
@@ -938,32 +1049,53 @@ export default function OrderDetailPage() {
               step="1"
               value={draft.rupees}
               onChange={(e) => setDraft({ rupees: e.target.value })}
+              disabled={creating}
               placeholder="Amount"
-              className="w-20 rounded-md border border-hairline bg-white px-2 py-1 text-xs text-ink"
+              className="w-20 rounded-md border border-hairline bg-white px-2 py-1 text-xs text-ink disabled:opacity-60"
             />
           </div>
           <button
-            onClick={() => {
+            onClick={async () => {
               const rupees = Number(draft.rupees);
               if (!draft.rupees || Number.isNaN(rupees) || rupees <= 0) {
                 alert("Enter a positive amount in ₹.");
                 return;
               }
-              handleCreateAdjustment({
-                garment_order_id: garmentOrderId,
-                type: draft.type,
-                label: draft.label.trim(),
-                amountPaise: Math.round(rupees * 100),
-              });
-              setAdjDrafts((prev) => {
-                const next = { ...prev };
-                delete next[scopeKey];
-                return next;
-              });
+              try {
+                await handleCreateAdjustment(
+                  {
+                    garment_order_id: garmentOrderId,
+                    type: draft.type,
+                    label: draft.label.trim(),
+                    amountRupees: Math.round(rupees),
+                  },
+                  scopeKey,
+                );
+                // Only clear the draft on success — keep it on failure so the
+                // user can retry/edit instead of retyping.
+                setAdjDrafts((prev) => {
+                  const next = { ...prev };
+                  delete next[scopeKey];
+                  return next;
+                });
+              } catch {
+                /* handleCreateAdjustment already alerts */
+              }
             }}
-            className="rounded-md bg-ink-navy px-2.5 py-1 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90"
+            disabled={!canSubmit}
+            className="flex items-center gap-1.5 rounded-md bg-ink-navy px-2.5 py-1 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            + Add
+            {creating ? (
+              <>
+                <svg className="h-3 w-3 animate-spin" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                  <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                Adding…
+              </>
+            ) : (
+              "+ Add"
+            )}
           </button>
         </div>
       </div>
@@ -1372,17 +1504,14 @@ export default function OrderDetailPage() {
     setResettingGOId(goId);
     try {
       await Promise.all(items.map((it) => deleteTableRow("garment_orders_items", it.id)));
-      const go = garmentOrders.find((g) => g.id === goId);
-      const garment = go?.garment_id ? garmentMap.get(go.garment_id) : null;
-      const basePrice = garment?.base_price ?? null;
-      if (go && basePrice !== null) {
-        await updateGarmentOrder(goId, { total_price: basePrice });
-      }
+      // total_price is derived on the backend — don't set it directly. Just
+      // refresh so the breakdown + grand total reflect the reset design.
       setItemsByGO((prev) => {
         const next = new Map(prev);
         next.set(goId, []);
         return next;
       });
+      await refreshOrderTotal();
       flash("Design reset to base");
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to reset design");
@@ -1538,11 +1667,12 @@ export default function OrderDetailPage() {
               <div className="mt-2 text-xs font-medium uppercase tracking-wide text-muted">
                 Advance Amount
               </div>
-              <EditableNumber
-                value={order.advance_amount}
-                label="Advance amount"
-                onSave={(v) => handleUpdateOrderField({ advance_amount: v })}
-              />
+              <div className="font-mono text-sm text-ink">
+                {/* Snapshot captured at checkout; not directly editable. The
+                    balance the customer owes is live-derived from this total
+                    minus the captured ledger. */}
+                {formatPrice(order.advance_amount)}
+              </div>
             </div>
 
             {/* Slot */}
@@ -1553,21 +1683,6 @@ export default function OrderDetailPage() {
               <div className="text-sm text-ink">{formatOrderSlot(order.slot)}</div>
             </div>
           </div>
-
-          {/* Order-level adjustments (whole-order discounts/fees).
-              These change the derived grand total (Total Price above) and the
-              balance the customer owes — the backend resyncs order.total_price
-              on every write. garment_order_id === null means whole-order scope. */}
-          <details className="group mt-4" open>
-            <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-muted hover:text-ink-navy">
-              <span className="inline-block transition-transform duration-150 group-open:rotate-90">▸</span>{" "}
-              Order adjustments{" "}
-              <span className="text-[10px] font-normal normal-case text-muted">
-                (discounts / fees on the whole order)
-              </span>
-            </summary>
-            {renderAdjustmentBlock("order", null)}
-          </details>
 
           {/* Acquisition — this order's attribution (editable, auto-saves on blur).
               Distinct from the customer's first-touch (kept on their profile). */}
@@ -1895,65 +2010,15 @@ export default function OrderDetailPage() {
                             Total Price
                           </div>
                           <div className="mt-0.5 font-mono text-sm text-ink">
-                            {priceOverrideGOId === go.id ? (
-                              <div className="flex items-center gap-1">
-                                <input
-                                  type="number"
-                                  step="any"
-                                  defaultValue={go.total_price ?? ""}
-                                  autoFocus
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      const v = (e.target as HTMLInputElement).value;
-                                      handleUpdateGarmentOrder(go.id, {
-                                        total_price: v === "" ? null : Number(v),
-                                      });
-                                      setPriceOverrideGOId(null);
-                                    } else if (e.key === "Escape") {
-                                      setPriceOverrideGOId(null);
-                                    }
-                                  }}
-                                  className="w-28 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-sm focus:border-ink-navy focus:outline-none"
-                                />
-                                <button
-                                  onClick={() => {
-                                    const el = document.querySelector<HTMLInputElement>(
-                                      `input[type="number"][autofocus]`,
-                                    );
-                                    const v = el?.value ?? "";
-                                    handleUpdateGarmentOrder(go.id, {
-                                      total_price: v === "" ? null : Number(v),
-                                    });
-                                    setPriceOverrideGOId(null);
-                                  }}
-                                  className="rounded-md bg-ink-navy px-2 py-1 text-xs font-medium text-chalk-white"
-                                >
-                                  Set
-                                </button>
-                                <button
-                                  onClick={() => setPriceOverrideGOId(null)}
-                                  className="rounded-md border border-hairline-strong px-2 py-1 text-xs text-muted"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => setPriceOverrideGOId(go.id)}
-                                title="Click to override (default is auto-calculated)"
-                                className="font-mono hover:text-tape hover:underline"
-                              >
-                                {formatPrice(go.total_price)}
-                              </button>
-                            )}
+                            {formatPrice(go.total_price)}
                           </div>
                           <div className="mt-0.5 text-[10px] text-muted">
-                            Click price to override.{" "}
+                            Auto-derived from design + adjustments.{" "}
                             <button
                               onClick={() => handleResetDesign(go.id)}
                               disabled={resettingGOId === go.id}
                               className="font-medium text-red-600 underline hover:text-red-700 disabled:opacity-50"
-                              title="Delete all style selections and reset total to base price"
+                              title="Delete all style selections; total re-derives from base"
                             >
                               {resettingGOId === go.id
                                 ? "Resetting…"
@@ -2076,16 +2141,13 @@ export default function OrderDetailPage() {
                                     next.set(go.id, updated);
                                     return next;
                                   });
+                                  // total_price is derived server-side from the
+                                  // saved items (+ adjustments); pull the
+                                  // recomputed garment + order totals.
+                                  refreshOrderTotal();
                                   flash("Design saved");
                                 }}
                                 onCancel={() => setEditingGOId(null)}
-                                onComputedTotalChange={(total) => {
-                                  if (go.total_price !== total) {
-                                    handleUpdateGarmentOrder(go.id, {
-                                      total_price: total,
-                                    });
-                                  }
-                                }}
                               />
 
                               {/* Composer for further AI refinement */}
@@ -2171,16 +2233,13 @@ export default function OrderDetailPage() {
                                       next.set(go.id, updated);
                                       return next;
                                     });
+                                    // total_price is derived server-side from
+                                    // the saved items (+ adjustments); pull the
+                                    // recomputed garment + order totals.
+                                    refreshOrderTotal();
                                     flash("Design saved");
                                   }}
                                   onCancel={() => setEditingGOId(null)}
-                                  onComputedTotalChange={(total) => {
-                                    if (go.total_price !== total) {
-                                      handleUpdateGarmentOrder(go.id, {
-                                        total_price: total,
-                                      });
-                                    }
-                                  }}
                                 />
                               )}
                             </>
@@ -2229,14 +2288,10 @@ export default function OrderDetailPage() {
                                   <td className="py-2 pr-3 text-muted">
                                     {it.placement ?? "—"}
                                   </td>
-                                  <td className="py-2 pr-3 text-right">
-                                    <EditableNumber
-                                      value={it.price}
-                                      label="Item price"
-                                      onSave={(v) =>
-                                        handleUpdateGarmentOrderItem(go.id, it.id, { price: v })
-                                      }
-                                    />
+                                  <td className="py-2 pr-3 text-right font-mono text-sm text-ink">
+                                    {/* Snapshot from catalog at checkout — read-only.
+                                        To change a price, add an adjustment. */}
+                                    {it.price != null ? formatPrice(it.price) : "—"}
                                   </td>
                                   <td className="py-2 pr-3 text-[10px] text-muted">
                                     {it.variation_id && <div>var: {truncateId(it.variation_id)}</div>}
@@ -2265,16 +2320,10 @@ export default function OrderDetailPage() {
                         </div>
                       )}
 
-                      {/* Garment-level adjustments (discounts/fees for this
-                          garment order only). These fold into go.total_price
-                          via the pricing engine; the header total above already
-                          includes them. */}
-                      <div className="mt-3">
-                        <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                          Adjustments
-                        </div>
-                        {renderAdjustmentBlock(go.id, go.id)}
-                      </div>
+                      {/* Garment-level adjustments now live in the Price
+                          Breakdown section below (single source of truth for
+                          all money UI). This block is intentionally omitted
+                          here to avoid duplication. */}
                     </div>
                   )}
                 </div>
@@ -2706,6 +2755,225 @@ export default function OrderDetailPage() {
             ))}
           </div>
         )}
+      </section>
+
+      {/* ─── Price Breakdown ────────────────────────────────────────────── */}
+      <section className="mb-6">
+        <h2 className="mb-3 font-heading text-lg font-semibold text-ink-navy">
+          Price Breakdown
+        </h2>
+
+        {/* Per-garment-order ledger cards */}
+        {garmentOrders.length === 0 ? (
+          <div className="rounded-lg border border-hairline bg-chalk-white px-4 py-6 text-center text-sm text-muted">
+            No garment orders to break down.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {garmentOrders.map((go) => {
+              const items = itemsByGO.get(go.id);
+              const basePrice = garmentMap.get(go.garment_id)?.base_price ?? null;
+              const goAdj = adjustments.filter((a) => a.garment_order_id === go.id);
+              const lines = buildGarmentBreakdown(
+                go,
+                items,
+                basePrice,
+              );
+              return (
+                <div
+                  key={go.id}
+                  className="overflow-hidden rounded-lg border border-hairline/60 bg-chalk-white/80"
+                >
+                  {/* Garment header */}
+                  <div className="flex items-center justify-between gap-3 border-b border-hairline/60 bg-mist-navy/10 px-4 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-medium text-ink-navy/90">
+                        {garmentDisplayLabel(go.garment_id)}
+                      </div>
+                      <div className="text-[10px] text-muted">
+                        GO {truncateId(go.id)}
+                      </div>
+                    </div>
+                    {go.status && <StatusBadge value={go.status} />}
+                  </div>
+
+                  {/* Ledger lines */}
+                  <div className="px-4 py-2.5">
+                    {items === undefined ? (
+                      <div className="py-2 text-xs text-muted">Loading items…</div>
+                    ) : lines.length === 0 && goAdj.length === 0 ? (
+                      <div className="py-2 text-xs text-muted">
+                        No priced items yet — add a design or adjustment below.
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {lines.map((ln) => (
+                          <div
+                            key={ln.key}
+                            className="flex items-baseline justify-between gap-3 text-[13px]"
+                          >
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="truncate text-ink/80">{ln.label}</span>
+                            </span>
+                            <span className="shrink-0 font-mono text-[12px] text-ink/80">
+                              {formatPrice(ln.amount)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Garment-level adjustments — render BEFORE the total so
+                        the order is: items → adjustments → total. This block
+                        lists existing adjustments (with delete) + the add-row. */}
+                    <div className="mt-2">
+                      <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+                        Adjustments
+                      </div>
+                      {renderAdjustmentBlock(go.id, go.id)}
+                    </div>
+
+                    {/* Garment subtotal — AFTER items + adjustments.
+                        Prefer backend-derived go.total_price; fall back to
+                        Σ item lines + Σ garment adjustments so a draft (never
+                        resynced) still shows a number. Kept visually quiet —
+                        the Order total card below is the primary total. */}
+                    <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-hairline/60 pt-1.5">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                        Garment total
+                      </span>
+                      <span className="font-mono text-[13px] font-medium text-ink-navy/80">
+                        {formatPrice(
+                          go.total_price ??
+                            lines.reduce((s, ln) => s + ln.amount, 0) +
+                              goAdj.reduce((s, a) => s + (a.amount ?? 0), 0),
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Order grand-total card — the PRIMARY total. Visually heavier than
+            the garment cards above: solid navy header, ring + shadow, larger
+            grand total so the eye lands here first. */}
+        <div className="mt-4 overflow-hidden rounded-xl border border-ink-navy/40 bg-chalk-white shadow-sm ring-1 ring-ink-navy/5">
+          <div className="bg-ink-navy px-4 py-2.5">
+            <div className="text-sm font-semibold tracking-wide text-chalk-white">
+              Order total
+            </div>
+          </div>
+
+          <div className="px-4 py-3">
+            {/* Per-garment totals rollup — one line per garment, so the card
+                reads: garment totals → order-level adjustments → grand total.
+                Each garment's effective total uses the same fallback as the
+                per-garment card above (go.total_price, else Σ items + Σ its
+                garment-level adjustments), keeping the two in lockstep. */}
+            {(() => {
+              if (garmentOrders.length === 0) return null;
+              const garmentTotals = garmentOrders.map((go) => {
+                const goAdj = adjustments.filter(
+                  (a) => a.garment_order_id === go.id,
+                );
+                const lines = buildGarmentBreakdown(
+                  go,
+                  itemsByGO.get(go.id),
+                  garmentMap.get(go.garment_id)?.base_price ?? null,
+                );
+                const effective =
+                  go.total_price ??
+                  lines.reduce((s, ln) => s + ln.amount, 0) +
+                    goAdj.reduce((s, a) => s + (a.amount ?? 0), 0);
+                return { go, effective };
+              });
+              return (
+                <div className="mb-3">
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+                    Garment totals
+                  </div>
+                  <div className="space-y-1">
+                    {garmentTotals.map(({ go, effective }) => (
+                      <div
+                        key={go.id}
+                        className="flex items-baseline justify-between gap-3 text-sm"
+                      >
+                        <span className="truncate text-ink">
+                          {garmentDisplayLabel(go.garment_id)}
+                        </span>
+                        <span className="shrink-0 font-mono text-[13px] text-ink">
+                          {formatPrice(effective)}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="flex items-baseline justify-between gap-3 border-t border-hairline pt-1 text-xs text-muted">
+                      <span>Subtotal (garments)</span>
+                      <span className="font-mono">
+                        {formatPrice(
+                          garmentTotals.reduce((s, x) => s + x.effective, 0),
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Order-level adjustments — render BEFORE the total so the order
+                is: adjustments → total. This block lists existing adjustments
+                (with delete) + the add-row. */}
+            <div className="mb-2">
+              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+                Order-level adjustments
+              </div>
+              {renderAdjustmentBlock("order", null)}
+            </div>
+
+            {/* Grand total — AFTER garment totals + adjustments.
+                Sum of the per-garment effective totals above + Σ order-level
+                adjustments, so the displayed sub-lines actually add up to the
+                grand total. Falls back to order.total_price if present. */}
+            {(() => {
+              const orderAdj = adjustments.filter(
+                (a) => a.garment_order_id === null,
+              );
+              const garmentsSum = garmentOrders.reduce((s, go) => {
+                const goAdj = adjustments.filter(
+                  (a) => a.garment_order_id === go.id,
+                );
+                const lines = buildGarmentBreakdown(
+                  go,
+                  itemsByGO.get(go.id),
+                  garmentMap.get(go.garment_id)?.base_price ?? null,
+                );
+                return (
+                  s +
+                  (go.total_price ??
+                    lines.reduce((x, ln) => x + ln.amount, 0) +
+                      goAdj.reduce((x, a) => x + (a.amount ?? 0), 0))
+                );
+              }, 0);
+              const orderAdjSum = orderAdj.reduce(
+                (s, a) => s + (a.amount ?? 0),
+                0,
+              );
+              const total = order.total_price ?? garmentsSum + orderAdjSum;
+              return (
+                <div className="mt-3 -mx-4 -mb-3 flex items-baseline justify-between gap-3 border-t-2 border-ink-navy/15 bg-mist-navy/40 px-4 py-3">
+                  <span className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-navy">
+                    Grand total
+                  </span>
+                  <span className="font-mono text-2xl font-bold tracking-tight text-ink-navy">
+                    {formatPrice(total)}
+                  </span>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
       </section>
 
       {/* ─── Transactions ─────────────────────────────────────────────────── */}
