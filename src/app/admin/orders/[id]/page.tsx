@@ -154,8 +154,31 @@ function adjustmentLabel(raw: string | null | undefined): string {
 interface BreakdownLine {
   key: string;
   label: string;
-  amount: number; // signed paise
+  amount: number; // signed RUPEES (not paise — the stale comment above lied)
   kind: "base" | "item" | "discount" | "fee";
+}
+
+/** Effective garment total, derived ADDITIVELY from the visible lines so the
+ *  card's sub-lines always sum exactly to the displayed total:
+ *    Σ (base + item lines) + Σ garment-scoped adjustments.
+ *  This matches what the card renders and what the backend's
+ *  adjustment-inclusive go.total_price resolves to once resynced — so we
+ *  never mix the backend-inclusive number with a partial client sum (the old
+ *  bug where listed lines didn't add up to the shown total). */
+function effectiveGarmentTotal(
+  go: GarmentOrderRow,
+  items: GarmentOrderItemRow[] | undefined,
+  basePrice: number | null,
+  adjustments: OrderAdjustmentRow[],
+): number {
+  const lineSum = buildGarmentBreakdown(go, items, basePrice).reduce(
+    (s, ln) => s + ln.amount,
+    0,
+  );
+  const adjSum = adjustments
+    .filter((a) => a.garment_order_id === go.id)
+    .reduce((s, a) => s + (a.amount ?? 0), 0);
+  return lineSum + adjSum;
 }
 
 /** Build the per-garment-order breakdown lines from loaded data.
@@ -2757,53 +2780,181 @@ export default function OrderDetailPage() {
         )}
       </section>
 
-      {/* ─── Price Breakdown ────────────────────────────────────────────── */}
+      {/* ─── Price Breakdown ──────────────────────────────────────────────
+          Both cards derive their totals ADDITIVELY from the visible lines so
+          the sub-lines always sum exactly to the displayed total:
+            garment total  = Σ (base + item lines) + Σ garment adjustments
+            order total    = Σ garment totals + Σ order-level adjustments
+          We never mix the backend's adjustment-inclusive go.total_price /
+          order.total_price with a partial client sum (the old bug where the
+          listed lines didn't add up to the shown total). */}
+
+      {/* PRIMARY: Order total card — sits first so the eye lands on the
+          grand total. Brand Book: navy header bar, navy@8% single-elevation
+          shadow, 12px radius, IBM Plex Mono prices, tick dividers, tape
+          gradient reserved for the grand-total accent only. */}
       <section className="mb-6">
         <h2 className="mb-3 font-heading text-lg font-semibold text-ink-navy">
-          Price Breakdown
+          Order total
         </h2>
 
-        {/* Per-garment-order ledger cards */}
+        {(() => {
+          // One source of truth for every number in this card.
+          const garmentTotals = garmentOrders.map((go) => ({
+            go,
+            effective: effectiveGarmentTotal(
+              go,
+              itemsByGO.get(go.id),
+              garmentMap.get(go.garment_id)?.base_price ?? null,
+              adjustments,
+            ),
+          }));
+          const garmentsSum = garmentTotals.reduce(
+            (s, x) => s + x.effective,
+            0,
+          );
+          const orderAdj = adjustments.filter(
+            (a) => a.garment_order_id === null,
+          );
+          const orderAdjSum = orderAdj.reduce(
+            (s, a) => s + (a.amount ?? 0),
+            0,
+          );
+          const grandTotal = garmentsSum + orderAdjSum;
+          return (
+            <div className="overflow-hidden rounded-xl border border-ink-navy/20 bg-chalk-white shadow-[0_4px_20px_-4px_rgba(8,48,104,0.08)] ring-1 ring-ink-navy/5">
+              {/* Navy header bar */}
+              <div className="flex items-center justify-between bg-ink-navy px-5 py-3">
+                <span className="font-heading text-sm font-semibold uppercase tracking-[0.1em] text-chalk-white">
+                  Grand total
+                </span>
+                {/* Tape-gradient accent reserved for the primary total only */}
+                <span className="bg-gradient-to-br from-[#F89010] via-[#E87810] to-[#D06010] bg-clip-text font-mono text-xl font-bold tracking-tight text-transparent">
+                  {formatPrice(grandTotal)}
+                </span>
+              </div>
+
+              <div className="px-5 py-4">
+                {/* Garment rollup — one line per garment. */}
+                {garmentTotals.length > 0 && (
+                  <div className="mb-4">
+                    <div className="mb-2 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-navy/50">
+                      Garments
+                    </div>
+                    <div className="space-y-1.5">
+                      {garmentTotals.map(({ go, effective }) => (
+                        <div
+                          key={go.id}
+                          className="flex items-baseline justify-between gap-3 text-sm"
+                        >
+                          <span className="truncate font-sans text-ink/90">
+                            {garmentDisplayLabel(go.garment_id)}
+                          </span>
+                          <span className="shrink-0 font-mono text-[13px] tabular-nums text-ink">
+                            {formatPrice(effective)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Tick divider + subtotal */}
+                    <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-dashed border-hairline pt-2">
+                      <span className="font-sans text-xs font-medium uppercase tracking-wide text-ink-navy/60">
+                        Subtotal
+                      </span>
+                      <span className="font-mono text-[13px] tabular-nums text-ink-navy">
+                        {formatPrice(garmentsSum)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Order-level adjustments — render before the grand total so
+                    the column reads: garments → order adjustments → total. */}
+                <div className="mb-4">
+                  <div className="mb-2 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-navy/50">
+                    Order adjustments
+                  </div>
+                  {renderAdjustmentBlock("order", null)}
+                </div>
+
+                {/* Reconciliation strip — shows the additive path so the math
+                    is auditable: subtotal + adjustments = grand total. */}
+                <div className="space-y-1 border-t border-hairline pt-3 font-mono text-[11px] tabular-nums text-ink-navy/60">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span>Subtotal (garments)</span>
+                    <span>{formatPrice(garmentsSum)}</span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span>Order adjustments</span>
+                    <span>{formatPrice(orderAdjSum)}</span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3 pt-1 font-semibold text-ink-navy">
+                    <span>Total</span>
+                    <span>{formatPrice(grandTotal)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </section>
+
+      {/* SECONDARY: Per-garment ledger cards — demoted, Warm Sand tinted. */}
+      <section className="mb-6">
+        <h2 className="mb-3 font-heading text-lg font-semibold text-ink-navy">
+          Garment breakdown
+        </h2>
+
         {garmentOrders.length === 0 ? (
-          <div className="rounded-lg border border-hairline bg-chalk-white px-4 py-6 text-center text-sm text-muted">
+          <div className="rounded-xl border border-hairline bg-chalk-white px-4 py-6 text-center text-sm text-muted">
             No garment orders to break down.
           </div>
         ) : (
           <div className="space-y-3">
             {garmentOrders.map((go) => {
               const items = itemsByGO.get(go.id);
-              const basePrice = garmentMap.get(go.garment_id)?.base_price ?? null;
-              const goAdj = adjustments.filter((a) => a.garment_order_id === go.id);
-              const lines = buildGarmentBreakdown(
-                go,
-                items,
-                basePrice,
+              const basePrice =
+                garmentMap.get(go.garment_id)?.base_price ?? null;
+              const goAdj = adjustments.filter(
+                (a) => a.garment_order_id === go.id,
               );
+              const lines = buildGarmentBreakdown(go, items, basePrice);
+              const itemsSubtotal = lines.reduce(
+                (s, ln) => s + ln.amount,
+                0,
+              );
+              const adjSum = goAdj.reduce(
+                (s, a) => s + (a.amount ?? 0),
+                0,
+              );
+              const garmentTotal = itemsSubtotal + adjSum;
               return (
                 <div
                   key={go.id}
-                  className="overflow-hidden rounded-lg border border-hairline/60 bg-chalk-white/80"
+                  className="overflow-hidden rounded-xl border border-hairline bg-warm-sand/40 shadow-[0_2px_10px_-4px_rgba(8,48,104,0.06)]"
                 >
-                  {/* Garment header */}
-                  <div className="flex items-center justify-between gap-3 border-b border-hairline/60 bg-mist-navy/10 px-4 py-2">
+                  {/* Garment header — Warm Sand tint, quiet */}
+                  <div className="flex items-center justify-between gap-3 border-b border-hairline/60 bg-warm-sand/60 px-4 py-2.5">
                     <div className="min-w-0">
-                      <div className="truncate text-[13px] font-medium text-ink-navy/90">
+                      <div className="truncate font-heading text-[13px] font-semibold text-ink-navy">
                         {garmentDisplayLabel(go.garment_id)}
                       </div>
-                      <div className="text-[10px] text-muted">
+                      <div className="font-mono text-[10px] tracking-wide text-ink-navy/40">
                         GO {truncateId(go.id)}
                       </div>
                     </div>
                     {go.status && <StatusBadge value={go.status} />}
                   </div>
 
-                  {/* Ledger lines */}
-                  <div className="px-4 py-2.5">
+                  <div className="px-4 py-3">
+                    {/* Itemized lines — base + variations/addons */}
                     {items === undefined ? (
-                      <div className="py-2 text-xs text-muted">Loading items…</div>
-                    ) : lines.length === 0 && goAdj.length === 0 ? (
                       <div className="py-2 text-xs text-muted">
-                        No priced items yet — add a design or adjustment below.
+                        Loading items…
+                      </div>
+                    ) : lines.length === 0 ? (
+                      <div className="py-1.5 text-xs text-muted">
+                        No priced items yet.
                       </div>
                     ) : (
                       <div className="space-y-1">
@@ -2812,10 +2963,10 @@ export default function OrderDetailPage() {
                             key={ln.key}
                             className="flex items-baseline justify-between gap-3 text-[13px]"
                           >
-                            <span className="flex min-w-0 items-center gap-1.5">
-                              <span className="truncate text-ink/80">{ln.label}</span>
+                            <span className="truncate font-sans text-ink/80">
+                              {ln.label}
                             </span>
-                            <span className="shrink-0 font-mono text-[12px] text-ink/80">
+                            <span className="shrink-0 font-mono text-[12px] tabular-nums text-ink/80">
                               {formatPrice(ln.amount)}
                             </span>
                           </div>
@@ -2823,32 +2974,39 @@ export default function OrderDetailPage() {
                       </div>
                     )}
 
-                    {/* Garment-level adjustments — render BEFORE the total so
-                        the order is: items → adjustments → total. This block
-                        lists existing adjustments (with delete) + the add-row. */}
-                    <div className="mt-2">
-                      <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-                        Adjustments
+                    {/* Garment-level adjustments (list + add-row) */}
+                    {goAdj.length > 0 || items !== undefined ? (
+                      <div className="mt-3">
+                        <div className="mb-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-navy/40">
+                          Adjustments
+                        </div>
+                        {renderAdjustmentBlock(go.id, go.id)}
                       </div>
-                      {renderAdjustmentBlock(go.id, go.id)}
-                    </div>
+                    ) : null}
 
-                    {/* Garment subtotal — AFTER items + adjustments.
-                        Prefer backend-derived go.total_price; fall back to
-                        Σ item lines + Σ garment adjustments so a draft (never
-                        resynced) still shows a number. Kept visually quiet —
-                        the Order total card below is the primary total. */}
-                    <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-hairline/60 pt-1.5">
-                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
-                        Garment total
-                      </span>
-                      <span className="font-mono text-[13px] font-medium text-ink-navy/80">
-                        {formatPrice(
-                          go.total_price ??
-                            lines.reduce((s, ln) => s + ln.amount, 0) +
-                              goAdj.reduce((s, a) => s + (a.amount ?? 0), 0),
+                    {/* Garment total — additive: items subtotal + adjustments.
+                        Shows both so the math is transparent. */}
+                    <div className="mt-3 border-t border-dashed border-hairline pt-2.5">
+                      <div className="space-y-0.5 font-mono text-[11px] tabular-nums text-ink-navy/50">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span>Items subtotal</span>
+                          <span>{formatPrice(itemsSubtotal)}</span>
+                        </div>
+                        {adjSum !== 0 && (
+                          <div className="flex items-baseline justify-between gap-3">
+                            <span>Adjustments</span>
+                            <span>{formatPrice(adjSum)}</span>
+                          </div>
                         )}
-                      </span>
+                      </div>
+                      <div className="mt-1.5 flex items-baseline justify-between gap-3">
+                        <span className="font-sans text-[11px] font-semibold uppercase tracking-wide text-ink-navy/70">
+                          Garment total
+                        </span>
+                        <span className="font-mono text-[15px] font-bold tabular-nums text-ink-navy">
+                          {formatPrice(garmentTotal)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2856,124 +3014,6 @@ export default function OrderDetailPage() {
             })}
           </div>
         )}
-
-        {/* Order grand-total card — the PRIMARY total. Visually heavier than
-            the garment cards above: solid navy header, ring + shadow, larger
-            grand total so the eye lands here first. */}
-        <div className="mt-4 overflow-hidden rounded-xl border border-ink-navy/40 bg-chalk-white shadow-sm ring-1 ring-ink-navy/5">
-          <div className="bg-ink-navy px-4 py-2.5">
-            <div className="text-sm font-semibold tracking-wide text-chalk-white">
-              Order total
-            </div>
-          </div>
-
-          <div className="px-4 py-3">
-            {/* Per-garment totals rollup — one line per garment, so the card
-                reads: garment totals → order-level adjustments → grand total.
-                Each garment's effective total uses the same fallback as the
-                per-garment card above (go.total_price, else Σ items + Σ its
-                garment-level adjustments), keeping the two in lockstep. */}
-            {(() => {
-              if (garmentOrders.length === 0) return null;
-              const garmentTotals = garmentOrders.map((go) => {
-                const goAdj = adjustments.filter(
-                  (a) => a.garment_order_id === go.id,
-                );
-                const lines = buildGarmentBreakdown(
-                  go,
-                  itemsByGO.get(go.id),
-                  garmentMap.get(go.garment_id)?.base_price ?? null,
-                );
-                const effective =
-                  go.total_price ??
-                  lines.reduce((s, ln) => s + ln.amount, 0) +
-                    goAdj.reduce((s, a) => s + (a.amount ?? 0), 0);
-                return { go, effective };
-              });
-              return (
-                <div className="mb-3">
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-                    Garment totals
-                  </div>
-                  <div className="space-y-1">
-                    {garmentTotals.map(({ go, effective }) => (
-                      <div
-                        key={go.id}
-                        className="flex items-baseline justify-between gap-3 text-sm"
-                      >
-                        <span className="truncate text-ink">
-                          {garmentDisplayLabel(go.garment_id)}
-                        </span>
-                        <span className="shrink-0 font-mono text-[13px] text-ink">
-                          {formatPrice(effective)}
-                        </span>
-                      </div>
-                    ))}
-                    <div className="flex items-baseline justify-between gap-3 border-t border-hairline pt-1 text-xs text-muted">
-                      <span>Subtotal (garments)</span>
-                      <span className="font-mono">
-                        {formatPrice(
-                          garmentTotals.reduce((s, x) => s + x.effective, 0),
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Order-level adjustments — render BEFORE the total so the order
-                is: adjustments → total. This block lists existing adjustments
-                (with delete) + the add-row. */}
-            <div className="mb-2">
-              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-                Order-level adjustments
-              </div>
-              {renderAdjustmentBlock("order", null)}
-            </div>
-
-            {/* Grand total — AFTER garment totals + adjustments.
-                Sum of the per-garment effective totals above + Σ order-level
-                adjustments, so the displayed sub-lines actually add up to the
-                grand total. Falls back to order.total_price if present. */}
-            {(() => {
-              const orderAdj = adjustments.filter(
-                (a) => a.garment_order_id === null,
-              );
-              const garmentsSum = garmentOrders.reduce((s, go) => {
-                const goAdj = adjustments.filter(
-                  (a) => a.garment_order_id === go.id,
-                );
-                const lines = buildGarmentBreakdown(
-                  go,
-                  itemsByGO.get(go.id),
-                  garmentMap.get(go.garment_id)?.base_price ?? null,
-                );
-                return (
-                  s +
-                  (go.total_price ??
-                    lines.reduce((x, ln) => x + ln.amount, 0) +
-                      goAdj.reduce((x, a) => x + (a.amount ?? 0), 0))
-                );
-              }, 0);
-              const orderAdjSum = orderAdj.reduce(
-                (s, a) => s + (a.amount ?? 0),
-                0,
-              );
-              const total = order.total_price ?? garmentsSum + orderAdjSum;
-              return (
-                <div className="mt-3 -mx-4 -mb-3 flex items-baseline justify-between gap-3 border-t-2 border-ink-navy/15 bg-mist-navy/40 px-4 py-3">
-                  <span className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-navy">
-                    Grand total
-                  </span>
-                  <span className="font-mono text-2xl font-bold tracking-tight text-ink-navy">
-                    {formatPrice(total)}
-                  </span>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
       </section>
 
       {/* ─── Transactions ─────────────────────────────────────────────────── */}
