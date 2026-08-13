@@ -606,10 +606,14 @@ export default function OrderDetailPage() {
     loadAll();
   }, [loadAll]);
 
-  // ── Load items for expanded garment orders ─────────────────────────────────
+  // ── Load items for garment orders ──────────────────────────────────────────
+  // Items are needed both when a GO is expanded (its item table) AND in the
+  // Price Breakdown section, which renders every GO's items. So fetch eagerly
+  // for ALL garment orders once they're loaded — not only expanded ones — so
+  // the breakdown never sits on "Loading items…".
   useEffect(() => {
     for (const go of garmentOrders) {
-      if (expandedGOs.has(go.id) && !itemsByGO.has(go.id)) {
+      if (!itemsByGO.has(go.id)) {
         fetchGarmentOrderItems(go.id)
           .then((items) => {
             setItemsByGO((prev) => {
@@ -618,10 +622,23 @@ export default function OrderDetailPage() {
               return next;
             });
           })
-          .catch(() => {});
+          .catch(() => {
+            // Record an empty array so we don't retry forever on failure —
+            // the breakdown shows "No priced items yet." instead of spinning.
+            setItemsByGO((prev) => {
+              if (prev.has(go.id)) return prev;
+              const next = new Map(prev);
+              next.set(go.id, []);
+              return next;
+            });
+          });
       }
     }
-  }, [expandedGOs, garmentOrders, itemsByGO]);
+    // expandedGOs intentionally excluded — expansion is a UI affordance, not a
+    // fetch trigger anymore. itemsByGO is read here only to seed the initial
+    // pass; the setItemsByGO updaters are idempotent so re-runs are harmless.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [garmentOrders]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   async function handleUpdateOrderField(patch: Partial<OrderRow>) {
