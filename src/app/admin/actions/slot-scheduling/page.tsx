@@ -114,7 +114,7 @@ function SlotSchedulingActionPageInner() {
     setSavedAt(null);
     patchSchedulingSettings({
       slot_minutes: draft.slot_minutes,
-      buffer_minutes: draft.buffer_minutes,
+      buffer_slots: draft.buffer_slots,
       visit_minutes: draft.visit_minutes,
       lead_time_minutes: draft.lead_time_minutes,
       reschedule_cutoff_minutes: draft.reschedule_cutoff_minutes,
@@ -133,7 +133,7 @@ function SlotSchedulingActionPageInner() {
   }
 
   // Derived helper figures for the UI
-  const bufferPhysMins = draft.buffer_minutes * draft.slot_minutes;
+  const bufferPhysMins = draft.buffer_slots * draft.slot_minutes;
   const visitSteps = draft.slot_minutes > 0 ? draft.visit_minutes / draft.slot_minutes : 0;
   const visitMisaligned =
     draft.slot_minutes > 0 && draft.visit_minutes % draft.slot_minutes !== 0;
@@ -214,8 +214,8 @@ function SlotSchedulingActionPageInner() {
           <input
             type="number"
             min={0}
-            value={draft.buffer_minutes}
-            onChange={(e) => patch("buffer_minutes", parseInt(e.target.value || "0", 10) || 0)}
+            value={draft.buffer_slots}
+            onChange={(e) => patch("buffer_slots", parseInt(e.target.value || "0", 10) || 0)}
             className={inputCls}
           />
           <p className="mt-1 text-[11px] text-muted">

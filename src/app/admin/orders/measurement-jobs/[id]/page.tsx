@@ -728,6 +728,7 @@ export default function MeasurementJobDetailPage() {
                 }}
                 captains={captains}
                 hideCaptainSelect
+                excludeJobId={jobId}
               />
               <div className="mt-3 flex items-center gap-2">
                 <button

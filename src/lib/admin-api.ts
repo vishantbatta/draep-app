@@ -1589,14 +1589,18 @@ export interface AdminSlotsResponse {
   days: AdminDaySlots[];
 }
 
-/** GET /admin/slots — available slots across all style captains (no order needed). */
+/** GET /admin/slots — available slots across all style captains (no order needed).
+ *  `excludeJobId` makes the reschedule picker ignore that job's own current
+ *  claim so its slot + buffer show as available. */
 export function fetchOpenSlots(
   fromDate?: string,
   toDate?: string,
+  excludeJobId?: string,
 ): Promise<AdminSlotsResponse> {
   const params = new URLSearchParams();
   if (fromDate) params.set("from_date", fromDate);
   if (toDate) params.set("to_date", toDate);
+  if (excludeJobId) params.set("exclude_job_id", excludeJobId);
   const qs = params.toString();
   return adminFetch<AdminSlotsResponse>(`/admin/slots${qs ? `?${qs}` : ""}`);
 }
@@ -1809,7 +1813,9 @@ export async function clearDesignThread(threadId: string): Promise<void> {
 
 export interface SchedulingSettings {
   slot_minutes: number;
-  buffer_minutes: number;
+  /** Travel/setup buffer in GRID STEPS (buffer_slots on the wire; stored in
+   *  scheduling_settings.buffer_minutes as a slot count). */
+  buffer_slots: number;
   visit_minutes: number;
   lead_time_minutes: number;
   reschedule_cutoff_minutes: number;

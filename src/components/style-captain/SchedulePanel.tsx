@@ -1208,13 +1208,35 @@ function PreviewSection() {
           <div className="grid grid-cols-3 gap-1.5">
             {daySlots.map((slot, i) => {
               const time = hhmmFromISO(slot.start_at);
+              // Claims (booked/manual/blocked) carry their true end_at — show
+              // the full visit span so a 30m job doesn't read as a single 15m
+              // grid step. Open/buffered pills are single grid steps: start
+              // time only.
+              let label = time;
+              let title = `${time} · ${slot.status}`;
+              if (
+                slot.end_at &&
+                (slot.status === "booked" ||
+                  slot.status === "manual" ||
+                  slot.status === "blocked")
+              ) {
+                const end = hhmmFromISO(slot.end_at);
+                const startCore = time.replace(/ (AM|PM)$/, "");
+                const mins = Math.round(
+                  (new Date(slot.end_at).getTime() -
+                    new Date(slot.start_at).getTime()) /
+                    60000
+                );
+                label = `${startCore}–${end}`;
+                title = `${time} – ${end} · ${slot.status} · ${mins}m`;
+              }
               return (
                 <div
                   key={`${dayKey}-${i}`}
                   className={`rounded-pill border px-1.5 py-1 text-center text-[10px] font-medium leading-tight ${SLOT_STATUS_COLORS[slot.status] ?? "bg-mist-navy text-muted border-hairline"}`}
-                  title={`${time} · ${slot.status}`}
+                  title={title}
                 >
-                  {time}
+                  {label}
                 </div>
               );
             })}

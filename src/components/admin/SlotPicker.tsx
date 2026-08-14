@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchOpenSlots,
   type AdminDaySlots,
@@ -41,6 +41,9 @@ interface SlotPickerProps {
   hideCaptainSelect?: boolean;
   fromDate?: string;
   toDate?: string;
+  /** When rescheduling an existing job, pass its id so its own current slot +
+   *  buffer are shown as available (the job will vacate them). */
+  excludeJobId?: string;
 }
 
 export function SlotPicker({
@@ -54,44 +57,79 @@ export function SlotPicker({
   hideCaptainSelect = false,
   fromDate,
   toDate,
+  excludeJobId,
 }: SlotPickerProps) {
   const [slotDays, setSlotDays] = useState<AdminDaySlots[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
 
-  // ── Load open slots on mount ──────────────────────────────────────────────
+  // ── Load open slots on mount, and refresh on window focus ─────────────────
+  // The picker used to fetch once on mount. If the Create Order dialog stays
+  // open while a booking is made elsewhere (another tab), the open picker kept
+  // showing stale availability — including captains already booked. Refetching
+  // on focus keeps it in sync; a selected slot that no longer exists is cleared.
+  const selectedSlotRef = useRef(selectedSlot);
+  selectedSlotRef.current = selectedSlot;
+
+  const loadSlots = useCallback(
+    (setDefaultDate: boolean) => {
+      setSlotsLoading(true);
+      setSlotsError(null);
+      fetchOpenSlots(fromDate, toDate, excludeJobId)
+        .then((res) => {
+          setSlotDays(res.days);
+          if (setDefaultDate && res.days.length > 0) {
+            onDateChange(res.days[0].date);
+          }
+          const current = selectedSlotRef.current;
+          if (
+            current &&
+            !res.days.some((d) =>
+              d.slots.some((s) => s.start_at === current.start_at),
+            )
+          ) {
+            onSlotChange(null);
+            if (!hideCaptainSelect) onCaptainChange("");
+          }
+        })
+        .catch((e) => {
+          setSlotsError(
+            e instanceof Error ? e.message : "Couldn't load available slots.",
+          );
+        })
+        .finally(() => setSlotsLoading(false));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fromDate, toDate, excludeJobId],
+  );
+
   useEffect(() => {
-    let cancelled = false;
-    setSlotsLoading(true);
-    setSlotsError(null);
-    fetchOpenSlots(fromDate, toDate)
-      .then((res) => {
-        if (cancelled) return;
-        setSlotDays(res.days);
-        if (res.days.length > 0 && !selectedDate) {
-          onDateChange(res.days[0].date);
-        }
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setSlotsError(
-          e instanceof Error ? e.message : "Couldn't load available slots.",
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setSlotsLoading(false);
-      });
+    loadSlots(true);
+    const onFocus = () => loadSlots(false);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
     return () => {
-      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadSlots]);
 
   // ── Slots for the currently selected date ──────────────────────────────────
-  const currentDaySlots = useMemo(
-    () => slotDays.find((d) => d.date === selectedDate)?.slots ?? [],
-    [slotDays, selectedDate],
-  );
+  const currentDaySlots = useMemo(() => {
+    const daySlots =
+      slotDays.find((d) => d.date === selectedDate)?.slots ?? [];
+    // When the captain is fixed (reschedule flow), only show slots where THAT
+    // captain is actually free. Otherwise a slot booked for the fixed captain
+    // but free for another captain would appear selectable — and then fail
+    // (or look like a booked slot is available).
+    if (hideCaptainSelect && selectedCaptainId) {
+      return daySlots.filter((s) =>
+        s.captain_ids.includes(selectedCaptainId),
+      );
+    }
+    return daySlots;
+  }, [slotDays, selectedDate, hideCaptainSelect, selectedCaptainId]);
 
   // ── Captains available at the selected slot ────────────────────────────────
   const availableCaptains = useMemo(
@@ -140,7 +178,12 @@ export function SlotPicker({
                     onClick={() => {
                       onDateChange(d.date);
                       onSlotChange(null);
-                      onCaptainChange("");
+                      // Resetting the captain selection only makes sense when
+                      // the captain <select> is shown (new-order flow). On
+                      // reschedule screens the captain is fixed, so never touch
+                      // it here — otherwise the parent persists null and
+                      // unassigns the captain the moment a slot is picked.
+                      if (!hideCaptainSelect) onCaptainChange("");
                     }}
                     className={`flex flex-col items-center rounded-lg border px-1 py-1.5 transition ${
                       selectedDate === d.date
@@ -176,7 +219,7 @@ export function SlotPicker({
                   key={s.start_at}
                   onClick={() => {
                     onSlotChange(s);
-                    onCaptainChange("");
+                    if (!hideCaptainSelect) onCaptainChange("");
                   }}
                   className={`rounded-lg border px-2 py-1.5 text-[11px] font-medium transition ${
                     selectedSlot?.start_at === s.start_at
