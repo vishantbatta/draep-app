@@ -514,18 +514,20 @@ export function GarmentOrderEditor({
           addon_id: d.addonId,
           addon_variation_id: d.addonVariationId,
           placement: d.placement,
-          price: d.price,
           label_snapshot: d.labelSnapshot,
         };
 
         if (existing) {
-          // Update if anything changed
+          // Update if anything changed. Price is deliberately absent: the
+          // backend rejects direct writes (prices come from the catalog +
+          // adjustment rows), so a stored/catalog price delta is not a change
+          // we can persist — comparing it would fire a no-op update on every
+          // save for admin-created items whose stored snapshot is null.
           const needsUpdate =
             existing.variation_id !== d.variationId ||
             existing.variation_type_id !== d.variationTypeId ||
             existing.addon_variation_id !== d.addonVariationId ||
             (existing.placement ?? null) !== (d.placement ?? null) ||
-            (existing.price ?? null) !== (d.price ?? null) ||
             (existing.label_snapshot ?? null) !== (d.labelSnapshot ?? null);
           if (needsUpdate) {
             await updateTableRow(

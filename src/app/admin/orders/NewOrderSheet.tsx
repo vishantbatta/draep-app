@@ -546,13 +546,15 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
       }
       if (!draftCustomerId) setDraftCustomerId(customerId);
 
-      // 2. Create draft order (once), else refresh total_price
+      // 2. Create draft order (once). Totals are derived by the backend from
+      //    garment-order items + adjustments (see PRICING.md) — never set
+      //    directly, and never re-pushed on re-persist: item writes trigger the
+      //    backend resync hook that recomputes the order total.
       let orderId = draftOrderId;
       if (!orderId) {
         const order = await createOrder({
           user_id: customerId,
           address_id: null,
-          total_price: grandTotal > 0 ? grandTotal : null,
           fulfillment_status: "draft",
           payment_status: null,
           // Per-order attribution (last-touch for this conversion). Always
@@ -561,10 +563,6 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
         });
         orderId = order.id;
         setDraftOrderId(orderId);
-      } else {
-        await updateTableRow("orders", orderId, {
-          total_price: grandTotal > 0 ? grandTotal : null,
-        });
       }
 
       // 3. Sync garment_orders + items for each draft
@@ -596,7 +594,6 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
               addon_id: item.addon_id,
               addon_variation_id: item.addon_variation_id,
               placement: item.placement,
-              price: item.price,
               label_snapshot: item.label_snapshot,
             });
           }
@@ -619,7 +616,6 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
               addon_id: item.addon_id,
               addon_variation_id: item.addon_variation_id,
               placement: item.placement,
-              price: item.price,
               label_snapshot: item.label_snapshot,
             });
           }
@@ -715,7 +711,6 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
         await updateTableRow("orders", orderId, {
           user_id: customerId,
           address_id: addressId,
-          total_price: grandTotal > 0 ? grandTotal : null,
           fulfillment_status: "pending",
           payment_status: "pending",
         });
@@ -724,7 +719,6 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
         const order = await createOrder({
           user_id: customerId,
           address_id: addressId,
-          total_price: grandTotal > 0 ? grandTotal : null,
           fulfillment_status: "pending",
           payment_status: "pending",
           // Per-order attribution (last-touch). New customers also mirrored
@@ -753,7 +747,6 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
               addon_id: item.addon_id,
               addon_variation_id: item.addon_variation_id,
               placement: item.placement,
-              price: item.price,
               label_snapshot: item.label_snapshot,
             });
           }
