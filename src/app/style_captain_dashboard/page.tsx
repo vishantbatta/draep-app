@@ -310,6 +310,36 @@ function ScheduleBanner({
 
 // ─── Job card ────────────────────────────────────────────────────────────────
 
+/** Count filled readings for a scope — null = base (per-visit), else the
+ *  garment instance's own readings — against the checklist's metric set. */
+function countFilled(job: SCJob, garmentOrderId: string | null): number {
+  const cl = job.checklist;
+  if (!cl) return 0;
+  const isFilled = (r: SCJob["measurements"][number]) =>
+    r.value_numeric !== null || (r.value_text ?? "").trim() !== "";
+  if (garmentOrderId === null) {
+    return cl.base.filter((m) =>
+      job.measurements.some(
+        (r) =>
+          r.measurement_metric_id === m.id &&
+          !r.garment_order_id &&
+          isFilled(r),
+      ),
+    ).length;
+  }
+  const g = cl.garments.find((x) => x.garment_order_id === garmentOrderId);
+  if (!g) return 0;
+  const ids = new Set(g.sections.flatMap((s) => s.metrics.map((m) => m.id)));
+  return [...ids].filter((mid) =>
+    job.measurements.some(
+      (r) =>
+        r.measurement_metric_id === mid &&
+        r.garment_order_id === garmentOrderId &&
+        isFilled(r),
+    ),
+  ).length;
+}
+
 function JobCard({ job }: { job: SCJob }) {
   const router = useRouter();
   // Prefer scheduled_at (always populated) over the slot envelope, which is
@@ -396,7 +426,23 @@ function JobCard({ job }: { job: SCJob }) {
         {job.measurements.length > 0 && (
           <DetailRow
             label="Readings"
-            value={`${job.measurements.length} captured`}
+            value={
+              job.checklist
+                ? [
+                    job.checklist.base.length > 0
+                      ? `base ${countFilled(job, null)}/${job.checklist.base.length}`
+                      : null,
+                    ...job.checklist.garments.map(
+                      (g, i) =>
+                        `G${i + 1} ${countFilled(job, g.garment_order_id)}/${
+                          g.sections.reduce((n, s) => n + s.metrics.length, 0)
+                        }`,
+                    ),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || `${job.measurements.length} captured`
+                : `${job.measurements.length} captured`
+            }
           />
         )}
       </dl>

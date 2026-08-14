@@ -89,6 +89,8 @@ export interface SCUser {
 export interface SCMeasurement {
   id: string;
   measurement_metric_id: string | null;
+  /** NULL = base (per-visit) reading; set = reading for that garment instance. */
+  garment_order_id?: string | null;
   value_numeric: number | null;
   value_text: string | null;
   unit: string | null;
@@ -157,6 +159,8 @@ export interface SCJob {
   garments: SCGarmentBrief[];
   garment_orders: SCGarmentOrder[];
   measurements: SCMeasurement[];
+  /** Entity-derived capture checklist (base + per-garment sections). */
+  checklist: SCChecklist | null;
 }
 
 export interface SCMetric {
@@ -167,6 +171,33 @@ export interface SCMetric {
   descriptions: Record<string, string> | null;
   asset_urls: string[] | null;
   unit: string | null;
+}
+
+/** A metric as the checklist resolver returns it — catalog fields + link config. */
+export interface SCChecklistMetric extends SCMetric {
+  is_required: boolean;
+  priority_order: number | null;
+}
+
+export interface SCChecklistSection {
+  entity: {
+    type: string;
+    id: string;
+    label: string;
+  };
+  metrics: SCChecklistMetric[];
+}
+
+export interface SCChecklistGarment {
+  garment_order_id: string;
+  garment_id: string | null;
+  label: string;
+  sections: SCChecklistSection[];
+}
+
+export interface SCChecklist {
+  base: SCChecklistMetric[];
+  garments: SCChecklistGarment[];
 }
 
 // ─── Fetch wrapper ──────────────────────────────────────────────────────────
@@ -369,12 +400,31 @@ export async function scFetchMetrics(): Promise<SCMetric[]> {
   return data.metrics;
 }
 
+/** Lightweight checklist — live re-derivation on mid-visit changes.
+ *  With garmentOrderId, only that garment instance's entry is returned. */
+export async function scFetchChecklist(
+  jobId: string,
+  garmentOrderId?: string,
+): Promise<SCChecklist> {
+  const qs = garmentOrderId
+    ? `?garment_order_id=${encodeURIComponent(garmentOrderId)}`
+    : "";
+  return scFetch<SCChecklist>(`/style-captain/jobs/${jobId}/checklist${qs}`);
+}
+
+/** Catalogue garments — for the walk-in garment-type picker. */
+export async function scFetchCatalogueGarments(): Promise<SCGarmentBrief[]> {
+  return scFetch<SCGarmentBrief[]>(`/style-captain/catalogue/garments`);
+}
+
 export async function scStartJob(jobId: string): Promise<void> {
   await scFetch(`/style-captain/jobs/${jobId}/start`, { method: "POST" });
 }
 
 export interface MeasurementPayload {
   measurement_metric_id: string;
+  /** NULL/omitted = base (per-visit) reading; set = garment-instance reading. */
+  garment_order_id?: string | null;
   value_numeric?: number | null;
   value_text?: string | null;
   unit?: string | null;
@@ -394,12 +444,14 @@ export async function scCompleteJob(
   jobId: string,
   notes?: string,
   voiceNoteAssetUrl?: string,
+  acknowledgeWarnings?: boolean,
 ): Promise<void> {
   await scFetch(`/style-captain/jobs/${jobId}/complete`, {
     method: "POST",
     body: JSON.stringify({
       notes: notes ?? "",
       voice_note_asset_url: voiceNoteAssetUrl ?? null,
+      acknowledge_warnings: acknowledgeWarnings ?? false,
     }),
   });
 }
@@ -528,11 +580,17 @@ export interface SCWalkInResult {
 export async function scCreateWalkInJob(
   name: string,
   phone: string,
+  garmentId: string,
   notes?: string,
 ): Promise<SCWalkInResult> {
   return scFetch<SCWalkInResult>("/style-captain/walk-in", {
     method: "POST",
-    body: JSON.stringify({ name, phone, notes: notes ?? null }),
+    body: JSON.stringify({
+      name,
+      phone,
+      garment_id: garmentId,
+      notes: notes ?? null,
+    }),
   });
 }
 
@@ -546,13 +604,29 @@ export interface SCValidationError {
   explanation: Record<string, string>;
 }
 
+/** One garment instance's verdict — for per-garment grouping + re-measure links. */
+export interface SCGarmentValidation {
+  garment_order_id: string | null;
+  garment_id: string | null;
+  garment_slug: string | null;
+  garment_labels: Record<string, string> | null;
+  status: "pass" | "warn" | "block";
+  catalog_version: number | null;
+  critical_errors: SCValidationError[];
+  non_critical_errors: SCValidationError[];
+  message: Record<string, string>;
+}
+
 export interface SCValidationResult {
+  /** Roll-up: worst across garment instances (any block → block, else any warn → warn). */
   status: "pass" | "warn" | "block";
   catalog_version: number | null;
   measurement_job_id: string;
   critical_errors: SCValidationError[];
   non_critical_errors: SCValidationError[];
   message: Record<string, string>;
+  /** Per-instance breakdown (empty on old backends). */
+  garments?: SCGarmentValidation[];
 }
 
 export async function scValidateJob(

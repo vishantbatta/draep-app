@@ -28,6 +28,7 @@ import type {
   GarmentOrderItemRow,
   GarmentOrderRow,
   MeasurementJobRow,
+  OrderAdjustmentRow,
   OrderRow,
   UserRow,
 } from "./admin-api";
@@ -54,6 +55,69 @@ export interface StyleSelectionGroup {
   assetsShared?: string[] | null;
 }
 
+// ─── PDF customization (section toggles) ──────────────────────────────────
+
+/**
+ * Which sections to include in the generated PDF. The cover page ALWAYS
+ * renders (it's the title page). Each flag below controls one content
+ * section. Defaults to all-true so an omitted/undefined `sections` produces
+ * the same PDF as before this customization was added.
+ *
+ *   customerDetails    → enriches the Cover page (phone / email / address)
+ *   measurementDetails → the Body Measurements pages
+ *   designDetails      → the Style Selections pages
+ *   fabricDetails      → the Garment Details pages
+ *   costBreakdown      → the new Cost Breakdown page
+ */
+export interface PdfSectionOptions {
+  customerDetails: boolean;
+  measurementDetails: boolean;
+  designDetails: boolean;
+  fabricDetails: boolean;
+  costBreakdown: boolean;
+}
+
+/** All sections enabled — the default, matching pre-customization output. */
+const ALL_SECTIONS: PdfSectionOptions = {
+  customerDetails: true,
+  measurementDetails: true,
+  designDetails: true,
+  fabricDetails: true,
+  costBreakdown: true,
+};
+
+// ─── Cost breakdown (optional Cost Breakdown page) ────────────────────────
+
+/**
+ * One garment order's priced selections, for the Cost Breakdown page.
+ * Mirrors the on-screen "Price Breakdown" card: a base price, one line per
+ * priced item, and the garment-scoped adjustments. The caller pre-filters
+ * adjustments to this garment (garment_order_id === go.id).
+ */
+export interface CostBreakdownGroup {
+  garmentOrder: GarmentOrderRow;
+  garmentLabel: string;
+  basePrice: number | null;
+  items: GarmentOrderItemRow[];
+  /** Garment-scoped adjustments (garment_order_id === this go.id). */
+  adjustments: OrderAdjustmentRow[];
+}
+
+/**
+ * Everything the Cost Breakdown page needs: per-garment priced groups, the
+ * order-level adjustments (garment_order_id IS NULL), and the two order
+ * totals (source of truth from orders.total_price / advance_amount).
+ */
+export interface CostBreakdownInput {
+  groups: CostBreakdownGroup[];
+  /** Order-level adjustments (garment_order_id IS NULL). */
+  orderAdjustments: OrderAdjustmentRow[];
+  /** orders.total_price — backend-resynced grand total (source of truth). */
+  orderTotal: number | null;
+  /** orders.advance_amount — checkout snapshot. */
+  advanceAmount: number | null;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 function esc(s: string | null | undefined): string {
@@ -64,6 +128,24 @@ function esc(s: string | null | undefined): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+/**
+ * HTML-escape AND uppercase a string in one step.
+ *
+ * WHY this exists: html2canvas does NOT implement CSS `text-transform`.
+ * It measures text in the source case but the browser renders it uppercased,
+ * so a `text-transform: uppercase` rule makes html2canvas mis-measure glyph
+ * widths — uppercase text overflows its measured box and gets clipped into
+ * garbled fragments (e.g. "Garment" rendering as broken "FFF" inside a pill).
+ *
+ * The fix is to uppercase the text in the HTML source itself and drop the CSS
+ * `text-transform` rule, so html2canvas measures and renders the same string.
+ * Use `upper()` for every label/pill/badge that previously relied on CSS
+ * uppercasing.
+ */
+function upper(s: string | null | undefined): string {
+  return esc((s ?? "").toUpperCase());
 }
 
 function fmtDateTime(v: string | null | undefined): string {
@@ -154,8 +236,27 @@ function coverPage(
   customer: UserRow | null,
   order: OrderRow | null,
   voiceNote?: { url: string; qrDataUrl: string } | null,
+  showCustomerDetails: boolean = true,
+  address?: AddressRow | null,
 ): string {
   const ord = order ?? null;
+
+  // Optional customer contact rows. When `showCustomerDetails` is true we
+  // append phone / email / address to the Customer Details block; when false
+  // the cover stays as the original two rows (Name, Customer ID). The rows
+  // reuse the existing `.kv` table styles; the address is multi-line so it
+  // gets the dedicated `.address-body` card (its CSS already exists).
+  const contactRows = showCustomerDetails
+    ? `
+        <tr><th>Phone</th><td>${esc(customer?.phone ?? "—")}</td></tr>
+        <tr><th>Email</th><td>${esc(customer?.email ?? "—")}</td></tr>
+      `
+    : "";
+
+  const addressBlock =
+    showCustomerDetails && address
+      ? `<tr><th>Address</th><td>${formatAddressInline(address)}</td></tr>`
+      : "";
 
   // Voice-note CTA. The PDF body is rasterized to JPEG, so inline <a> links
   // don't survive — we render a QR (works on phone or print) AND a visual
@@ -194,7 +295,7 @@ function coverPage(
 
       <div class="cover-grid">
         <div class="cover-block">
-          <h2>Order Details</h2>
+          <h2>${upper("Order Details")}</h2>
           <table class="kv">
             <tr><th>Order No.</th><td>${esc(ord?.order_number ?? "—")}</td></tr>
             <tr><th>Order ID</th><td>${esc(ord?.id ?? "—")}</td></tr>
@@ -207,10 +308,12 @@ function coverPage(
         </div>
 
         <div class="cover-block">
-          <h2>Customer Details</h2>
+          <h2>${upper("Customer Details")}</h2>
           <table class="kv">
             <tr><th>Name</th><td>${esc(customer?.name ?? "—")}</td></tr>
             <tr><th>Customer ID</th><td>${esc(customer?.id ?? job.user_id ?? "—")}</td></tr>
+            ${contactRows}
+            ${addressBlock}
           </table>
         </div>
       </div>
@@ -218,7 +321,7 @@ function coverPage(
       ${voiceNoteBlock}
 
       <div class="cover-block notes-block">
-        <h2>Notes</h2>
+        <h2>${upper("Notes")}</h2>
         <div class="notes-body">${esc(job.notes?.trim()) || "<em class='muted'>No notes recorded.</em>"}</div>
       </div>
 
@@ -237,6 +340,81 @@ function formatOrderSlot(slot: unknown): string {
   const end = s.end_time ?? s.end ?? "";
   if (start && end) return `${date} (${start}–${end})`;
   return String(date);
+}
+
+/**
+ * Render an address as a single-line, escaped HTML string for use inside a
+ * `.kv` table cell. Empty segments are dropped; the rest are joined with
+ * ", ". Returns "—" when there's nothing to show.
+ */
+function formatAddressInline(addr: AddressRow | null | undefined): string {
+  if (!addr) return "—";
+  const parts = [
+    addr.address_line_1,
+    addr.address_line_2,
+    addr.city,
+    addr.state,
+    addr.pincode,
+  ].filter((p) => p != null && String(p).trim() !== "");
+  if (parts.length === 0) return "—";
+  return esc(parts.join(", "));
+}
+
+/**
+ * Format a rupee amount for the Cost Breakdown page. Mirrors the page's
+ * `formatPrice` exactly: en-IN currency, no fraction digits. Null/undefined
+ * → "—". Negative amounts render as "-₹500" (Intl gives the minus prefix
+ * automatically).
+ */
+function formatRupees(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(v);
+}
+
+/**
+ * Parse an OrderAdjustmentRow.label. The backend stores it as a JSON string
+ * like '{"en":"Festive discount"}'; fall back to the raw string if it isn't
+ * JSON. Mirrors the page's `adjustmentLabel` helper.
+ *
+ * NOTE on units: OrderAdjustmentRow.amount has a stale "signed paise" comment
+ * in admin-api.ts, but per PRICING.md the operational unit across the whole
+ * stack is RUPEES (signed: negative = discount, positive = fee). We treat it
+ * as rupees here — never multiply or divide by 100.
+ */
+function adjustmentLabelText(raw: string | null | undefined): string {
+  if (!raw) return "Adjustment";
+  try {
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return parsed.en ?? parsed[Object.keys(parsed)[0] ?? ""] ?? "Adjustment";
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Best-effort display label for a garment-order item, mirroring the page's
+ * `itemDisplayLabel`. The label_snapshot is a JSON string like
+ * '{"en":"Blouse cut → Princess cut"}'; parse it and return the localized
+ * text. Falls back to the raw string if it isn't JSON, then to type/placement.
+ * Items carry immutable label snapshots stamped at checkout, so this never
+ * needs the live catalog.
+ */
+function itemLabelText(it: GarmentOrderItemRow): string {
+  if (it.label_snapshot) {
+    try {
+      const parsed = JSON.parse(it.label_snapshot) as Record<string, string>;
+      const text = parsed.en ?? parsed[Object.keys(parsed)[0] ?? ""];
+      if (text) return text;
+    } catch {
+      return it.label_snapshot;
+    }
+  }
+  const type = it.type === "add_on" ? "Add-on" : "Selection";
+  return it.placement ? `${type} (${it.placement})` : type;
 }
 
 /** One body-measurement per page — large image so a tailor can read it clearly. */
@@ -270,7 +448,7 @@ function bodyMeasurementsPage(
                 ${labels.kn ? `<div class="name name-kn">${esc(labels.kn)}</div>` : ""}
               </div>
               <div class="metric-value">
-                <div class="value-label">Value</div>
+                <div class="value-label">${upper("Value")}</div>
                 <div class="value-text">${fmtValue(reading, metric)}</div>
               </div>
             </div>
@@ -305,7 +483,7 @@ function garmentDetailsPages(
   if (groups.length === 0) {
     return `
       <section class="page garment-page">
-        <header class="page-header"><h2>Garment Details</h2></header>
+        <header class="page-header"><h2>${upper("Garment Details")}</h2></header>
         <p class="muted">No garment measurements captured for this job.</p>
         <footer class="report-footer">DRAEP Measurement Report</footer>
       </section>
@@ -355,7 +533,7 @@ function garmentDetailsPages(
 
           const metaRow = `
             <div class="material-meta">
-              ${m.type ? `<span class="meta-pill">${esc(m.type)}</span>` : ""}
+              ${m.type ? `<span class="meta-pill">${upper(m.type)}</span>` : ""}
               ${m.name ? `<span class="meta-name">${esc(m.name)}</span>` : ""}
               ${dims ? `<span class="meta-dim">Dimensions: ${esc(dims)}</span>` : ""}
             </div>
@@ -377,10 +555,34 @@ function garmentDetailsPages(
         .join("");
 
       const currentPageNum = pageNum++;
+
+      // This garment instance's own (garment-scoped) readings — compact list.
+      const readingsRows = (g.readings ?? [])
+        .filter((r) => r.reading)
+        .map(
+          (r) => `
+            <tr>
+              <td>${esc(r.metric.labels?.en ?? r.metric.code ?? "—")}</td>
+              <td class="mono">${esc(fmtValue(r.reading, r.metric))}</td>
+            </tr>
+          `,
+        )
+        .join("");
+      const readingsBlock = readingsRows
+        ? `
+          <div class="garment-readings">
+            <h3 class="block-title">${upper("Garment measurements")}</h3>
+            <table class="readings-table">
+              <tbody>${readingsRows}</tbody>
+            </table>
+          </div>
+        `
+        : "";
+
       return `
         <section class="page garment-page">
           <header class="page-header">
-            <h2>Garment: ${esc(garmentName)}</h2>
+            <h2>${upper("Garment")}: ${esc(garmentName)}</h2>
             <div class="page-num">Page ${currentPageNum} of ${totalPageCount}</div>
           </header>
 
@@ -388,6 +590,8 @@ function garmentDetailsPages(
             ${garmentNameHi ? `<div class="name name-hi">${esc(garmentNameHi)}</div>` : ""}
             ${garmentNameKn ? `<div class="name name-kn">${esc(garmentNameKn)}</div>` : ""}
           </div>
+
+          ${readingsBlock}
 
           ${
             g.materials.length > 0
@@ -435,47 +639,68 @@ function styleSelectionsPages(
       const variations = g.items.filter((it) => it.type === "variation");
       const addons = g.items.filter((it) => it.type === "add_on");
 
-      const variationRows = variations
-        .map((it) => {
-          return `
-            <tr>
-              <td class="style-cell-label">${esc(it.label_snapshot ?? "—")}</td>
-              <td>${esc(it.placement ?? "—")}</td>
-            </tr>
-          `;
-        })
-        .join("");
+      // Split each variation label on " → " into a component + choice, so we
+      // can render a clean component→choice chip instead of a flat table row.
+      // e.g. "Blouse cut → Princess cut" → component "Blouse cut", choice "Princess cut".
+      const splitLabel = (label: string): { component: string | null; choice: string } => {
+        const i = label.indexOf("→");
+        if (i < 0) return { component: null, choice: label };
+        return { component: label.slice(0, i).trim(), choice: label.slice(i + 1).trim() };
+      };
 
-      const addonRows = addons
-        .map((it) => {
-          return `
-            <tr>
-              <td class="style-cell-label">
-                <span class="meta-pill addon-pill">Add-on</span>
-                ${esc(it.label_snapshot ?? "—")}
-              </td>
-              <td>${esc(it.placement ?? "—")}</td>
-            </tr>
-          `;
-        })
-        .join("");
+      const variationCards = variations.map((it) => {
+        const { component, choice } = splitLabel(itemLabelText(it));
+        const placement = it.placement && it.placement.trim() ? it.placement : null;
+        return `
+          <div class="spec-chip">
+            <div class="spec-chip-head">
+              <span class="spec-chip-component">${upper(component ?? "Selection")}</span>
+            </div>
+            <div class="spec-chip-choice">${esc(choice || "—")}</div>
+            ${placement ? `<div class="spec-chip-placement">${esc(placement)}</div>` : ""}
+          </div>
+        `;
+      });
 
-      const allRows = (variationRows + addonRows).trim();
-      const tableHtml = allRows
-        ? `
-          <table class="style-table">
-            <thead>
-              <tr>
-                <th>Selection</th>
-                <th>Placement</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${allRows}
-            </tbody>
-          </table>
-        `
+      const addonCards = addons.map((it) => {
+        const { component, choice } = splitLabel(itemLabelText(it));
+        const placement = it.placement && it.placement.trim() ? it.placement : null;
+        return `
+          <div class="spec-chip spec-chip-addon">
+            <div class="spec-chip-head">
+              <span class="spec-chip-component">${upper(component ?? "Add-on")}</span>
+              <span class="spec-chip-badge">${upper("Add-on")}</span>
+            </div>
+            <div class="spec-chip-choice">${esc(choice || "—")}</div>
+            ${placement ? `<div class="spec-chip-placement">${esc(placement)}</div>` : ""}
+          </div>
+        `;
+      });
+
+      // Pair all chips into table rows of 2 (variation cards first, then
+      // add-ons). Using a table (not CSS grid) because html2canvas renders
+      // table columns reliably while grid `1fr` columns overflow their cell.
+      const allCards = [...variationCards, ...addonCards];
+      const hasAny = allCards.length > 0;
+      const rowsHtml: string[] = [];
+      for (let i = 0; i < allCards.length; i += 2) {
+        const left = allCards[i] ?? "";
+        const right = allCards[i + 1] ?? "";
+        rowsHtml.push(`
+          <div class="spec-grid-row">
+            <div class="spec-cell">${left}</div>
+            <div class="spec-cell">${right}</div>
+          </div>
+        `);
+      }
+      const selectionsHtml = hasAny
+        ? `<div class="spec-grid">${rowsHtml.join("")}</div>`
         : `<p class="muted">No style selections recorded for this garment order.</p>`;
+
+      const countsLine = [
+        variations.length > 0 ? `${variations.length} selection${variations.length > 1 ? "s" : ""}` : null,
+        addons.length > 0 ? `${addons.length} add-on${addons.length > 1 ? "s" : ""}` : null,
+      ].filter(Boolean).join(" · ");
 
       const userNote = g.garmentOrder.user_note
         ? `<div class="user-note"><strong>Customer note:</strong> ${esc(g.garmentOrder.user_note)}</div>`
@@ -489,7 +714,7 @@ function styleSelectionsPages(
         .filter((u): u is string => Boolean(u));
       const assetsBlock = assetsShared.length > 0
         ? `<div class="style-photos">
-             <div class="style-photos-label">Design Inspiration (${assetsShared.length})</div>
+             <div class="style-photos-label">${upper("Design Inspiration")} (${assetsShared.length})</div>
              <div class="photo-grid">
                ${assetsShared
                  .map(
@@ -507,20 +732,23 @@ function styleSelectionsPages(
       return `
         <section class="page garment-page style-page">
           <header class="page-header">
-            <h2>Style Selections: ${esc(g.garmentLabel)}</h2>
+            <h2>${upper("Style Selections")}</h2>
             <div class="page-num">Page ${currentPageNum} of ${totalPageCount}</div>
           </header>
 
-          <div class="style-meta">
-            <span class="meta-pill">Garment Order</span>
-            <span class="meta-name">${esc(g.garmentLabel)}</span>
-            <span class="meta-dim">GO ID: ${esc(g.garmentOrder.id.slice(0, 8))}</span>
-            ${g.garmentOrder.status ? `<span class="meta-dim">Status: ${esc(g.garmentOrder.status.replace(/_/g, " "))}</span>` : ""}
+          <div class="style-hero">
+            <div class="style-hero-label">${esc(g.garmentLabel)}</div>
+            <div class="style-hero-meta">
+              <span>GO ${esc(g.garmentOrder.id.slice(0, 8))}</span>
+              ${g.garmentOrder.status ? `<span class="style-hero-status">${upper(g.garmentOrder.status.replace(/_/g, " "))}</span>` : ""}
+              ${countsLine ? `<span class="style-hero-counts">${esc(countsLine)}</span>` : ""}
+            </div>
           </div>
 
           ${assetsBlock}
 
-          ${tableHtml}
+          <div class="style-section-label">${upper("Design selections")}</div>
+          ${selectionsHtml}
 
           ${userNote}
 
@@ -529,6 +757,191 @@ function styleSelectionsPages(
       `;
     })
     .join("");
+}
+
+// ─── Cost breakdown (per-garment priced lines → order grand total) ──────────
+
+/**
+ * Build the Cost Breakdown page. Renders one card per garment order (base
+ * price, priced item lines, garment-scoped adjustments, garment total) and an
+ * order-level rollup (subtotal of garment totals, order-level adjustments,
+ * grand total band, advance paid + balance).
+ *
+ * The math mirrors be/app/core/pricing.py and the on-screen "Price Breakdown"
+ * card: garment total = base + Σ item lines + Σ garment adjustments; grand
+ * total = Σ garment totals + Σ order-level adjustments.
+ *
+ * IMPORTANT — grand total source: the grand total is ALWAYS the additive
+ * client-side sum (Σ garment totals + Σ order-level adjustments), exactly like
+ * the on-screen "Order total" card. We deliberately do NOT trust the backend
+ * `orders.total_price` for the displayed grand total: that column is only
+ * resynced for placed orders, so for drafts/pending it can be stale (this was
+ * the root cause of the ₹10,549 bug — a stale backend total overriding a
+ * correct line-sum of ₹3,708). The backend total is kept only as a quiet
+ * reference footnote when it disagrees, so discrepancies stay auditable
+ * without ever producing a wrong headline number.
+ *
+ * Reuses the existing `.style-table` / `.style-base-row` / `.style-total-row`
+ * CSS so the page looks native alongside the Style Selections pages.
+ */
+function costBreakdownPage(
+  input: CostBreakdownInput,
+  pageNum: number,
+  totalPageCount: number,
+): string {
+  // Per-garment cards.
+  let garmentsSum = 0;
+  const hasAnyGarment = input.groups.length > 0;
+
+  const garmentCards = input.groups
+    .map((g) => {
+      // Base price line (only when present and non-zero, matching the page).
+      const baseLines: string[] = [];
+      if (g.basePrice != null && g.basePrice !== 0) {
+        baseLines.push(
+          `<tr class="style-base-row"><td>Base price</td><td class="style-cell-price">${formatRupees(g.basePrice)}</td></tr>`,
+        );
+      }
+
+      // One line per priced item (null/0 hidden, matching the page gate).
+      const itemLines = (g.items ?? [])
+        .filter((it) => it.price != null && it.price !== 0)
+        .map(
+          (it) =>
+            `<tr><td>${esc(itemLabelText(it))}</td><td class="style-cell-price">${formatRupees(it.price)}</td></tr>`,
+        );
+
+      // Garment-scoped adjustments (signed rupees).
+      const adjLines = g.adjustments
+        .filter((a) => a.amount != null && a.amount !== 0)
+        .map((a) => {
+          const lbl = adjustmentLabelText(a.label);
+          const tag =
+            a.type === "discount"
+              ? "Discount"
+              : a.type === "fee"
+                ? "Fee"
+                : "Adjustment";
+          return `<tr><td><span class="meta-pill addon-pill">${upper(tag)}</span>${esc(lbl)}</td><td class="style-cell-price">${formatRupees(a.amount)}</td></tr>`;
+        });
+
+      // Garment total — additive from the visible lines so the card's rows
+      // always sum exactly to the displayed total (same invariant as the page).
+      const baseSum = g.basePrice ?? 0;
+      const itemsSum = (g.items ?? [])
+        .filter((it) => it.price != null)
+        .reduce((s, it) => s + (it.price ?? 0), 0);
+      const adjSum = g.adjustments.reduce((s, a) => s + (a.amount ?? 0), 0);
+      const garmentTotal = baseSum + itemsSum + adjSum;
+      garmentsSum += garmentTotal;
+
+      const bodyRows = [...baseLines, ...itemLines, ...adjLines].join("");
+      const rowsHtml = bodyRows
+        ? `<table class="style-table">
+             <thead><tr><th>${upper("Line item")}</th><th class="style-th-price">${upper("Amount")}</th></tr></thead>
+             <tbody>${bodyRows}</tbody>
+             <tfoot><tr><td>${upper("Garment total")}</td><td class="style-cell-price">${formatRupees(garmentTotal)}</td></tr></tfoot>
+           </table>`
+        : `<p class="muted">No priced lines for this garment.</p>`;
+
+      return `
+        <div class="cost-garment-card">
+          <div class="cost-card-head">
+            <span class="meta-pill">${upper("Garment")}</span>
+            <span class="meta-name">${esc(g.garmentLabel)}</span>
+            <span class="meta-dim">GO ${esc(g.garmentOrder.id.slice(0, 8))}</span>
+          </div>
+          ${rowsHtml}
+        </div>
+      `;
+    })
+    .join("");
+
+  // Order-level rollup.
+  const orderAdj = (input.orderAdjustments ?? []).filter(
+    (a) => a.amount != null && a.amount !== 0,
+  );
+  const orderAdjSum = orderAdj.reduce((s, a) => s + (a.amount ?? 0), 0);
+
+  // Grand total = additive client-side sum, ALWAYS. Never trust the backend
+  // orders.total_price for the headline (see the doc comment above).
+  const grandTotal = garmentsSum + orderAdjSum;
+
+  const orderAdjRows = orderAdj
+    .map((a) => {
+      const lbl = adjustmentLabelText(a.label);
+      const tag =
+        a.type === "discount"
+          ? "Discount"
+          : a.type === "fee"
+            ? "Fee"
+            : "Adjustment";
+      return `<tr><td><span class="meta-pill addon-pill">${upper(tag)}</span>${esc(lbl)}</td><td class="style-cell-price">${formatRupees(a.amount)}</td></tr>`;
+    })
+    .join("");
+
+  const advance = input.advanceAmount ?? 0;
+  const balance = grandTotal - advance;
+
+  const garmentRollupRows = input.groups
+    .map((g) => {
+      const baseSum = g.basePrice ?? 0;
+      const itemsSum = (g.items ?? [])
+        .filter((it) => it.price != null)
+        .reduce((s, it) => s + (it.price ?? 0), 0);
+      const adjSum = g.adjustments.reduce((s, a) => s + (a.amount ?? 0), 0);
+      const total = baseSum + itemsSum + adjSum;
+      return `<tr><td>${esc(g.garmentLabel)}</td><td class="style-cell-price">${formatRupees(total)}</td></tr>`;
+    })
+    .join("");
+
+  return `
+    <section class="page garment-page cost-page">
+      <header class="page-header">
+        <h2>${upper("Cost Breakdown")}</h2>
+        <div class="page-num">Page ${pageNum} of ${totalPageCount}</div>
+      </header>
+
+      ${
+        hasAnyGarment
+          ? `<div class="cost-garments">${garmentCards}</div>`
+          : `<p class="muted">No garment orders for this order.</p>`
+      }
+
+      <div class="cost-rollup">
+        <h3 class="cost-rollup-title">${upper("Order Total")}</h3>
+        <table class="style-table cost-rollup-table">
+          <tbody>
+            ${garmentRollupRows}
+            <tr class="style-base-row"><td>${upper("Garment subtotal")}</td><td class="style-cell-price">${formatRupees(garmentsSum)}</td></tr>
+            ${orderAdjRows}
+          </tbody>
+          <tfoot>
+            <tr class="style-total-row"><td>${upper("Grand total")}</td><td class="style-cell-price">${formatRupees(grandTotal)}</td></tr>
+          </tfoot>
+        </table>
+
+        <div class="cost-totals-row">
+          <div class="cost-total-cell">
+            <div class="value-label">${upper("Advance paid")}</div>
+            <div class="value-text">${formatRupees(advance)}</div>
+          </div>
+          <div class="cost-total-cell">
+            <div class="value-label">${upper("Balance due")}</div>
+            <div class="value-text">${formatRupees(balance)}</div>
+          </div>
+        </div>
+
+        ${
+          input.orderTotal != null && input.orderTotal !== grandTotal
+            ? `<p class="cost-source-note">Recorded order total on file: ${formatRupees(input.orderTotal)} (line items above sum to ${formatRupees(grandTotal)}).</p>`
+            : ""
+        }
+      </div>
+
+      <footer class="report-footer">DRAEP Measurement Report • Page ${pageNum} of ${totalPageCount}</footer>
+    </section>
+  `;
 }
 
 // ─── Public entry point ──────────────────────────────────────────────────
@@ -546,6 +959,17 @@ export interface JobPdfInput {
    * page is rendered for each garment order.
    */
   styleSelections?: StyleSelectionGroup[];
+  /**
+   * Which sections to include. Omit (or pass all-true) to get the default
+   * report. The cover page always renders; these flags only gate the
+   * content sections and the cover's customer-details enrichment.
+   */
+  sections?: PdfSectionOptions;
+  /**
+   * Optional Cost Breakdown page data. Rendered only when
+   * `sections.costBreakdown` is true (default) AND this field is provided.
+   */
+  costBreakdown?: CostBreakdownInput;
 }
 
 /**
@@ -573,10 +997,17 @@ export async function downloadMeasurementJobPdf(
     job,
     customer,
     order,
+    address,
     bodyMeasurements,
     garmentMeasurements,
     styleSelections,
+    sections,
+    costBreakdown,
   } = input;
+
+  // Resolve section toggles. Default = all on, so omitting `sections` (or any
+  // individual flag) reproduces the pre-customization report exactly.
+  const opts: PdfSectionOptions = { ...ALL_SECTIONS, ...(sections ?? {}) };
 
   // Lazily import the heavy libraries so they don't bloat the main bundle
   // (Next.js code-splits dynamic imports automatically).
@@ -612,40 +1043,59 @@ export async function downloadMeasurementJobPdf(
     }
   }
 
-  // Compute pagination. Page order is:
-  //   1 cover  →  garment details  →  style selections  →  body measurements
-  // (Body measurements come LAST now: a tailor reads the garment/style spec
-  //  first, then the per-measurement guide pages.)
+  // Compute pagination. The cover page ALWAYS renders (title page). Each
+  // content section is gated by its toggle in `opts`. Page order is:
+  //   1 cover  →  fabric (garment details)  →  design (style selections)
+  //            →  cost breakdown  →  body measurements
+  // (Body measurements come LAST: a tailor reads the spec pages first, then
+  //  the per-measurement guide pages.)
   const bodyPerPage = 1;
-  const bodyPages = Math.max(1, Math.ceil(bodyMeasurements.length / bodyPerPage));
-  const garmentPages = Math.max(1, garmentMeasurements.length);
   const styleGroups = styleSelections ?? [];
-  const stylePages = styleGroups.length;
-  const totalPages =
-    1 /* cover */ + garmentPages + stylePages + bodyPages;
 
-  // Page-number offsets for each section (cover is page 1).
+  // A disabled section contributes 0 pages; an enabled one contributes its
+  // natural page count. Garment/style sections emit one page per group when
+  // enabled (and at least the placeholder page the builder renders when the
+  // group list is empty — so an enabled-but-empty section still gets a page).
+  const garmentPages = opts.fabricDetails ? Math.max(1, garmentMeasurements.length) : 0;
+  const stylePages = opts.designDetails ? styleGroups.length : 0;
+  const bodyPages = opts.measurementDetails
+    ? Math.max(1, Math.ceil(bodyMeasurements.length / bodyPerPage))
+    : 0;
+  const costPages =
+    opts.costBreakdown && costBreakdown ? 1 : 0;
+
+  const totalPages =
+    1 /* cover */ + garmentPages + stylePages + costPages + bodyPages;
+
+  // Page-number offsets for each section (cover is page 1). Each start offset
+  // is only meaningful when its section is enabled; we still compute them
+  // unconditionally so the page-footers stay sequential regardless of which
+  // sections are toggled on/off.
   const garmentStart = 2;
   const styleStart = garmentStart + garmentPages;
-  const bodyStart = styleStart + stylePages;
+  const costStart = styleStart + stylePages;
+  const bodyStart = costStart + costPages;
 
-  const garmentSections = garmentDetailsPages(
-    garmentMeasurements,
-    garmentStart,
-    totalPages,
-  );
+  const garmentSections = opts.fabricDetails
+    ? garmentDetailsPages(garmentMeasurements, garmentStart, totalPages)
+    : "";
 
-  const styleSections = styleSelectionsPages(
-    styleGroups,
-    styleStart,
-    totalPages,
-  );
+  const styleSections = opts.designDetails
+    ? styleSelectionsPages(styleGroups, styleStart, totalPages)
+    : "";
+
+  const costSection =
+    opts.costBreakdown && costBreakdown
+      ? costBreakdownPage(costBreakdown, costStart, totalPages)
+      : "";
 
   // Slice body measurements into pages of 1 (large guide photo per page).
   const bodySections: string[] = [];
-  for (let i = 0; i < bodyPages; i++) {
-    const slice = bodyMeasurements.slice(i * bodyPerPage, (i + 1) * bodyPerPage);
-    bodySections.push(bodyMeasurementsPage(slice, bodyStart + i, totalPages));
+  if (opts.measurementDetails) {
+    for (let i = 0; i < bodyPages; i++) {
+      const slice = bodyMeasurements.slice(i * bodyPerPage, (i + 1) * bodyPerPage);
+      bodySections.push(bodyMeasurementsPage(slice, bodyStart + i, totalPages));
+    }
   }
 
   const fullHtml = `<!doctype html>
@@ -658,9 +1108,10 @@ export async function downloadMeasurementJobPdf(
   </style>
 </head>
 <body>
-  ${coverPage(job, customer, order, voiceNote)}
+  ${coverPage(job, customer, order, voiceNote, opts.customerDetails, address)}
   ${garmentSections}
   ${styleSections}
+  ${costSection}
   ${bodySections.join("")}
 </body>
 </html>`;
@@ -728,6 +1179,10 @@ export async function downloadMeasurementJobPdf(
     // Rasterize each .page element to a canvas, add to PDF as one page each.
     for (let i = 0; i < pageEls.length; i++) {
       const el = pageEls[i];
+      // Label each page for the progress indicator. Boundaries use the
+      // section start offsets computed above; when a section is toggled off
+      // its start offset collapses into the next section's, so the ranges
+      // stay correct regardless of which sections are included.
       const label =
         i === 0
           ? "Cover page"
@@ -735,9 +1190,11 @@ export async function downloadMeasurementJobPdf(
             ? "Cover page"
             : i < styleStart
               ? `Garment details page ${i - garmentStart + 1}`
-              : i < bodyStart
+              : i < costStart
                 ? `Style selections page ${i - styleStart + 1}`
-                : `Body measurements page ${i - bodyStart + 1}`;
+                : i < bodyStart
+                  ? `Cost breakdown page ${i - costStart + 1}`
+                  : `Body measurements page ${i - bodyStart + 1}`;
       onProgress?.(i, pageEls.length, `Rendering ${label}…`);
 
       // Allow the browser to paint the progress update before the
@@ -1054,7 +1511,9 @@ const PRINT_CSS = `
   .page-header h2 {
     font-size: 13pt;
     font-weight: 700;
-    text-transform: uppercase;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
     letter-spacing: 1pt;
     color: #0f172a;
     border-bottom: 1px solid #cbd5e1;
@@ -1250,7 +1709,9 @@ const PRINT_CSS = `
   }
   .value-label {
     font-size: 9pt;
-    text-transform: uppercase;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
     color: #94a3b8;
     letter-spacing: 1pt;
     margin-bottom: 4pt;
@@ -1287,14 +1748,21 @@ const PRINT_CSS = `
   }
   .meta-pill {
     display: inline-block;
-    padding: 2pt 8pt;
+    padding: 3pt 10pt;
     background: #0f172a;
     color: #ffffff;
     font-size: 8.5pt;
-    text-transform: uppercase;
-    letter-spacing: 0.8pt;
-    border-radius: 999pt;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
     font-weight: 600;
+    white-space: nowrap;
+    /* Square corners + generous padding (NOT border-radius:999pt): html2canvas
+       under-paints the background of inline-block pills with padding, clipping
+       the right edge of the text. A square box with ample horizontal padding
+       leaves enough background on all sides to cover the text reliably. */
+    letter-spacing: 0;
+    border-radius: 2pt;
   }
   .meta-name {
     font-weight: 700;
@@ -1345,7 +1813,9 @@ const PRINT_CSS = `
   .color-banner-label {
     font-size: 11pt;
     font-weight: 700;
-    text-transform: uppercase;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
     letter-spacing: 1.2pt;
     color: #ffffff;
     background: rgba(0,0,0,0.55);
@@ -1396,6 +1866,28 @@ const PRINT_CSS = `
   }
   .muted { color: #94a3b8; font-style: italic; }
 
+  /* Per-garment measurement readings (garment-scoped) on garment pages */
+  .garment-readings { margin: 4pt 0 8pt; }
+  .block-title {
+    font-size: 9pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #0f172a;
+    margin: 6pt 0 4pt;
+  }
+  .readings-table { width: 100%; border-collapse: collapse; }
+  .readings-table td {
+    padding: 3pt 8pt;
+    font-size: 10pt;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .readings-table td.mono {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    text-align: right;
+    white-space: nowrap;
+  }
+
   .report-footer {
     margin-top: auto;
     padding-top: 10pt;
@@ -1419,7 +1911,9 @@ const PRINT_CSS = `
   .style-photos-label {
     font-size: 9pt;
     font-weight: 600;
-    text-transform: uppercase;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
     letter-spacing: 0.8pt;
     color: #475569;
     margin-bottom: 6pt;
@@ -1427,6 +1921,156 @@ const PRINT_CSS = `
   .addon-pill {
     background: #6d28d9 !important; /* purple, distinguishes from black */
     margin-right: 6pt;
+  }
+
+  /* ─── Style selections page — redesigned hero + spec chips ──────────── */
+
+  /* Hero banner: garment name big, with GO id / status / counts beneath. */
+  .style-hero {
+    border: 1px solid #e2e8f0;
+    border-left: 5pt solid #0f172a;
+    border-radius: 8pt;
+    padding: 14pt 16pt;
+    margin-bottom: 16pt;
+    background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  }
+  .style-hero-label {
+    font-size: 18pt;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: 0.3pt;
+    margin-bottom: 6pt;
+    line-height: 1.2;
+  }
+  .style-hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10pt;
+    font-size: 9.5pt;
+    color: #64748b;
+  }
+  .style-hero-status {
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
+    font-weight: 600;
+    color: #0f172a;
+    background: #e2e8f0;
+    padding: 3pt 10pt;
+    /* Square corners (NOT border-radius:999pt): html2canvas under-paints the
+       background of inline-block pills with padding, clipping the text. Same
+       fix as .meta-pill / .spec-chip-badge. */
+    border-radius: 2pt;
+    font-size: 8.5pt;
+    white-space: nowrap;
+    letter-spacing: 0;
+  }
+  .style-hero-counts { color: #94a3b8; }
+
+  /* Section label above the spec grid. */
+  .style-section-label {
+    font-size: 9pt;
+    font-weight: 700;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
+    letter-spacing: 1pt;
+    color: #475569;
+    margin: 4pt 0 10pt 0;
+    padding-bottom: 4pt;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  /* Spec grid: a two-column table layout. We deliberately use display:table
+     (NOT CSS grid) because html2canvas renders tables/inline-block reliably
+     while its CSS Grid support is flaky — grid 1fr columns often resolve
+     wrong and let children overflow their cell. Fixed 50/50 table columns
+     guarantee each chip stays inside its half of the page width. */
+  .spec-grid {
+    display: table;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 10pt 0;
+    table-layout: fixed;
+    margin: 0 -10pt 12pt -10pt; /* cancel outer spacing so it aligns */
+  }
+  .spec-grid-row { display: table-row; }
+  .spec-cell {
+    display: table-cell;
+    width: 50%;
+    vertical-align: top;
+  }
+  .spec-chip {
+    border: 1px solid #e2e8f0;
+    border-radius: 8pt;
+    padding: 10pt 12pt;
+    background: #ffffff;
+  }
+  /* Header row inside each chip: component label on the left, badge on the
+     right. Inline (NOT absolutely positioned) so html2canvas measures it in
+     normal flow — absolute positioning was the main cause of the badge text
+     overflowing the chip edge. */
+  .spec-chip-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8pt;
+    margin-bottom: 4pt;
+  }
+  .spec-chip-component {
+    font-size: 8.5pt;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
+    letter-spacing: 0.4pt;
+    color: #94a3b8;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .spec-chip-choice {
+    font-size: 12pt;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.3;
+    word-break: break-word;
+  }
+  .spec-chip-placement {
+    font-size: 9pt;
+    color: #64748b;
+    margin-top: 4pt;
+    font-style: italic;
+  }
+  /* Add-on chips get a purple accent to distinguish from design variations. */
+  .spec-chip-addon {
+    border-color: #ddd6fe;
+    background: #faf5ff;
+  }
+  .spec-chip-badge {
+    display: inline-block;
+    flex: 0 0 auto;
+    font-size: 7.5pt;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
+    font-weight: 700;
+    color: #ffffff;
+    background: #6d28d9;
+    /* WHY these specific values: html2canvas under-sizes the painted
+       background of an inline-block with padding (it paints the bg at the
+       content-box width, ignoring padding), so a tight pill with
+       border-radius:999pt clips the badge text on the right. An EXPLICIT
+       width + square corners + content-box + generous padding makes the
+       background wide enough to fully cover the text. Verified at scale 3. */
+    padding: 3pt 14pt;
+    width: 46pt;
+    text-align: center;
+    letter-spacing: 0;
+    box-sizing: content-box;
+    border-radius: 3pt;
+    white-space: nowrap;
   }
   .style-table {
     width: 100%;
@@ -1438,7 +2082,9 @@ const PRINT_CSS = `
     background: #f1f5f9;
     color: #475569;
     font-weight: 600;
-    text-transform: uppercase;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
     letter-spacing: 0.8pt;
     font-size: 9pt;
     text-align: left;
@@ -1476,5 +2122,90 @@ const PRINT_CSS = `
     color: #ffffff !important;
     font-size: 12pt;
     font-weight: 700;
+  }
+
+  /* ─── Cost breakdown page ────────────────────────────────────────────── */
+
+  .cost-garments {
+    display: flex;
+    flex-direction: column;
+    gap: 12pt;
+    margin-bottom: 16pt;
+  }
+  .cost-garment-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 8pt;
+    padding: 12pt;
+    background: #ffffff;
+    break-inside: avoid;
+  }
+  .cost-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8pt;
+    margin-bottom: 8pt;
+    font-size: 10.5pt;
+  }
+  .cost-garment-card .style-table { margin-top: 4pt; }
+  /* Rollup table: no per-row borders between the garment rollup lines so it
+     reads as a clean summary, not an itemized ledger. */
+  .cost-rollup-table tbody td {
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  .cost-rollup {
+    border: 1px solid #cbd5e1;
+    border-radius: 8pt;
+    padding: 14pt 16pt;
+    background: #f8fafc;
+    break-inside: avoid;
+  }
+  .cost-rollup-title {
+    margin: 0 0 10pt 0;
+    font-size: 13pt;
+    font-weight: 700;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
+    letter-spacing: 1pt;
+    color: #0f172a;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 4pt;
+  }
+  .cost-rollup .style-table { margin-bottom: 12pt; }
+
+  .cost-totals-row {
+    display: flex;
+    gap: 14pt;
+    margin-top: 8pt;
+  }
+  .cost-total-cell {
+    flex: 1 1 0;
+    text-align: center;
+    border: 1px solid #e2e8f0;
+    border-radius: 6pt;
+    padding: 10pt 8pt;
+    background: #ffffff;
+  }
+  .cost-total-cell .value-label {
+    font-size: 9pt;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
+    color: #94a3b8;
+    letter-spacing: 1pt;
+    margin-bottom: 4pt;
+  }
+  .cost-total-cell .value-text {
+    font-size: 18pt;
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .cost-source-note {
+    margin: 10pt 0 0 0;
+    font-size: 8.5pt;
+    color: #94a3b8;
+    font-style: italic;
   }
 `;

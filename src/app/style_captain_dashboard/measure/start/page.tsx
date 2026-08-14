@@ -1,14 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { scCreateWalkInJob } from "@/lib/style-captain-api";
+import {
+  scCreateWalkInJob,
+  scFetchCatalogueGarments,
+  type SCGarmentBrief,
+} from "@/lib/style-captain-api";
+import { pickLabel } from "@/lib/sc-helpers";
 
 /**
- * Walk-in measurement start — captures customer name + phone.
- * If the user doesn't exist, the backend creates one automatically.
- * A new in-progress measurement job is created and the captain is
- * taken straight into the measurement flow.
+ * Walk-in measurement start — captures customer name + phone + the intended
+ * garment type. If the user doesn't exist, the backend creates one
+ * automatically. The garment type drives the measurement checklist (a real
+ * order + garment order are created server-side), so the wizard resolves the
+ * right metrics immediately. A new in-progress measurement job is created and
+ * the captain is taken straight into the measurement flow.
  */
 export default function MeasureStartPage() {
   const router = useRouter();
@@ -16,12 +23,26 @@ export default function MeasureStartPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
+  const [garments, setGarments] = useState<SCGarmentBrief[]>([]);
+  const [garmentId, setGarmentId] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Garment-type picker options
+  useEffect(() => {
+    scFetchCatalogueGarments()
+      .then((rows) => {
+        setGarments(rows);
+        if (rows.length > 0) setGarmentId((cur) => cur || rows[0].id);
+      })
+      .catch(() => {
+        /* picker starts empty — submit stays disabled */
+      });
+  }, []);
+
   const phoneValid = /^\d{10}$/.test(phone.replace(/\s+/g, ""));
   const nameValid = name.trim().length >= 2;
-  const canSubmit = phoneValid && nameValid && !loading;
+  const canSubmit = phoneValid && nameValid && !!garmentId && !loading;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,6 +54,7 @@ export default function MeasureStartPage() {
       const result = await scCreateWalkInJob(
         name.trim(),
         phone.replace(/\s+/g, ""),
+        garmentId,
         notes.trim() || undefined,
       );
       router.push(
@@ -141,6 +163,32 @@ export default function MeasureStartPage() {
                 Enter a valid 10-digit phone number.
               </p>
             )}
+          </div>
+
+          {/* Garment type — drives the checklist */}
+          <div className="mt-4">
+            <label
+              htmlFor="walk-in-garment"
+              className="mb-1 block text-caption font-medium text-ink-navy"
+            >
+              Garment type <span className="text-error-text">*</span>
+            </label>
+            <select
+              id="walk-in-garment"
+              value={garmentId}
+              onChange={(e) => setGarmentId(e.target.value)}
+              className="w-full rounded-card border border-hairline-strong bg-chalk-white px-4 py-3 text-body text-ink outline-none focus:border-accent-text focus:ring-2 focus:ring-accent-text/30"
+            >
+              {garments.length === 0 && <option value="">Loading garments…</option>}
+              {garments.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {pickLabel(g.labels, g.slug ?? "Garment")}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-muted">
+              Sets which measurements the checklist asks for.
+            </p>
           </div>
 
           {/* Notes (optional) */}

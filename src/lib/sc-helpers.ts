@@ -107,14 +107,23 @@ export function findMetric(metrics: SCMetric[], id: string | null): SCMetric | n
   return metrics.find((m) => m.id === id) ?? null;
 }
 
-/** Find the existing measurement value for a metric on a job. */
+/** Find the existing measurement value for a metric on a job.
+ *
+ *  garmentOrderId omitted/undefined → base reading (garment_order_id NULL).
+ *  Pass a garment order id → that instance's reading. Note: `undefined`
+ *  matches base-only; pass `null` explicitly to get any-scope fallback
+ *  (legacy flat captures had no scope).
+ */
 export function existingValue(
   job: SCJob,
   metricId: string,
+  garmentOrderId?: string,
 ): { numeric: number | null; text: string | null; unit: string | null } {
-  const m = job.measurements.find(
-    (x) => x.measurement_metric_id === metricId,
-  );
+  const m = job.measurements.find((x) => {
+    if (x.measurement_metric_id !== metricId) return false;
+    if (garmentOrderId === undefined) return x.garment_order_id == null;
+    return x.garment_order_id === garmentOrderId;
+  });
   return {
     numeric: m?.value_numeric ?? null,
     text: m?.value_text ?? null,
