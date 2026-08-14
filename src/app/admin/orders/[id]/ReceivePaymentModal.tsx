@@ -99,10 +99,11 @@ export function ReceivePaymentModal({
     getOrderBalance(orderId)
       .then((b) => {
         setBalance(b);
-        // Prefill the receive amount from the order grand total (the full
-        // amount the customer owes), not just the balance due.
+        // Prefill the receive amount with the amount due (total minus what's
+        // already captured) — the "Use order total" shortcut below covers the
+        // rare full-amount case.
         if (tab === "receive") {
-          const prefill = totalPrice ?? b.total_price ?? b.balance_due;
+          const prefill = b.balance_due ?? totalPrice ?? b.total_price;
           setAmount(prefill && prefill > 0 ? String(prefill) : "");
         } else {
           const refundable = (b.captured ?? 0) - (b.refunded ?? 0);
@@ -355,7 +356,7 @@ export function ReceivePaymentModal({
             </p>
           </div>
 
-          {/* Amount — prefilled from order grand total */}
+          {/* Amount — prefilled with the amount due */}
           <div>
             <label className="mb-1.5 block text-[10px] font-medium uppercase tracking-wide text-muted">
               Amount (₹)
