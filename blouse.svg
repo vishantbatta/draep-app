@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="460" viewBox="0 0 400 460">
+<line x1="165" y1="125" x2="130" y2="138" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="130" y1="138" x2="108" y2="152" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="108" y1="152" x2="120" y2="178" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="120" y1="178" x2="140" y2="182" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="140" y1="182" x2="145" y2="295" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="145" y1="295" x2="255" y2="295" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="255" y1="295" x2="260" y2="182" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="260" y1="182" x2="280" y2="178" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="280" y1="178" x2="292" y2="152" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="292" y1="152" x2="270" y2="138" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="270" y1="138" x2="235" y2="125" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<path d="M 235 125 Q 200 160 165 125" fill="none" stroke="#f89010" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="170" y1="295" x2="183" y2="230" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="183" y1="230" x2="195" y2="295" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="205" y1="295" x2="217" y2="230" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+<line x1="217" y1="230" x2="230" y2="295" stroke="#f89010" stroke-width="2" stroke-linecap="round"/>
+</svg>

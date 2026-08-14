@@ -1765,6 +1765,54 @@ export function fetchCalendar(
   return adminFetch<CalendarResponse>(`/admin/calendar${qs ? `?${qs}` : ""}`);
 }
 
+// ─── Admin visit creation / reassignment (auto-assign supported) ───────────
+
+export interface AdminBookingResult {
+  job_id: string;
+  captain_id: string;
+  slot_id: string;
+  scheduled_at: string;
+  status: string;
+  assigned_via: "auto" | "admin";
+}
+
+/** POST /admin/bookings — schedule a visit for an order. captainId omitted
+ *  → the backend auto-assigns the least-utilized free captain (same scorer
+ *  as the customer booking flow) and holds the slot claim immediately. */
+export function adminCreateBooking(
+  orderId: string,
+  startAt: string,
+  captainId?: string,
+): Promise<AdminBookingResult> {
+  return adminFetch<AdminBookingResult>("/admin/bookings", {
+    method: "POST",
+    body: JSON.stringify({
+      order_id: orderId,
+      start_at: startAt,
+      ...(captainId ? { captain_id: captainId } : {}),
+    }),
+  });
+}
+
+/** POST /admin/bookings/{jobId}/reassign — move a job to a captain.
+ *  captainId omitted → auto-assign the least-utilized free captain at the
+ *  target time; startAt omitted → keep the job's current scheduled_at. */
+export function adminReassignBooking(
+  jobId: string,
+  opts: { captainId?: string; startAt?: string } = {},
+): Promise<AdminBookingResult> {
+  return adminFetch<AdminBookingResult>(
+    `/admin/bookings/${jobId}/reassign`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ...(opts.captainId ? { captain_id: opts.captainId } : {}),
+        ...(opts.startAt ? { start_at: opts.startAt } : {}),
+      }),
+    },
+  );
+}
+
 // ─── Design AI (image → Gemini analysis) ────────────────────────────────────
 
 export interface AISelection {

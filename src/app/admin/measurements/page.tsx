@@ -5,8 +5,14 @@ import { useRouter } from "next/navigation";
 import {
   fetchAll,
   getLabel,
+  listMeasurementLinks,
   updateTablePriorityOrder,
+  type EntityMeasurementLink,
 } from "@/lib/admin-api";
+import {
+  loadEntityHierarchy,
+  type EntityHierarchy,
+} from "@/lib/entity-hierarchy";
 import {
   ConfirmDelete,
   EmptyState,
@@ -20,6 +26,8 @@ import {
   Thumbnail,
 } from "@/app/admin/catalogue/_shared/catalogue-helpers";
 import { ConditionBuilderModal } from "./ConditionBuilder";
+import { MetricEntityLinksSection } from "./MetricEntityLinksSection";
+import { EntityLinksPanel } from "./EntityLinksPanel";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  Types
@@ -36,27 +44,10 @@ interface Metric {
   priority_order: number | null;
 }
 
-interface GarmentMetric {
-  id: string;
-  garment_id: string | null;
-  measurement_metric_id: string | null;
-  priority_order: number | null;
-  is_required: boolean | null;
-  condition_component_id: string | null;
-  condition_note: string | null;
-}
-
 interface Garment {
   id: string;
   slug: string | null;
   labels: Record<string, string> | null;
-}
-
-interface StyleComponent {
-  id: string;
-  slug: string | null;
-  labels: Record<string, string> | null;
-  garment_id: string | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -212,10 +203,11 @@ function MeasurementsPageInner() {
   const router = useRouter();
 
   // ─── State ────────────────────────────────────────────────────────────────
+  const [adminView, setAdminView] = useState<"catalog" | "links">("catalog");
   const [metrics, setMetrics] = useState<Metric[]>([]);
-  const [garmentMetrics, setGarmentMetrics] = useState<GarmentMetric[]>([]);
   const [garments, setGarments] = useState<Garment[]>([]);
-  const [components, setComponents] = useState<StyleComponent[]>([]);
+  const [entityLinks, setEntityLinks] = useState<EntityMeasurementLink[]>([]);
+  const [hierarchy, setHierarchy] = useState<EntityHierarchy | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -266,16 +258,21 @@ function MeasurementsPageInner() {
     );
   }, []);
 
-  // ─── Emit secondary sidebar items — Catalogue sub-tabs ─────────────────────
+  // ─── Emit secondary sidebar items — Configure sub-tabs ─────────────────────
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent("admin-sidebar-update", {
         detail: {
           items: [
             {
-              label: "Catalogue",
+              label: "Slot Scheduling",
               active: false,
-              onClick: () => router.push("/admin/catalogue"),
+              onClick: () => router.push("/admin/actions/slot-scheduling"),
+            },
+            {
+              label: "URLs",
+              active: false,
+              onClick: () => router.push("/admin/actions/urls"),
             },
             {
               label: "Measurements",
@@ -301,11 +298,11 @@ function MeasurementsPageInner() {
     setLoading(true);
     Promise.all([
       fetchAll<Metric>("measurement_metrics"),
-      fetchAll<GarmentMetric>("garment_measurement_metrics"),
       fetchAll<Garment>("garments"),
-      fetchAll<StyleComponent>("garment_style_component"),
+      listMeasurementLinks(),
+      loadEntityHierarchy(),
     ])
-      .then(([m, gm, g, c]) => {
+      .then(([m, g, links, h]) => {
         // Sort by priority_order (nulls/zero last), then by code as secondary key
         m.sort((a, b) => {
           const pa = a.priority_order ?? Number.MAX_SAFE_INTEGER;
@@ -314,9 +311,9 @@ function MeasurementsPageInner() {
           return (a.code ?? "").localeCompare(b.code ?? "");
         });
         setMetrics(m);
-        setGarmentMetrics(gm);
         setGarments(g);
-        setComponents(c);
+        setEntityLinks(links);
+        setHierarchy(h);
       })
       .catch((e) => setError(e.message ?? "Failed to load"))
       .finally(() => setLoading(false));
@@ -329,55 +326,31 @@ function MeasurementsPageInner() {
     return map;
   }, [garments]);
 
-  const componentMap = useMemo(() => {
-    const map = new Map<string, StyleComponent>();
-    components.forEach((c) => map.set(c.id, c));
-    return map;
-  }, [components]);
-
-  // ─── For each metric, find connected garments + components ────────────────
-  const metricConnections = useMemo(() => {
-    const connections = new Map<
-      string,
-      { garments: { garment: Garment; gm: GarmentMetric }[]; components: StyleComponent[] }
-    >();
-
-    for (const metric of metrics) {
-      connections.set(metric.id, { garments: [], components: [] });
+  // ─── Entity links per metric (drives chips + garment filter) ──────────────
+  const metricLinks = useMemo(() => {
+    const byMetric = new Map<string, EntityMeasurementLink[]>();
+    metrics.forEach((m) => byMetric.set(m.id, []));
+    for (const link of entityLinks) {
+      const arr = byMetric.get(link.measurement_metric_id ?? "");
+      if (arr) arr.push(link);
     }
-
-    for (const gm of garmentMetrics) {
-      const conn = connections.get(gm.measurement_metric_id ?? "");
-      if (!conn) continue;
-      const garment = gm.garment_id ? garmentMap.get(gm.garment_id) : null;
-      if (garment) {
-        conn.garments.push({ garment, gm });
-        // Also resolve the condition component
-        if (gm.condition_component_id) {
-          const comp = componentMap.get(gm.condition_component_id);
-          if (comp && !conn.components.find((c) => c.id === comp.id)) {
-            conn.components.push(comp);
-          }
-        }
-      }
-    }
-
-    return connections;
-  }, [metrics, garmentMetrics, garmentMap, componentMap]);
+    return byMetric;
+  }, [metrics, entityLinks]);
 
   // ─── Filtered metrics ─────────────────────────────────────────────────────
   const filteredMetrics = useMemo(() => {
     let result = metrics;
 
-    // Filter by garment
+    // Filter by garment — a metric matches if any of its entity links
+    // resolves (through the catalogue hierarchy) to that garment.
     if (filterGarmentId) {
-      const metricIdsForGarment = new Set(
-        garmentMetrics
-          .filter((gm) => gm.garment_id === filterGarmentId)
-          .map((gm) => gm.measurement_metric_id)
-          .filter(Boolean) as string[],
+      result = result.filter((m) =>
+        (metricLinks.get(m.id) ?? []).some(
+          (l) =>
+            hierarchy?.optionFor(l.entity_type, l.entity_id)?.garmentId ===
+            filterGarmentId,
+        ),
       );
-      result = result.filter((m) => metricIdsForGarment.has(m.id));
     }
 
     // Search
@@ -392,7 +365,7 @@ function MeasurementsPageInner() {
     }
 
     return result;
-  }, [metrics, filterGarmentId, garmentMetrics, search]);
+  }, [metrics, filterGarmentId, metricLinks, hierarchy, search]);
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -406,6 +379,27 @@ function MeasurementsPageInner() {
 
       {/* ═══ Content area ══════════════════════════════════════════════════ */}
       <div className="mx-auto max-w-7xl px-4 pb-16 md:px-6">
+        {/* ─── View switcher: catalog vs entity links ─────────────────────── */}
+        <div className="mb-4 flex items-center gap-2">
+          {(["catalog", "links"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setAdminView(v)}
+              className={`tap rounded-pill px-4 py-2 text-[13px] font-semibold transition ${
+                adminView === v
+                  ? "bg-ink-navy text-chalk-white shadow-card"
+                  : "border border-hairline-strong bg-chalk-white text-muted hover:text-ink-navy"
+              }`}
+            >
+              {v === "catalog" ? "Metric catalog" : "Entity links"}
+            </button>
+          ))}
+        </div>
+
+        {adminView === "links" ? (
+          <EntityLinksPanel />
+        ) : (
+          <>
         {/* ─── Filter bar ──────────────────────────────────────────────────── */}
         <div className="sticky top-0 z-10 -mx-4 mb-6 border-b border-hairline bg-warm-sand/90 px-4 py-3 backdrop-blur-sm md:-mx-6 md:px-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -474,14 +468,12 @@ function MeasurementsPageInner() {
             disabled={!!filterGarmentId || search.trim().length > 0}
             onReorder={reorder}
             renderItem={(metric) => {
-              const conn = metricConnections.get(metric.id);
               return (
                 <MetricCard
                   metric={metric}
-                  garments={conn?.garments ?? []}
-                  components={conn?.components ?? []}
+                  links={metricLinks.get(metric.id) ?? []}
+                  hierarchy={hierarchy}
                   garmentMap={garmentMap}
-                  componentMap={componentMap}
                   onEdit={() => {
                     setEditMetric(metric);
                     setEditMode("edit");
@@ -492,6 +484,8 @@ function MeasurementsPageInner() {
             }}
           />
         )}
+        </>
+        )}
       </div>
 
       {/* ═══ Edit / Create modal ════════════════════════════════════════════ */}
@@ -499,8 +493,6 @@ function MeasurementsPageInner() {
         <MetricFormModal
           mode="create"
           metric={null}
-          garments={garments}
-          existingGarmentMetricRows={[]}
           onClose={() => setShowCreateModal(false)}
           onSaved={() => {
             setShowCreateModal(false);
@@ -512,10 +504,6 @@ function MeasurementsPageInner() {
         <MetricFormModal
           mode="edit"
           metric={editMetric}
-          garments={garments}
-          existingGarmentMetricRows={garmentMetrics.filter(
-            (gm) => gm.measurement_metric_id === editMetric.id,
-          )}
           onClose={() => setEditMetric(null)}
           onSaved={() => {
             setEditMetric(null);
@@ -528,7 +516,7 @@ function MeasurementsPageInner() {
       <ConfirmDelete
         open={!!deleteTarget}
         title="Delete Metric"
-        message={`Delete "${deleteTarget ? getLabel(deleteTarget.labels, deleteTarget.slug, deleteTarget.id) : ""}"? This will also remove all garment mappings for this metric.`}
+          message={`Delete "${deleteTarget ? getLabel(deleteTarget.labels, deleteTarget.slug, deleteTarget.id) : ""}"? This will also remove all entity attachments for this metric.`}
         onConfirm={async () => {
           if (!deleteTarget) return;
           // Delete via generic table API
@@ -656,7 +644,7 @@ function MeasureHeader({
             Measurements
           </h1>
           <p className="mt-1 max-w-lg text-[13px] leading-relaxed text-chalk-white/60">
-            {count} body metrics in the catalog — each card shows connected garments and style components.
+            {count} body metrics in the catalog — each card shows the garments and entities it is attached to.
           </p>
         </div>
 
@@ -790,23 +778,21 @@ function ReorderableMetricGrid({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  Metric Card — shows metric info + connected garments/components as tags
+//  Metric Card — shows metric info + entity-attachment tags (garments/entities)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function MetricCard({
   metric,
-  garments,
-  components,
+  links,
+  hierarchy,
   garmentMap,
-  componentMap,
   onEdit,
   onDelete,
 }: {
   metric: Metric;
-  garments: { garment: Garment; gm: GarmentMetric }[];
-  components: StyleComponent[];
+  links: EntityMeasurementLink[];
+  hierarchy: EntityHierarchy | null;
   garmentMap: Map<string, Garment>;
-  componentMap: Map<string, StyleComponent>;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -814,15 +800,35 @@ function MetricCard({
   const label = getLabel(metric.labels, metric.slug, metric.id);
   const desc = metric.descriptions?.en ?? null;
 
-  // Unique garments
+  // Resolve each link to its hierarchy option once.
+  const resolved = useMemo(
+    () =>
+      links
+        .map((l) => ({ link: l, option: hierarchy?.optionFor(l.entity_type, l.entity_id) ?? null }))
+        .filter((r) => r.option !== null),
+    [links, hierarchy],
+  );
+
+  // Garments the metric reaches, through any entity level.
   const uniqueGarments = useMemo(() => {
-    const seen = new Set<string>();
-    return garments.filter((g) => {
-      if (seen.has(g.garment.id)) return false;
-      seen.add(g.garment.id);
-      return true;
-    });
-  }, [garments]);
+    const byId = new Map<string, { garment: Garment; required: boolean }>();
+    for (const { link, option } of resolved) {
+      const garment = option!.garmentId ? garmentMap.get(option!.garmentId) : null;
+      if (!garment) continue;
+      const prev = byId.get(garment.id);
+      byId.set(garment.id, {
+        garment,
+        required: (prev?.required ?? false) || !!link.is_required,
+      });
+    }
+    return [...byId.values()];
+  }, [resolved, garmentMap]);
+
+  // Non-garment attachments (variations, add-ons, …) — the card's entity chips.
+  const entityChips = useMemo(
+    () => resolved.filter((r) => r.option!.type !== "garment"),
+    [resolved],
+  );
 
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-card border border-hairline bg-chalk-white shadow-card transition hover:border-hairline-strong hover:shadow-lg">
@@ -885,7 +891,7 @@ function MetricCard({
           </button>
         )}
 
-        {/* ─── Connected Garments ────────────────────────────────────────── */}
+        {/* ─── Connected Garments (derived from entity links) ──────────────── */}
         {uniqueGarments.length > 0 && (
           <div className="mt-3">
             <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
@@ -895,14 +901,14 @@ function MetricCard({
               Garments
             </div>
             <div className="flex flex-wrap gap-1">
-              {uniqueGarments.map(({ garment, gm }) => (
+              {uniqueGarments.map(({ garment, required }) => (
                 <span
                   key={garment.id}
                   className="inline-flex items-center gap-1 rounded-pill border border-ink-navy/15 bg-ink-navy/5 px-2 py-0.5 text-[10px] font-medium text-ink-navy"
-                  title={`Priority: ${gm.priority_order ?? "—"} • ${gm.is_required ? "Required" : "Optional"}${gm.condition_note ? " • " + gm.condition_note : ""}`}
+                  title={required ? "At least one required link" : "All links optional"}
                 >
                   {getLabel(garment.labels, garment.slug, garment.id)}
-                  {gm.is_required && (
+                  {required && (
                     <span className="h-1.5 w-1.5 rounded-full bg-green-500" title="Required" />
                   )}
                 </span>
@@ -911,25 +917,30 @@ function MetricCard({
           </div>
         )}
 
-        {/* ─── Connected Style Components ────────────────────────────────── */}
-        {components.length > 0 && (
+        {/* ─── Entity attachments (variations / add-ons / …) ───────────────── */}
+        {entityChips.length > 0 && (
           <div className="mt-2">
             <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
               <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none">
                 <path d="M4 2L2 6l2 4M8 2l2 4-2 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              Condition Components
+              Attached Entities
             </div>
             <div className="flex flex-wrap gap-1">
-              {components.map((comp) => (
+              {entityChips.slice(0, 4).map(({ link, option }) => (
                 <span
-                  key={comp.id}
+                  key={link.id}
                   className="inline-flex items-center gap-1 rounded-pill border border-tape/20 bg-tape/5 px-2 py-0.5 text-[10px] font-medium text-tape"
-                  title={comp.slug ?? ""}
+                  title={`${option!.label} • ${link.capture_scope === "per_job" ? "per job" : "per garment"}${link.is_required ? " • Required" : ""}`}
                 >
-                  {getLabel(comp.labels, comp.slug, comp.id)}
+                  {option!.shortLabel}
                 </span>
               ))}
+              {entityChips.length > 4 && (
+                <span className="inline-flex items-center rounded-pill border border-tape/20 bg-tape/5 px-2 py-0.5 text-[10px] font-medium text-tape">
+                  +{entityChips.length - 4}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -962,25 +973,14 @@ function MetricCard({
 //  Metric Form Modal — create or edit a metric (with garment attachment)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-interface GarmentAttachment {
-  garmentId: string;
-  priorityOrder: number | null;
-  isRequired: boolean;
-  conditionNote: string;
-}
-
 function MetricFormModal({
   mode,
   metric,
-  garments,
-  existingGarmentMetricRows,
   onClose,
   onSaved,
 }: {
   mode: "create" | "edit";
   metric: Metric | null;
-  garments: Garment[];
-  existingGarmentMetricRows: GarmentMetric[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1000,53 +1000,11 @@ function MetricFormModal({
     dictToLangRows(d?.descriptions ?? null),
   );
 
-  // Garment attachments — seeded from existing rows in edit mode
-  const [attachments, setAttachments] = useState<Record<string, GarmentAttachment>>(() => {
-    const init: Record<string, GarmentAttachment> = {};
-    for (const gm of existingGarmentMetricRows) {
-      if (gm.garment_id) {
-        init[gm.garment_id] = {
-          garmentId: gm.garment_id,
-          priorityOrder: gm.priority_order,
-          isRequired: gm.is_required ?? false,
-          conditionNote: gm.condition_note ?? "",
-        };
-      }
-    }
-    return init;
-  });
-
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const labels = langRowsToDict(labelRows);
   const descriptions = langRowsToDict(descRows);
-
-  const attachedIds = Object.keys(attachments);
-
-  function toggleGarment(garmentId: string) {
-    setAttachments((prev) => {
-      const next = { ...prev };
-      if (next[garmentId]) {
-        delete next[garmentId];
-      } else {
-        next[garmentId] = {
-          garmentId,
-          priorityOrder: null,
-          isRequired: false,
-          conditionNote: "",
-        };
-      }
-      return next;
-    });
-  }
-
-  function updateAttachment(garmentId: string, patch: Partial<GarmentAttachment>) {
-    setAttachments((prev) => ({
-      ...prev,
-      [garmentId]: { ...prev[garmentId], ...patch },
-    }));
-  }
 
   function parseUrls(text: string): string[] | null {
     const trimmed = text.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -1099,78 +1057,6 @@ function MetricFormModal({
         throw new Error(
           (errBody as { error?: { message?: string } })?.error?.message ?? `Failed (${res.status})`,
         );
-      }
-
-      // After metric is saved, sync garment attachments.
-      // For "create" mode, we need the new metric ID from the response.
-      const createdBody =
-        mode === "create" ? await res.json().catch(() => ({})) : null;
-
-      // Determine the saved metric ID for syncing attachments.
-      const newMetricId: string | null =
-        mode === "create"
-          ? (createdBody as { id?: string | null })?.id ?? null
-          : (d?.id ?? null);
-
-      // Inline attachment sync — diff desired vs existing, then create/delete
-      if (newMetricId) {
-        const existingByGarment = new Map<string, GarmentMetric>();
-        for (const gm of existingGarmentMetricRows) {
-          if (gm.garment_id) existingByGarment.set(gm.garment_id, gm);
-        }
-
-        const desiredGarmentIds = new Set(Object.keys(attachments));
-        const currentGarmentIds = new Set(existingByGarment.keys());
-
-        const toCreate: string[] = [];
-        for (const gid of desiredGarmentIds) {
-          if (!currentGarmentIds.has(gid)) toCreate.push(gid);
-        }
-
-        const toDelete: string[] = [];
-        for (const gid of currentGarmentIds) {
-          if (!desiredGarmentIds.has(gid)) {
-            const gm = existingByGarment.get(gid);
-            if (gm) toDelete.push(gm.id);
-          }
-        }
-
-        const syncHeaders: Record<string, string> = {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        };
-
-        const syncPromises: Promise<Response>[] = [];
-
-        for (const gid of toCreate) {
-          const att = attachments[gid];
-          syncPromises.push(
-            fetch(`${API_URL}/admin/tables/garment_measurement_metrics`, {
-              method: "POST",
-              headers: syncHeaders,
-              body: JSON.stringify({
-                garment_id: gid,
-                measurement_metric_id: newMetricId,
-                priority_order: att.priorityOrder,
-                is_required: att.isRequired,
-                condition_note: att.conditionNote.trim() || null,
-              }),
-            }),
-          );
-        }
-
-        for (const rowId of toDelete) {
-          syncPromises.push(
-            fetch(`${API_URL}/admin/tables/garment_measurement_metrics/${rowId}`, {
-              method: "DELETE",
-              headers: syncHeaders,
-            }),
-          );
-        }
-
-        if (syncPromises.length > 0) {
-          await Promise.all(syncPromises);
-        }
       }
 
       onSaved();
@@ -1247,102 +1133,8 @@ function MetricFormModal({
           />
         </Field>
 
-        {/* ─── Garment Attachment ─────────────────────────────────────────── */}
-        <div className="rounded-card border border-hairline bg-mist-navy/30 p-3">
-          <div className="mb-2 flex items-center gap-1.5">
-            <svg className="h-4 w-4 text-ink-navy" viewBox="0 0 16 16" fill="none">
-              <path d="M2 5h12v8H2zM2 5l3-3h6l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-            </svg>
-            <span className="text-[12px] font-semibold text-ink-navy">Attach to Garments</span>
-            <span className="ml-auto text-[10px] font-medium text-muted">
-              {attachedIds.length} connected
-            </span>
-          </div>
-
-          {/* Garment pills — toggle selection */}
-          <div className="flex flex-wrap gap-1.5">
-            {garments.length === 0 && (
-              <span className="text-[11px] text-muted">No garments available.</span>
-            )}
-            {garments.map((g) => {
-              const attached = !!attachments[g.id];
-              return (
-                <button
-                  key={g.id}
-                  type="button"
-                  onClick={() => toggleGarment(g.id)}
-                  className={`tap inline-flex items-center gap-1 rounded-pill border px-2.5 py-1 text-[11px] font-medium transition ${
-                    attached
-                      ? "border-ink-navy bg-ink-navy text-chalk-white"
-                      : "border-hairline-strong bg-chalk-white text-ink-navy hover:bg-mist-navy"
-                  }`}
-                >
-                  {attached && (
-                    <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none">
-                      <path d="M2.5 6.5L5 9l4.5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                  {getLabel(g.labels, g.slug, g.id)}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Per-garment settings for attached garments */}
-          {attachedIds.length > 0 && (
-            <div className="mt-3 space-y-2 border-t border-hairline pt-2">
-              {attachedIds.map((gid) => {
-                const att = attachments[gid];
-                const g = garments.find((x) => x.id === gid);
-                if (!g || !att) return null;
-                return (
-                  <div key={gid} className="rounded-lg border border-hairline bg-chalk-white p-2.5">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-[12px] font-semibold text-ink-navy">
-                        {getLabel(g.labels, g.slug, g.id)}
-                      </span>
-                      <label className="flex cursor-pointer items-center gap-1 text-[11px] text-ink-navy">
-                        <input
-                          type="checkbox"
-                          checked={att.isRequired}
-                          onChange={(e) => updateAttachment(gid, { isRequired: e.target.checked })}
-                          className="h-3.5 w-3.5 accent-ink-navy"
-                        />
-                        Required
-                      </label>
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="flex-1">
-                        <label className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-muted">Priority</label>
-                        <input
-                          type="number"
-                          value={att.priorityOrder ?? ""}
-                          onChange={(e) =>
-                            updateAttachment(gid, {
-                              priorityOrder: e.target.value ? Number(e.target.value) : null,
-                            })
-                          }
-                          placeholder="—"
-                          className="w-full rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-[12px] text-ink outline-none focus:border-ink-navy"
-                        />
-                      </div>
-                      <div className="flex-[2]">
-                        <label className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-muted">Condition note</label>
-                        <input
-                          type="text"
-                          value={att.conditionNote}
-                          onChange={(e) => updateAttachment(gid, { conditionNote: e.target.value })}
-                          placeholder="e.g. Only if sleeves are fitted"
-                          className="w-full rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-[12px] text-ink outline-none focus:border-ink-navy"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {/* ─── Entity attachments (drives the captain checklist) ──────────── */}
+        {mode === "edit" && d?.id && <MetricEntityLinksSection metricId={d.id} />}
 
         {/* Error */}
         {formError && (

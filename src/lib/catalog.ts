@@ -40,16 +40,9 @@ export const CATALOG: Category[] = [
     defaultOptionId: "round",
     options: [
       { id: "round", label: "Round" },
-      {
-        id: "deep",
-        label: "Deep",
-        subOptions: [
-          { id: "u", label: "U-shape" },
-          { id: "v", label: "V-shape" },
-          { id: "round", label: "Round" },
-          { id: "square", label: "Square" },
-        ],
-      },
+      { id: "u", label: "Deep U-shape" },
+      { id: "v", label: "Deep V-shape" },
+      { id: "square", label: "Deep Square" },
       { id: "sweetheart", label: "Sweetheart" },
       { id: "boat", label: "Boat" },
       {
@@ -71,16 +64,22 @@ export const CATALOG: Category[] = [
     defaultOptionId: "regular",
     options: [
       { id: "regular", label: "Regular" },
+      { id: "u", label: "Deep U-shape" },
+      { id: "v", label: "Deep V-shape" },
+      { id: "square", label: "Deep Square" },
+      { id: "round", label: "Round" },
+      { id: "sweetheart", label: "Sweetheart" },
+      { id: "boat", label: "Boat" },
       {
-        id: "deep",
-        label: "Deep",
+        id: "high_neck",
+        label: "High neck",
         subOptions: [
-          { id: "u", label: "U-shape" },
-          { id: "v", label: "V-shape" },
-          { id: "round", label: "Round" },
-          { id: "square", label: "Square" },
+          { id: "band_collar", label: "Band collar" },
+          { id: "full_collar", label: "Full collar" },
+          { id: "full_high", label: "Full high neck" },
         ],
       },
+      { id: "racer", label: "Racer back" },
       {
         id: "backless",
         label: "Backless",

@@ -19,7 +19,7 @@ export default function AdminLoginPage() {
     try {
       const token = await adminLogin(email, password);
       setAdminToken(token);
-      router.push("/admin");
+      router.push("/admin/orders");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

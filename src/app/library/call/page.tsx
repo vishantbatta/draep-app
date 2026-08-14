@@ -22,16 +22,21 @@ export default function DesignerCallPage() {
 
   const {
     status,
-    transcript,
     designImages,
+    designPendingCount,
+    designError,
     errorMsg,
     closeDetail,
     muted,
+    videoOn,
+    callStartedAt,
     videoRef,
     canvasRef,
     connect,
     disconnect,
     toggleMute,
+    toggleVideo,
+    getSpeakingAmplitude,
   } = useGeminiLiveCall();
 
   const handleBack = () => {
@@ -42,17 +47,22 @@ export default function DesignerCallPage() {
   return (
     <DesignerCall
       status={status}
-      transcript={transcript}
       designImages={designImages}
+      designPendingCount={designPendingCount}
+      designError={designError}
       errorMsg={errorMsg}
       closeDetail={closeDetail}
       muted={muted}
+      videoOn={videoOn}
+      callStartedAt={callStartedAt}
       videoRef={videoRef}
       canvasRef={canvasRef}
       onConnect={connect}
       onDisconnect={handleBack}
       onToggleMute={toggleMute}
+      onToggleVideo={toggleVideo}
       onBack={handleBack}
+      getSpeakingAmplitude={getSpeakingAmplitude}
     />
   );
 }

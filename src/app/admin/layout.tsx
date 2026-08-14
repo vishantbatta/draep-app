@@ -42,7 +42,6 @@ const PRIMARY_TABS: PrimaryTab[] = [
     label: "Catalogue",
     href: "/admin/catalogue",
     matchPrefix: "/admin/catalogue",
-    altPrefixes: ["/admin/measurements", "/admin/catalogue/validation-rules"],
     icon: (
       <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
         <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
@@ -53,9 +52,10 @@ const PRIMARY_TABS: PrimaryTab[] = [
     ),
   },
   {
-    label: "Actions",
-    href: "/admin/actions/garments",
+    label: "Configure",
+    href: "/admin/actions/slot-scheduling",
     matchPrefix: "/admin/actions",
+    altPrefixes: ["/admin/measurements", "/admin/catalogue/validation-rules"],
     icon: (
       <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
         <path
@@ -83,8 +83,8 @@ const PRIMARY_TABS: PrimaryTab[] = [
   },
   {
     label: "Data",
-    href: "/admin",
-    matchPrefix: "/admin",
+    href: "/admin/data",
+    matchPrefix: "/admin/data",
     icon: (
       <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
         <ellipse cx="10" cy="5" rx="6" ry="2.5" stroke="currentColor" strokeWidth="1.4" />
@@ -113,7 +113,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
 
     if (token && isLoginPage) {
-      router.replace("/admin");
+      router.replace("/admin/orders");
       return;
     }
 
@@ -143,14 +143,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.replace("/admin/login");
   }
 
-  // Determine active primary tab
+  // Determine active primary tab.
+  // altPrefixes win over matchPrefix so a route nested under another tab's
+  // prefix (e.g. /admin/catalogue/validation-rules) can highlight a different tab.
   const activeTab =
     PRIMARY_TABS.find((t) =>
-      t.href === "/admin"
-        ? pathname === "/admin"
-        : pathname.startsWith(t.matchPrefix) ||
-          (t.altPrefixes?.some((p) => pathname.startsWith(p)) ?? false),
-    ) ?? PRIMARY_TABS[0];
+      t.altPrefixes?.some((p) => pathname.startsWith(p)),
+    ) ??
+    PRIMARY_TABS.find((t) => pathname.startsWith(t.matchPrefix)) ??
+    PRIMARY_TABS[0];
 
   return (
     <div className="flex min-h-dvh flex-col bg-warm-sand md:flex-row">

@@ -57,6 +57,8 @@ import { Chip } from "@/components/ui/Chip";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import {
   downloadMeasurementJobPdf,
+  type CostBreakdownInput,
+  type PdfSectionOptions,
   type StyleSelectionGroup,
 } from "@/lib/job-pdf";
 import { generateInvoicePdf } from "@/lib/invoice-pdf";
@@ -521,6 +523,17 @@ export default function OrderDetailPage() {
   const [upiQrImg, setUpiQrImg] = useState<string | null>(null);
   const [upiQrUrl, setUpiQrUrl] = useState<string | null>(null);
   const [upiQrAmount, setUpiQrAmount] = useState<number>(0);
+  // Customization sheet (section toggles). Defaults to all-on so the first
+  // download matches the pre-customization report; the user turns OFF what
+  // they don't want. `pdfSheetOpen` gates the bottom sheet itself.
+  const [pdfSheetOpen, setPdfSheetOpen] = useState(false);
+  const [pdfOptions, setPdfOptions] = useState<PdfSectionOptions>({
+    customerDetails: true,
+    measurementDetails: true,
+    designDetails: true,
+    fabricDetails: true,
+    costBreakdown: true,
+  });
 
   // ── Manage-Measurements override state ─────────────────────────────────────
   // Per-job editable measurement map: keyed by jobId → metricId → draft value
@@ -1202,9 +1215,49 @@ export default function OrderDetailPage() {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // PDF DOWNLOAD — assembles cover + body + garment + style-selections pages
+  // PDF DOWNLOAD — assembles cover + (optional) body + garment + style +
+  // cost-breakdown pages, gated by the user's section toggles.
   // ──────────────────────────────────────────────────────────────────────────
-  async function handleDownloadPdf() {
+
+  /** Build the Cost Breakdown input from loaded order data. Mirrors the
+   *  on-screen "Price Breakdown" card: per-garment base + items + garment
+   *  adjustments, plus order-level adjustments and the order totals. */
+  function buildCostBreakdownInput(
+    goList: Awaited<ReturnType<typeof fetchOrderGarmentOrders>>,
+    itemsByGOId: Map<string, GarmentOrderItemRow[]>,
+  ): CostBreakdownInput {
+    const groups = goList.map((go) => {
+      const liveGO = garmentOrders.find((g) => g.id === go.id);
+      const garmentId = liveGO?.garment_id ?? "";
+      return {
+        garmentOrder: {
+          id: go.id,
+          order_id: go.order_id ?? order?.id ?? "",
+          garment_id: garmentId,
+          total_price: liveGO?.total_price ?? null,
+          status: (go.status as GarmentOrderStatus | null) ?? null,
+          user_note: go.user_note,
+          assets_shared: liveGO?.assets_shared ?? null,
+        },
+        garmentLabel: garmentDisplayLabel(garmentId),
+        basePrice: (garmentId ? garmentMap.get(garmentId)?.base_price : null) ?? null,
+        items: itemsByGOId.get(go.id) ?? [],
+        // Garment-scoped adjustments only (order-level ones are passed separately).
+        adjustments: adjustments.filter((a) => a.garment_order_id === go.id),
+      };
+    });
+    return {
+      groups,
+      // Order-level adjustments: garment_order_id IS NULL.
+      orderAdjustments: adjustments.filter((a) => a.garment_order_id == null),
+      orderTotal: order?.total_price ?? null,
+      advanceAmount: order?.advance_amount ?? null,
+    };
+  }
+
+  /** Generate the PDF with the user's selected sections. Called from the
+   *  customization bottom sheet's "Generate PDF" footer button. */
+  async function handleGeneratePdf(opts: PdfSectionOptions) {
     if (!order) return;
     setPdfLoading(true);
     setPdfProgress("Preparing…");
@@ -1311,6 +1364,10 @@ export default function OrderDetailPage() {
         };
       });
 
+      // Cost breakdown input — always built (cheap; reuses already-loaded
+      // adjustments + garmentMap). The page itself is gated by the toggle.
+      const costBreakdown = buildCostBreakdownInput(goList, itemsByGOId);
+
       await downloadMeasurementJobPdf(
         {
           job: jobForPdf,
@@ -1320,6 +1377,8 @@ export default function OrderDetailPage() {
           bodyMeasurements: body,
           garmentMeasurements: garments,
           styleSelections: styleGroups,
+          sections: opts,
+          costBreakdown,
         },
         (current, total, label) => {
           if (total > 1) {
@@ -1330,6 +1389,7 @@ export default function OrderDetailPage() {
         },
       );
       flash("PDF downloaded");
+      setPdfSheetOpen(false);
     } catch (e) {
       alert(e instanceof Error ? e.message : "PDF generation failed");
     } finally {
@@ -1816,10 +1876,10 @@ export default function OrderDetailPage() {
               ₹ Receive payment
             </button>
             <button
-              onClick={handleDownloadPdf}
+              onClick={() => setPdfSheetOpen(true)}
               disabled={pdfLoading}
               className="rounded-lg border border-ink-navy bg-ink-navy px-3 py-1.5 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
-              title="Download a PDF with measurements, garment details, and style selections"
+              title="Choose sections and download a PDF"
             >
               {pdfLoading ? (pdfProgress ?? "Generating…") : "⤓ Download PDF"}
             </button>
@@ -2802,6 +2862,7 @@ export default function OrderDetailPage() {
                       }
                       captains={captains}
                       hideCaptainSelect
+                      excludeJobId={job.id}
                     />
                   </div>
                 )}
@@ -3447,6 +3508,93 @@ export default function OrderDetailPage() {
         </div>
       </BottomSheet>
 
+      {/* ─── PDF customization sheet ─────────────────────────────────────────
+          Opens when "Download PDF" is clicked. The user toggles which sections
+          to include, then clicks "Generate PDF" to build & download. The cover
+          page always renders; these toggles gate the content sections and the
+          cover's customer-details enrichment. */}
+      <BottomSheet
+        open={pdfSheetOpen}
+        onClose={() => {
+          if (!pdfLoading) setPdfSheetOpen(false);
+        }}
+        title="Download PDF"
+        className="max-w-2xl"
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <button
+              onClick={() => setPdfSheetOpen(false)}
+              disabled={pdfLoading}
+              className="rounded-lg border border-hairline bg-chalk-white px-4 py-2 text-sm font-medium text-ink-navy transition hover:bg-mist-navy/40 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => handleGeneratePdf(pdfOptions)}
+              disabled={pdfLoading}
+              className="rounded-lg border border-ink-navy bg-ink-navy px-4 py-2 text-sm font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
+            >
+              {pdfLoading ? (pdfProgress ?? "Generating…") : "⤓ Generate PDF"}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-1 pb-2">
+          <p className="mb-3 text-xs text-muted">
+            Choose which sections to include. The cover page always renders.
+          </p>
+          {(
+            [
+              {
+                key: "customerDetails" as const,
+                title: "Customer details",
+                desc: "Phone, email, and address on the cover page",
+              },
+              {
+                key: "measurementDetails" as const,
+                title: "Measurement details",
+                desc: "Body measurement guide pages",
+              },
+              {
+                key: "designDetails" as const,
+                title: "Design details",
+                desc: "Style selections per garment",
+              },
+              {
+                key: "fabricDetails" as const,
+                title: "Fabric details",
+                desc: "Cloth/material details, colors, and photos",
+              },
+              {
+                key: "costBreakdown" as const,
+                title: "Cost breakdown",
+                desc: "Itemized prices, adjustments, and totals",
+              },
+            ]
+          ).map(({ key, title, desc }) => (
+            <label
+              key={key}
+              className="flex cursor-pointer items-start gap-3 rounded-lg border border-hairline bg-chalk-white px-3 py-2.5 transition hover:bg-mist-navy/30"
+            >
+              <input
+                type="checkbox"
+                checked={pdfOptions[key]}
+                onChange={(e) =>
+                  setPdfOptions((prev) => ({ ...prev, [key]: e.target.checked }))
+                }
+                disabled={pdfLoading}
+                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-ink-navy"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-ink-navy">
+                  {title}
+                </span>
+                <span className="block text-xs text-muted">{desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </BottomSheet>
     </div>
   );
 }

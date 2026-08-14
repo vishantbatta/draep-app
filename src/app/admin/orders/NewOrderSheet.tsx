@@ -20,6 +20,7 @@ import {
   fetchStyleCaptains,
   garmentLabel,
   fetchJobReadings,
+  adminCreateBooking,
   type UserRow,
   type AddressRow,
   type GarmentRow,
@@ -753,15 +754,17 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
         }
       }
 
-      // 3. Create measurement job (if requested)
+      // 3. Schedule the visit (if requested) via the booking endpoint so the
+      // slot claim is held immediately and "Auto-assign" picks the
+      // least-utilized free captain — same as the customer flow. (The old
+      // raw measurement_jobs insert left auto-assigned jobs captain-less
+      // and blocked nothing.)
       if (jobChoice === "schedule" && selectedSlot) {
-        await createTableRow<MeasurementJobRow>("measurement_jobs", {
-          user_id: customerId,
-          order_id: orderId,
-          style_captain_id: selectedCaptainId || null,
-          scheduled_at: selectedSlot.start_at,
-          status: "scheduled" as JobStatus,
-        });
+        await adminCreateBooking(
+          orderId,
+          selectedSlot.start_at,
+          selectedCaptainId || undefined,
+        );
       }
 
       handleClose();

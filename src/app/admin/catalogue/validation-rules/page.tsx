@@ -629,8 +629,8 @@ export default function ValidationRulesPage() {
       new CustomEvent("admin-sidebar-update", {
         detail: {
           items: [
-            { label: "Catalogue", active: false, onClick: () => router.push("/admin/catalogue") },
-            { label: "Library", active: false, onClick: () => router.push("/admin/catalogue/library") },
+            { label: "Slot Scheduling", active: false, onClick: () => router.push("/admin/actions/slot-scheduling") },
+            { label: "URLs", active: false, onClick: () => router.push("/admin/actions/urls") },
             { label: "Measurements", active: false, onClick: () => router.push("/admin/measurements") },
             { label: "Validation Rules", active: true, onClick: () => router.push("/admin/catalogue/validation-rules") },
           ],
@@ -677,7 +677,7 @@ export default function ValidationRulesPage() {
       <div className="mx-auto max-w-7xl">
         <Breadcrumb
           crumbs={[
-            { label: "Catalogue", onClick: () => router.push("/admin/catalogue") },
+            { label: "Configure", onClick: () => router.push("/admin/actions/slot-scheduling") },
             { label: "Validation Rules" },
           ]}
         />

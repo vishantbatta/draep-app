@@ -114,6 +114,8 @@ export interface StepOption {
   label: string;
   /** What this option means (variation description), if available. */
   description?: string;
+  /** Reference image URL for this variation (first asset_urls entry), if any. */
+  assetUrl?: string;
   /** Sub-options (variation_types), if any — e.g. Deep → U/V/Round/Square. */
   subOptions?: { id: string; label: string; description?: string }[];
   /** Pre-selected sub-option id (variation.default_type_id), if any. */
@@ -260,6 +262,7 @@ function variationToStepOption(v: VariationOut): StepOption {
     id: v.id,
     label: labelText(v.labels) || v.id,
     description: descText(v.descriptions) || undefined,
+    assetUrl: v.asset_urls?.[0] || undefined,
     ...(types.length > 0
       ? {
           subOptions: types.map((t) => ({
@@ -347,6 +350,7 @@ function addonToStepComponent(a: AddonOut): StepComponent {
       id: v.id,
       label: addonVariationLabel(v),
       description: descText(v.descriptions) || undefined,
+      assetUrl: v.asset_urls?.[0] || undefined,
     })),
   };
 }
@@ -363,7 +367,7 @@ function addonVariationLabel(v: AddonVariationOut): string {
 
 /**
  * Build the human-readable running design brief from the current selections.
- * Used as the `design_brief` sent to /myod/create and /myod/refine so the model
+ * Used as the `current_config`/`new_config` sent to /myod/svg-edit so the model
  * stays grounded across steps. Each line includes the component description,
  * the chosen option, and the option/sub-type descriptions so the model
  * understands what every choice means — not just its label.
@@ -429,8 +433,8 @@ function describeOption(option: StepOption, subId?: string): string {
 }
 
 /**
- * Build the human-readable description of a single selection (the `change`
- * for /myod/refine). Example: "Front neck cut → Deep, V-shape".
+ * Build the human-readable description of a single selection (the
+ * `change_description` for /myod/svg-edit). Example: "Front neck cut → Deep, V-shape".
  */
 export function describeSelection(
   step: DesignStep,

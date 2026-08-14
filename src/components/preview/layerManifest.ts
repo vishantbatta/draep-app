@@ -73,6 +73,11 @@ const BACK_LAYERS: LayerDescriptor[] = [
   // Back cut
   { id: "back_cut:regular", view: "back", z: 20 },
   { id: "back_cut:deep", view: "back", z: 20 },
+  { id: "back_cut:round", view: "back", z: 20 },
+  { id: "back_cut:sweetheart", view: "back", z: 20 },
+  { id: "back_cut:boat", view: "back", z: 20 },
+  { id: "back_cut:high_neck", view: "back", z: 20 },
+  { id: "back_cut:racer", view: "back", z: 20 },
   { id: "back_cut:backless", view: "back", z: 20 },
   // Tying (back view)
   { id: "tying:hook:back", view: "back", z: 30 },

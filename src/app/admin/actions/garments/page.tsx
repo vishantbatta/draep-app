@@ -19,16 +19,13 @@ const PER_PAGE = 20;
 
 const GENDER_OPTIONS = ["male", "female", "unisex"] as const;
 
-// ─── Sub-tabs for Actions ─────────────────────────────────────────────────────
+// ─── Sub-tabs for Configure ─────────────────────────────────────────────────────
 
 const ACTION_TABS = [
-  { key: "garments", label: "Garments", href: "/admin/actions/garments" },
-  { key: "style-components", label: "Style Components", href: "/admin/actions/style-components" },
-  { key: "variations", label: "Variations", href: "/admin/actions/variations" },
-  { key: "variation-types", label: "Variation Types", href: "/admin/actions/variation-types" },
-  { key: "addons", label: "Add-ons", href: "/admin/actions/addons" },
-  { key: "addon-variations", label: "Add-on Variations", href: "/admin/actions/addon-variations" },
   { key: "slot-scheduling", label: "Slot Scheduling", href: "/admin/actions/slot-scheduling" },
+  { key: "urls", label: "URLs", href: "/admin/actions/urls" },
+  { key: "measurements", label: "Measurements", href: "/admin/measurements" },
+  { key: "validation-rules", label: "Validation Rules", href: "/admin/catalogue/validation-rules" },
 ] as const;
 
 type ActionTabKey = (typeof ACTION_TABS)[number]["key"];
@@ -45,7 +42,7 @@ function GarmentsActionPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const [activeActionTab] = useState<ActionTabKey>("garments");
+  const [activeActionTab] = useState<ActionTabKey | null>(null);
 
   // Helper to parse sort from URL
   function parseSort(sp: URLSearchParams): SortState {

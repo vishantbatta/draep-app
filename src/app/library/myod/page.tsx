@@ -7,39 +7,15 @@
  * scrollable body that mounts the MyodSheet configurator directly (not a
  * bottom sheet). The MYOD garment starts as the pre-generated default and is
  * refined as the user makes selections.
- *
- * On "Try it on", the current garment (data URI or default asset URL) is handed
- * to the existing TryOnSheet, which composites it onto a user-uploaded photo.
  */
 
-import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { MyodSheet } from "@/components/myod/MyodSheet";
-import { TryOnSheet } from "@/components/tryon/TryOnSheet";
 import { ArrowLeft } from "@/components/ui/icons";
 
 export default function MyodPage() {
   const router = useRouter();
-
-  // Try-on handoff state.
-  const [tryOnOpen, setTryOnOpen] = useState(false);
-  const [tryOnDesignUrl, setTryOnDesignUrl] = useState<string | null>(null);
-
-  const handleTryItOn = useCallback((garmentImage: string) => {
-    setTryOnDesignUrl(garmentImage);
-    setTryOnOpen(true);
-  }, []);
-
-  const closeTryOn = useCallback(() => {
-    setTryOnOpen(false);
-    setTimeout(() => setTryOnDesignUrl(null), 250);
-  }, []);
-
-  const onTryOnDone = useCallback(() => {
-    setTryOnOpen(false);
-    setTimeout(() => setTryOnDesignUrl(null), 220);
-  }, []);
 
   return (
     <div className="column flex h-dvh flex-col bg-warm-sand">
@@ -51,7 +27,7 @@ export default function MyodPage() {
           style={{ background: "var(--tape-gradient)" }}
         />
 
-        <div className="relative z-10 flex items-center gap-3 px-4 py-4">
+        <div className="relative z-10 flex items-center gap-3 px-4 py-2.5">
           <button
             type="button"
             onClick={() => router.push("/library")}
@@ -76,19 +52,8 @@ export default function MyodPage() {
 
       {/* ───── Body: full-page configurator ───── */}
       <div className="min-h-0 flex-1 overflow-y-auto pt-4">
-        <MyodSheet onTryItOn={handleTryItOn} />
+        <MyodSheet />
       </div>
-
-      {/* ───── Try-on handoff ───── */}
-      {tryOnDesignUrl && (
-        <TryOnSheet
-          open={tryOnOpen}
-          onClose={closeTryOn}
-          onDone={onTryOnDone}
-          designImageUrl={tryOnDesignUrl}
-          designTitle="Your MYOD blouse"
-        />
-      )}
     </div>
   );
 }

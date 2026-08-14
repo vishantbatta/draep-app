@@ -91,11 +91,6 @@ export default function AdminLibraryPage() {
               active: true,
               onClick: () => router.push("/admin/catalogue/library"),
             },
-            {
-              label: "Measurements",
-              active: false,
-              onClick: () => router.push("/admin/measurements"),
-            },
           ],
         },
       }),

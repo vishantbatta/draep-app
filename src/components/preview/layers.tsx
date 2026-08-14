@@ -111,6 +111,21 @@ const LAYER_RENDERERS: Record<string, () => ReactNode> = {
   "back_cut:deep": () => (
     <path d="M95 78 Q120 125, 145 78" stroke="var(--ink-navy)" strokeWidth="2" fill="none" />
   ),
+  "back_cut:round": () => (
+    <path d="M95 78 Q120 105, 145 78" stroke="var(--ink-navy)" strokeWidth="2" fill="none" />
+  ),
+  "back_cut:sweetheart": () => (
+    <path d="M95 78 Q107 100, 120 90 Q133 100, 145 78" stroke="var(--ink-navy)" strokeWidth="2" fill="none" />
+  ),
+  "back_cut:boat": () => (
+    <path d="M70 88 Q120 100, 170 88" stroke="var(--ink-navy)" strokeWidth="2" fill="none" />
+  ),
+  "back_cut:high_neck": () => (
+    <path d="M95 70 L145 70" stroke="var(--ink-navy)" strokeWidth="2" fill="none" />
+  ),
+  "back_cut:racer": () => (
+    <path d="M100 78 L120 96 L140 78" stroke="var(--ink-navy)" strokeWidth="2" fill="none" />
+  ),
   "back_cut:backless": () => (
     <path d="M95 78 Q120 180, 145 78" stroke="var(--ink-navy)" strokeWidth="2" fill="none" />
   ),

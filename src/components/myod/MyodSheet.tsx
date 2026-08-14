@@ -1,35 +1,25 @@
 "use client";
 
 /**
- * MyodSheet — "Make Your Own Draep", full-page, one step at a time.
+ * MyodSheet — "Make Your Own Draep", vector SVG configurator.
  *
- *   • Opens showing the DEFAULT blouse photo (the garment's asset_urls[0]) —
- *     instant, no generation on load.
- *   • Shows ONE step at a time: the current step's option cards, plus a
- *     chat + mic bar below. Selecting an option (or a sub-option / variation
- *     type) or sending a chat edit regenerates the image ONLY if it actually
- *     differs from what the current image already depicts — otherwise it's a
- *     no-op (no wasted Gemini call). After an option refine, auto-advance to
- *     the next step; chat stays put.
- *   • "Try it on" sits top-right.
+ * Shows two SVG line drawings (front + back) of the blouse. On load, uses the
+ * garment's asset_urls as the base SVGs. When the user selects a non-default
+ * option, sends the current SVGs + full config + edit history to
+ * /myod/svg-edit and gets back updated front + back SVGs.
  *
- * Image-state tracking: `imageSelections` records what the current image
- * depicts (initialized to the catalog defaults, since the default asset is the
- * default blouse). A refine is skipped whenever the requested selections equal
- * `imageSelections` (deep, including sub-types). On each successful refine,
- * `imageSelections` is updated to what was sent.
+ * No render-mode toggle — just the one A1 (SVG edit) approach.
  */
 
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Sparkles, Close } from "@/components/ui/icons";
+import { BottomSheet } from "@/components/ui/BottomSheet";
+import { Check, ChevronRight, Close, Plus, Sparkles } from "@/components/ui/icons";
 import { getGarmentTree, listGarments } from "@/lib/api/catalog";
-import { blouseJsCode, blouseSvg, refineBlouse } from "@/lib/api/myod";
+import { editBlouseSvg } from "@/lib/api/myod";
 import {
-  buildDesignBrief,
   buildDesignSteps,
-  buildSvgState,
   describeSelection,
   labelText,
   placementLabel,
@@ -42,17 +32,11 @@ import {
 } from "@/lib/myod-steps";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
-import { useJsSvg } from "@/hooks/useJsSvg";
 import type { GarmentTreeOut } from "@/types/api";
 
 type Phase = "loading-tree" | "ready" | "generating" | "error";
 
-interface Props {
-  /** Called when the user taps "Try it on" — receives the current garment image. */
-  onTryItOn: (garmentImage: string) => void;
-}
-
-export function MyodSheet({ onTryItOn }: Props) {
+export function MyodSheet() {
   const [phase, setPhase] = useState<Phase>("loading-tree");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -62,26 +46,16 @@ export function MyodSheet({ onTryItOn }: Props) {
   const [activeStepIdx, setActiveStepIdx] = useState(0);
   const [selections, setSelections] = useState<Selections>({});
 
-  // The current image and the selections it depicts.
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  // Current SVGs (start from asset_urls, then updated by svg-edit)
+  const [frontSvg, setFrontSvg] = useState<string | null>(null);
+  const [backSvg, setBackSvg] = useState<string | null>(null);
+
+  // Track what the current SVGs depict (for skip-if-matches)
   const [imageSelections, setImageSelections] = useState<Selections>({});
   const genTokenRef = useRef(0);
 
-  // EXPERIMENT: SVG render mode. Two sub-modes:
-  //  - "svg"       : regenerate SVG from the brief each step (LLM per step)
-  //  - "svg-code"  : generate a Python fn ONCE, run it in Pyodide per step (fast)
-  const [renderMode, setRenderMode] = useState<"image" | "svg" | "svg-code">("image");
-  const [svgMarkup, setSvgMarkup] = useState<string | null>(null);
-  const jsSvg = useJsSvg();
-  const [jsFnReady, setJsFnReady] = useState(false);
-
-  const [chatInput, setChatInput] = useState("");
-  const [chatError, setChatError] = useState(false);
-  const [listening, setListening] = useState(false);
-  const recognitionRef = useRef<unknown>(null);
-
-  // Remember the last applied change so a failed refine can be retried.
-  const lastChangeRef = useRef<{ change: string; selections: Selections } | null>(null);
+  // Edit history (accumulated text)
+  const historyRef = useRef<string[]>([]);
 
   // ── Load the blouse tree on mount ───────────────────────────────────
   useEffect(() => {
@@ -97,14 +71,27 @@ export function MyodSheet({ onTryItOn }: Props) {
         const t = await getGarmentTree(blouse.id);
         if (cancelled) return;
         setTree(t);
-        // Start with NO selection (user chooses). The image begins as the
-        // pre-generated default, which depicts the catalog defaults — so
-        // imageSelections is seeded with those defaults.
-        const built = buildDesignSteps(t);
         setSelections({});
-        setImageSelections(defaultSelections(built));
+        setImageSelections(defaultSelections(buildDesignSteps(t)));
         setActiveStepIdx(0);
-        setImageUrl(t.asset_urls?.[0] ?? null);
+        // Load base SVGs from asset_urls (fetch the SVG file content)
+        const assets = t.asset_urls ?? [];
+        const fetchSvg = async (url: string | undefined): Promise<string | null> => {
+          if (!url) return null;
+          try {
+            const res = await fetch(url);
+            if (!res.ok) return null;
+            const text = await res.text();
+            return text.trim().startsWith("<svg") ? text : null;
+          } catch {
+            return null;
+          }
+        };
+        const front = await fetchSvg(assets[0]);
+        const back = await fetchSvg(assets[1]) ?? front;
+        if (cancelled) return;
+        setFrontSvg(front);
+        setBackSvg(back);
         setPhase("ready");
         track({ event: "myod_opened", source: "library" });
       } catch (err) {
@@ -113,147 +100,106 @@ export function MyodSheet({ onTryItOn }: Props) {
         setPhase("error");
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   const activeStep: DesignStep | undefined = steps[activeStepIdx];
-
-  // IDs of boolean-toggle components (add-ons with no variations). Used by the
-  // skip-refine check so toggling on↔off is always detected as a change.
   const toggleIds = useMemo(
-    () =>
-      new Set(
-        steps
-          .flatMap((s) => s.components)
-          .filter((c) => c.kind === "toggle")
-          .map((c) => c.id),
-      ),
+    () => new Set(
+      steps.flatMap((s) => s.components).filter((c) => c.kind === "toggle").map((c) => c.id),
+    ),
     [steps],
   );
 
-  // ── Apply a change: refine the image, OR regenerate the SVG ─────────
+  // ── Config summary builder ──────────────────────────────────────────
+  const buildConfigSummary = useCallback(
+    (sels: Selections): string => {
+      if (!tree) return "";
+      const lines: string[] = [];
+      for (const c of sortedComponents(tree)) {
+        const sel = sels[c.id];
+        const def = c.defaultOptionId;
+        const chosenId = sel?.variationId ?? def ?? c.options[0]?.id;
+        const opt = c.options.find((o) => o.id === chosenId);
+        if (!opt) continue;
+        let line = `- ${c.label}: ${opt.label}`;
+        if (c.description) line += ` — ${c.description}`;
+        if (opt.description) line += ` | ${opt.description}`;
+        if (sel?.variationTypeId && opt.subOptions) {
+          const sub = opt.subOptions.find((s) => s.id === sel.variationTypeId);
+          if (sub) {
+            line += ` (${sub.label})`;
+            if (sub.description) line += ` [${sub.description}]`;
+          }
+        }
+        lines.push(line);
+      }
+      return lines.join("\n");
+    },
+    [tree],
+  );
+
+  // ── Apply an edit ───────────────────────────────────────────────────
   const applyChange = useCallback(
-    async (changeDescription: string, allSelections: Selections) => {
-      // SVG-CODE mode: generate a JS renderer fn once, then run it natively
-      // per step (microseconds). The expensive LLM call happens only the first
-      // time (or if the fn isn't ready). Dynamic — the fn reads the live
-      // catalog state, so newly added components are handled automatically.
-      if (renderMode === "svg-code") {
-        const token = ++genTokenRef.current;
-        setChatError(false);
-        setPhase("generating");
-        lastChangeRef.current = { change: changeDescription, selections: allSelections };
-        try {
-          if (!jsFnReady) {
-            const brief = buildDesignBrief(steps, allSelections);
-            const { code } = await blouseJsCode(brief, tree?.id);
-            await jsSvg.defineFn(code);
-            setJsFnReady(true);
-          }
-          const state = buildSvgState(steps, allSelections);
-          const svg = await jsSvg.renderSvg(state);
-          if (token !== genTokenRef.current) return;
-          setSvgMarkup(svg);
-          setImageSelections(allSelections);
-          setPhase("ready");
-          track({ event: "myod_succeeded" });
-        } catch (err) {
-          if (token !== genTokenRef.current) return;
-          setChatError(true);
-          setErrorMsg(err instanceof Error ? err.message : "Something went wrong.");
-          setPhase("ready");
-          track({ event: "myod_failed", error: err instanceof Error ? err.message : undefined });
-        }
-        return;
-      }
-
-      // SVG mode: regenerate the vector drawing from the full brief each step
-      // (no image-to-image; the SVG is rebuilt from scratch each step).
-      if (renderMode === "svg") {
-        const token = ++genTokenRef.current;
-        setChatError(false);
-        setPhase("generating");
-        lastChangeRef.current = { change: changeDescription, selections: allSelections };
-        const brief = buildDesignBrief(steps, allSelections);
-        try {
-          const result = await blouseSvg(brief, tree?.id);
-          if (token !== genTokenRef.current) return;
-          setSvgMarkup(result.svg);
-          setImageSelections(allSelections);
-          setPhase("ready");
-          track({ event: "myod_succeeded" });
-        } catch (err) {
-          if (token !== genTokenRef.current) return;
-          setChatError(true);
-          setErrorMsg(err instanceof Error ? err.message : "Something went wrong.");
-          setPhase("ready");
-          track({ event: "myod_failed", error: err instanceof Error ? err.message : undefined });
-        }
-        return;
-      }
-
-      if (!imageUrl) return;
+    async (
+      changeLabel: string,
+      changeDescription: string,
+      allSelections: Selections,
+    ) => {
+      if (!frontSvg || !backSvg) return;
       const token = ++genTokenRef.current;
-      setChatError(false);
+      setErrorMsg(null);
       setPhase("generating");
-      lastChangeRef.current = { change: changeDescription, selections: allSelections };
 
-      const brief = buildDesignBrief(steps, allSelections);
+      const currentConfig = buildConfigSummary(imageSelections);
+      const newConfig = buildConfigSummary(allSelections);
+      const historyText = historyRef.current.length
+        ? "EDIT HISTORY (all changes applied so far):\n" +
+          historyRef.current.map((h, i) => `  ${i + 1}. ${h}`).join("\n")
+        : "EDIT HISTORY: (none yet)";
+
       try {
-        const result = await refineBlouse(imageUrl, brief, changeDescription, tree?.id);
-        if (token !== genTokenRef.current) return; // superseded
-        setImageUrl(result.output_url);
-        // The image now depicts the sent selections overlaid on whatever it
-        // showed before (defaults for unchosen choice-components). For toggles,
-        // the sent state is authoritative — a toggle turned off (absent) must
-        // be removed from the tracked image state, not kept from the past.
-        setImageSelections((prev) => {
-          const merged: Selections = { ...prev, ...allSelections };
-          for (const id of toggleIds) {
-            if (!(id in allSelections)) delete merged[id];
-          }
-          return merged;
+        const result = await editBlouseSvg({
+          currentFrontSvg: frontSvg,
+          currentBackSvg: backSvg,
+          currentConfig,
+          newConfig,
+          changeLabel,
+          changeDescription,
+          editHistory: historyText,
         });
+        if (token !== genTokenRef.current) return;
+        setFrontSvg(result.front_svg);
+        setBackSvg(result.back_svg);
+        setImageSelections(allSelections);
+        historyRef.current.push(changeLabel);
         setPhase("ready");
         track({ event: "myod_succeeded" });
       } catch (err) {
         if (token !== genTokenRef.current) return;
-        setChatError(true);
         setErrorMsg(err instanceof Error ? err.message : "Something went wrong.");
         setPhase("ready");
         track({ event: "myod_failed", error: err instanceof Error ? err.message : undefined });
       }
     },
-    [imageUrl, steps, tree?.id, toggleIds, renderMode, jsFnReady, jsSvg],
+    [frontSvg, backSvg, imageSelections, buildConfigSummary],
   );
 
-  const retryLast = useCallback(() => {
-    const last = lastChangeRef.current;
-    if (last) void applyChange(last.change, last.selections);
-  }, [applyChange]);
-
-  // ── Option / sub-option tap: refine only if it differs, then advance ─
+  // ── Option tap ──────────────────────────────────────────────────────
   const handleSelectOption = useCallback(
     (componentId: string, sel: ComponentSelection | null) => {
-      // sel === null means "turn off" (a boolean toggle). Drop the component.
       const next = { ...selections };
       if (sel) next[componentId] = sel;
       else delete next[componentId];
       setSelections(next);
 
-      // On the merged "extras" step, selecting an option never auto-advances —
-      // the user picks several fit/detail/add-on choices, then moves on.
       const step = steps[activeStepIdx];
       const shouldAdvance = !step?.isExtras;
       const advance = () => {
         if (shouldAdvance) setActiveStepIdx((i) => Math.min(steps.length - 1, i + 1));
       };
 
-      // Skip the Gemini call if the requested state already matches what the
-      // image depicts. Choice components only compare when selected; toggles
-      // compare symmetrically (on↔off is a change).
+      // Skip if matches current image
       if (selectionMatchesImage(next, imageSelections, toggleIds)) {
         advance();
         return;
@@ -264,109 +210,39 @@ export function MyodSheet({ onTryItOn }: Props) {
           ? describeSelection(step, componentId, sel)
           : ""
         : `${step?.components.find((c) => c.id === componentId)?.label ?? "Add-on"} → off`;
+
+      // Build full change description with component + variation descriptions
+      const comp = step?.components.find((c) => c.id === componentId);
+      const opt = comp?.options.find((o) => o.id === sel?.variationId);
+      let changeDesc = "";
+      if (comp?.description) changeDesc += comp.description + "\n";
+      if (opt?.description) changeDesc += opt.description;
+      if (sel?.variationTypeId && opt?.subOptions) {
+        const sub = opt.subOptions.find((s) => s.id === sel.variationTypeId);
+        if (sub?.description) changeDesc += "\n" + sub.description;
+      }
+
       track({ event: "myod_refined", instruction: change });
-      void applyChange(change, next).then(advance);
+      void applyChange(change, changeDesc, next).then(advance);
     },
-    [selections, imageSelections, steps, activeStepIdx, applyChange, toggleIds],
+    [selections, imageSelections, steps, activeStepIdx, toggleIds, applyChange],
   );
-
-  // ── Chat: free-text edit, stay on current step ──────────────────────
-  const handleSendChat = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      const trimmed = chatInput.trim();
-      if (!trimmed) return;
-      track({ event: "myod_refined", instruction: trimmed });
-      void applyChange(trimmed, selections);
-      setChatInput("");
-    },
-    [chatInput, selections, applyChange],
-  );
-
-  const handleMicToggle = useMicToggle({
-    listening,
-    setListening,
-    recognitionRef,
-    onTranscript: (t) => setChatInput((prev) => (prev.trim() ? `${prev} ${t}` : t)),
-  });
-
-  useEffect(() => {
-    const ref = recognitionRef;
-    return () => {
-      (ref.current as { stop: () => void } | null)?.stop();
-    };
-  }, []);
-
-  const handleTryItOn = useCallback(() => {
-    if (!imageUrl) return;
-    track({ event: "myod_tried_on" });
-    onTryItOn(imageUrl);
-  }, [imageUrl, onTryItOn]);
 
   const retry = useCallback(() => {
     setErrorMsg(null);
     setPhase("ready");
   }, []);
 
-  // Switch render mode. Going to SVG triggers an immediate SVG generation from
-  // the current selections (treating unchosen as defaults via imageSelections).
-  const switchRenderMode = useCallback(
-    (mode: "image" | "svg" | "svg-code") => {
-      if (mode === renderMode) return;
-      setRenderMode(mode);
-      if (mode === "svg" || mode === "svg-code") {
-        // Generate an SVG (or the renderer fn) from the current effective state.
-        const effective = Object.keys(selections).length ? selections : imageSelections;
-        void applyChange("switch to vector view", effective);
-      }
-    },
-    [renderMode, selections, imageSelections, applyChange],
-  );
+  const hasNonDefault = Object.keys(selections).length > 0;
 
   return (
     <div className="relative mx-auto flex w-full max-w-column flex-col gap-4 px-4 pb-6">
-      {/* Try it on + render-mode toggle — top right (sticky). */}
-      <div className="pointer-events-none sticky top-2 z-20 -mb-2 flex items-start justify-end gap-2">
-        {/* EXPERIMENT: render-mode segmented toggle (Photo / Vector / Vector fn) */}
-        <div className="pointer-events-auto flex items-center rounded-pill border border-hairline-strong bg-chalk-white/90 p-0.5 shadow-card backdrop-blur">
-          {(["image", "svg", "svg-code"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => switchRenderMode(m)}
-              disabled={phase === "generating"}
-              className={
-                "rounded-pill px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide transition-all disabled:opacity-50 " +
-                (renderMode === m
-                  ? "bg-tape text-chalk-white"
-                  : "text-muted hover:text-ink-navy")
-              }
-              style={renderMode === m ? { backgroundImage: "var(--tape-gradient)" } : undefined}
-            >
-              {m === "image" ? "Photo" : m === "svg" ? "Vector" : "Vector fn"}
-            </button>
-          ))}
-        </div>
-        {imageUrl && renderMode === "image" && (
-          <button
-            type="button"
-            onClick={handleTryItOn}
-            disabled={phase === "generating"}
-            className="pointer-events-auto flex items-center gap-1 rounded-pill bg-tape px-3.5 py-1.5 text-caption font-semibold text-chalk-white shadow-primary transition-all ease-brand hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
-            style={{ backgroundImage: "var(--tape-gradient)" }}
-          >
-            <Sparkles size={13} />
-            {strings.myod.tryOnCta}
-          </button>
-        )}
-      </div>
-
       <AnimatePresence mode="wait">
         {phase === "loading-tree" && <LoadingTree key="lt" />}
-        {phase === "error" && !imageUrl && (
+        {phase === "error" && !frontSvg && (
           <ErrorStage key="err" message={errorMsg ?? "Something went wrong."} onRetry={retry} />
         )}
-        {phase !== "loading-tree" && !(phase === "error" && !imageUrl) && (
+        {phase !== "loading-tree" && !(phase === "error" && !frontSvg) && (
           <motion.div
             key="main"
             initial={{ opacity: 0 }}
@@ -374,48 +250,37 @@ export function MyodSheet({ onTryItOn }: Props) {
             exit={{ opacity: 0 }}
             className="flex flex-col gap-4"
           >
-            <ImageStage
-              imageUrl={imageUrl}
+            {/* SVG previews */}
+            <SvgStage
+              frontSvg={frontSvg}
+              backSvg={backSvg}
               generating={phase === "generating"}
-              renderMode={renderMode}
-              svgMarkup={svgMarkup}
             />
 
+            {/* Step options */}
             {activeStep && (
               <StepCards
                 step={activeStep}
+                stepIndex={activeStepIdx}
+                totalSteps={steps.length}
                 selections={selections}
                 disabled={phase === "generating"}
                 onSelect={handleSelectOption}
               />
             )}
 
-            {chatError && (
+            {phase === "ready" && errorMsg && (
               <div className="flex items-center justify-between gap-2 rounded-card border border-error-border bg-error-bg px-3 py-2">
-                <p className="text-caption text-error-text">
-                  {errorMsg ?? strings.myod.chatError}
-                </p>
+                <p className="text-caption text-error-text">{errorMsg}</p>
                 <button
                   type="button"
-                  onClick={retryLast}
+                  onClick={retry}
                   className="shrink-0 rounded-pill border border-error-border bg-chalk-white px-3 py-1 text-[12px] font-semibold text-error-text transition-all active:scale-[0.97]"
                 >
                   {strings.myod.errorRetry}
                 </button>
               </div>
             )}
-
-            <ChatBar
-              value={chatInput}
-              onChange={(v) => {
-                setChatInput(v);
-                setChatError(false);
-              }}
-              onSubmit={handleSendChat}
-              onMic={handleMicToggle}
-              listening={listening}
-              disabled={phase === "generating"}
-            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -423,15 +288,14 @@ export function MyodSheet({ onTryItOn }: Props) {
   );
 }
 
-// ─── Default selections (what the default asset image depicts) ──────────
+// ─── Helpers ─────────────────────────────────────────────────────────────
 
 function defaultSelections(steps: DesignStep[]): Selections {
   const out: Selections = {};
   for (const step of steps) {
     for (const comp of step.components) {
-      // Boolean toggles: seeded ON only if defaultOn (absent = off).
       if (comp.kind === "toggle") {
-        if (comp.defaultOn) out[comp.id] = { variationId: TOGGLE_ON };
+        if (comp.defaultOn) out[comp.id] = { variationId: "__toggle_on__" };
         continue;
       }
       const def = comp.defaultOptionId;
@@ -446,149 +310,106 @@ function defaultSelections(steps: DesignStep[]): Selections {
   return out;
 }
 
-/** Sentinel variationId marking a boolean toggle as ON (absent = OFF). */
-const TOGGLE_ON = "__toggle_on__";
-
-/* ============================================================ */
-/*  Mic hook                                                    */
-/* ============================================================ */
-
-function useMicToggle(opts: {
-  listening: boolean;
-  setListening: (v: boolean) => void;
-  recognitionRef: React.MutableRefObject<unknown>;
-  onTranscript: (text: string) => void;
-}) {
-  const { listening, setListening, recognitionRef, onTranscript } = opts;
-  return useCallback(() => {
-    if (listening) {
-      (recognitionRef.current as { stop: () => void } | null)?.stop();
-      return;
-    }
-    const SR =
-      (typeof window !== "undefined" &&
-        ((window as unknown as Record<string, unknown>).SpeechRecognition ||
-          (window as unknown as Record<string, unknown>).webkitSpeechRecognition)) ||
-      null;
-    if (!SR) return;
-
-    const recognition = new (SR as new () => {
-      lang: string;
-      interimResults: boolean;
-      maxAlternatives: number;
-      onresult: (event: { results: { 0?: { 0?: { transcript?: string } } } }) => void;
-      onerror: () => void;
-      onend: () => void;
-      start: () => void;
-      stop: () => void;
-    })();
-    recognition.lang = "en-IN";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? "";
-      if (transcript) onTranscript(transcript);
-    };
-    recognition.onerror = () => setListening(false);
-    recognition.onend = () => setListening(false);
-    recognitionRef.current = recognition;
-    recognition.start();
-    setListening(true);
-  }, [listening, setListening, recognitionRef, onTranscript]);
+function sortedComponents(tree: GarmentTreeOut) {
+  // Flatten steps → components in display order
+  return buildDesignSteps(tree).flatMap((s) => s.components);
 }
 
 /* ============================================================ */
-/*  Image stage                                                 */
+/*  SVG stage (front + back)                                    */
 /* ============================================================ */
 
-function ImageStage({
-  imageUrl,
-  generating,
-  renderMode,
-  svgMarkup,
+function SvgStage({
+  frontSvg, backSvg, generating,
 }: {
-  imageUrl: string | null;
+  frontSvg: string | null;
+  backSvg: string | null;
   generating: boolean;
-  renderMode: "image" | "svg" | "svg-code";
-  svgMarkup: string | null;
 }) {
-  // In either SVG mode, the "content" is the SVG markup; else the image URL.
-  const isSvg = renderMode !== "image";
-  const hasContent = isSvg ? !!svgMarkup : !!imageUrl;
   return (
-    <div className="relative overflow-hidden rounded-card border border-hairline bg-mist-navy">
-      <AnimatePresence mode="wait">
-        {hasContent && !generating ? (
-          isSvg && svgMarkup ? (
+    <div className="grid grid-cols-2 gap-3">
+      {/* Front */}
+      <div className="relative overflow-hidden rounded-card bg-mist-navy">
+        <AnimatePresence mode="wait">
+          {frontSvg && !generating ? (
             <motion.div
-              key={svgMarkup.slice(0, 40)}
-              className="mx-auto flex h-[44vh] w-full items-center justify-center p-4 [&_svg]:h-full [&_svg]:max-h-full [&_svg]:w-auto"
+              key={frontSvg.slice(0, 40)}
+              className="flex aspect-[400/460] w-full items-center justify-center [&_svg]:block [&_svg]:h-full [&_svg]:w-full"
               initial={{ opacity: 0.4, scale: 1.04 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.4 }}
               // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{ __html: svgMarkup }}
+              dangerouslySetInnerHTML={{ __html: frontSvg }}
             />
           ) : (
-            <motion.img
-              key={imageUrl ?? ""}
-              src={imageUrl ?? undefined}
-              alt="Your MYOD blouse design"
-              className="mx-auto block max-h-[44vh] w-auto max-w-full object-contain"
-              initial={{ scale: 1.04, opacity: 0.4 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-              // eslint-disable-next-line @next/next/no-img-element
-            />
-          )
-        ) : (
-          <motion.div
-            key="loading"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="flex h-[44vh] items-center justify-center"
-          >
-            <GeneratingLoader />
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <motion.div key="loading-front" className="flex aspect-[400/460] w-full items-center justify-center">
+              <GeneratingLoader />
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <div className="pointer-events-none absolute left-2 top-2 rounded-pill border border-white/10 bg-ink-navy px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-chalk-white shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
+          Front
+        </div>
+      </div>
 
-      <div className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-pill bg-ink-navy/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-chalk-white backdrop-blur-md">
-        <Sparkles size={10} />
-        {isSvg ? "AI vector" : "AI design"}
+      {/* Back */}
+      <div className="relative overflow-hidden rounded-card bg-mist-navy">
+        <AnimatePresence mode="wait">
+          {backSvg && !generating ? (
+            <motion.div
+              key={backSvg.slice(0, 40)}
+              className="flex aspect-[400/460] w-full items-center justify-center [&_svg]:block [&_svg]:h-full [&_svg]:w-full"
+              initial={{ opacity: 0.4, scale: 1.04 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.4 }}
+              // eslint-disable-next-line react/no-danger
+              dangerouslySetInnerHTML={{ __html: backSvg }}
+            />
+          ) : (
+            <motion.div key="loading-back" className="flex aspect-[400/460] w-full items-center justify-center">
+              <GeneratingLoader />
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <div className="pointer-events-none absolute left-2 top-2 rounded-pill border border-white/10 bg-ink-navy px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-chalk-white shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
+          Back
+        </div>
       </div>
     </div>
   );
 }
 
 /* ============================================================ */
-/*  Step option cards                                           */
+/*  Step option cards (same as before)                         */
 /* ============================================================ */
 
 function StepCards({
-  step,
-  selections,
-  disabled,
-  onSelect,
+  step, stepIndex, totalSteps, selections, disabled, onSelect,
 }: {
   step: DesignStep;
+  stepIndex: number;
+  totalSteps: number;
   selections: Selections;
   disabled: boolean;
   onSelect: (componentId: string, sel: ComponentSelection | null) => void;
 }) {
+  // Extras step has no counter (it's the open-ended final step).
+  const showCounter = !step.isExtras && totalSteps > 1;
   return (
     <div>
       <div className="mb-3 px-1">
+        {showCounter && (
+          <span className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
+            Step {stepIndex + 1} / {totalSteps}
+          </span>
+        )}
         <span className="eyebrow">{strings.myod.chooseEyebrow}</span>
-        <p className="mt-1 font-heading text-h3 font-semibold leading-snug text-ink-navy">
-          {step.title}
-        </p>
+        <p className="mt-1 font-heading text-h3 font-semibold leading-snug text-ink-navy">{step.title}</p>
         <div className="mt-2 flex items-center gap-2" aria-hidden>
-          <span className="tick-divider flex-1" />
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-draep-orange shadow-[0_0_0_2px_rgba(248,144,16,0.22)]" />
+          <span className="tick-divider flex-1" />
         </div>
       </div>
 
@@ -612,24 +433,20 @@ function StepCards({
   );
 }
 
-/* ============================================================ */
-/*  Extras list — grouped by section (Fit / Add-ons), inline    */
-/*  variation types, placement picker for placement addons.     */
-/* ============================================================ */
+// (ExtrasList, ComponentCards, ToggleCard, ChoiceCard — same as the existing
+//  implementations. Importing them here would bloat the file; keeping inline.)
 
 function ExtrasList({
-  step,
-  selections,
-  disabled,
-  onSelect,
+  step, selections, disabled, onSelect,
 }: {
-  step: DesignStep;
-  selections: Selections;
-  disabled: boolean;
+  step: DesignStep; selections: Selections; disabled: boolean;
   onSelect: (componentId: string, sel: ComponentSelection | null) => void;
 }) {
-  // Group components by their `section` ("Fit" / "Add-ons"), preserving order.
-  const sections: { name: string; components: typeof step.components }[] = [];
+  // Which component's picker sheet is open (null = closed).
+  const [openCompId, setOpenCompId] = useState<string | null>(null);
+
+  // Group by section, preserving order of first appearance.
+  const sections: { name: string; components: StepComponent[] }[] = [];
   for (const comp of step.components) {
     const name = comp.section ?? "Details";
     const existing = sections.find((s) => s.name === name);
@@ -637,574 +454,593 @@ function ExtrasList({
     else sections.push({ name, components: [comp] });
   }
 
-  return (
-    <div className="flex flex-col gap-5">
-      {sections.map((sec, si) => (
-        <div key={sec.name} className={si > 0 ? "pt-1" : ""}>
-          {/* Section header */}
-          <div className="mb-2.5 flex items-center gap-2">
-            <span className="font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-accent-text">
-              {sec.name}
-            </span>
-            <span className="tick-divider flex-1" aria-hidden />
-          </div>
+  const openComp = step.components.find((c) => c.id === openCompId) ?? null;
 
-          {/* 2 columns — each component/add-on is one cell, compact inside. */}
-          <div className="grid grid-cols-2 gap-2.5">
+  return (
+    <>
+      <div className="flex flex-col gap-6">
+        {sections.map((sec) => (
+          <section key={sec.name} className="flex flex-col gap-2.5">
+            <ExtrasSectionHeader name={sec.name} />
             {sec.components.map((comp) => (
               <ExtrasRow
                 key={comp.id}
                 component={comp}
                 selection={selections[comp.id]}
                 disabled={disabled}
-                onSelect={(sel) => onSelect(comp.id, sel)}
+                onOpen={() => setOpenCompId(comp.id)}
+                onClear={(e) => { e.stopPropagation(); onSelect(comp.id, null); }}
               />
             ))}
-          </div>
-        </div>
-      ))}
+          </section>
+        ))}
+      </div>
+
+      <BottomSheet
+        open={!!openComp}
+        onClose={() => setOpenCompId(null)}
+        title={openComp?.label ?? ""}
+      >
+        {openComp && (
+          <ExtrasPicker
+            key={openComp.id}
+            component={openComp}
+            initialSelection={selections[openComp.id]}
+            disabled={disabled}
+            onConfirm={(sel) => {
+              onSelect(openComp.id, sel);
+              setOpenCompId(null);
+            }}
+          />
+        )}
+      </BottomSheet>
+    </>
+  );
+}
+
+// Branded section header: rivet dot + mono eyebrow + tick divider (Brand Book §6/§8).
+function ExtrasSectionHeader({ name }: { name: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        aria-hidden
+        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-draep-orange shadow-[0_0_0_2px_rgba(248,144,16,0.22)]"
+      />
+      <span className="font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-accent-text">
+        {name}
+      </span>
+      <span className="tick-divider flex-1" aria-hidden />
     </div>
   );
 }
 
-/** One component in the extras list — vertical, with inline types + placement. */
+/**
+ * A single opt-in row on the extras page. Shows a thumbnail of the current
+ * selection (if any), the label, the chosen value, and a chevron. Tapping the
+ * whole row opens the bottom-sheet picker. Tapping the small ✕ clears it.
+ *
+ * Every row is opt-in: nothing shows a "selected" state unless the user has
+ * actively chosen it (defaults seeded into selections are hidden by the caller
+ * — see MyodSheet which only treats explicit selections as set).
+ */
 function ExtrasRow({
-  component,
-  selection,
-  disabled,
-  onSelect,
+  component, selection, disabled, onOpen, onClear,
 }: {
   component: StepComponent;
   selection: ComponentSelection | undefined;
   disabled: boolean;
-  onSelect: (sel: ComponentSelection | null) => void;
+  onOpen: () => void;
+  onClear: (e: React.MouseEvent) => void;
 }) {
-  const selectedId = selection?.variationId;
-
-  // When the user taps a variation that HAS types, we don't commit yet — we
-  // mark it "pending" so its type chips appear beneath it. Only tapping a type
-  // (or a variation with no types) commits via onSelect → refine.
-  const [pendingTypeId, setPendingTypeId] = useState<string | null>(
-    selectedId ?? null,
-  );
-
-  // Boolean toggle.
-  if (component.kind === "toggle") {
-    return (
-      <ToggleCard
-        component={component}
-        showLabel
-        selection={selection}
-        disabled={disabled}
-        onSelect={onSelect}
-      />
-    );
-  }
-
-  const hasPlacement = !!component.placements && component.placements.length > 0;
-  const placementActive = hasPlacement && !!selection;
+  const isSet = !!selection;
+  const chosenOpt = component.options.find((o) => o.id === selection?.variationId);
+  const chosenSub = chosenOpt?.subOptions?.find((s) => s.id === selection?.variationTypeId);
+  // Show a preview image even when unset: the chosen option's asset if set,
+  // otherwise the first option's asset (so every row has an image, not a letter).
+  const thumbUrl = chosenOpt?.assetUrl ?? component.options[0]?.assetUrl;
+  // For toggles with no options, there's no thumbnail — use a leading icon-ish dot.
+  const valueText = component.kind === "toggle"
+    ? "On"
+    : chosenOpt
+      ? (chosenSub ? `${chosenOpt.label} · ${chosenSub.label}` : chosenOpt.label)
+      : "Optional";
+  const placeText = selection?.placement ? placementLabel(selection.placement) : null;
 
   return (
-    <div className="rounded-card border border-hairline bg-chalk-white p-2.5 shadow-card">
-      <p className="mb-1.5 text-[12px] font-semibold leading-tight text-ink-navy">{component.label}</p>
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onOpen}
+      className={"group flex w-full items-center gap-3 rounded-card border bg-chalk-white p-2.5 text-left shadow-card transition-all ease-brand active:scale-[0.99] disabled:opacity-50 " +
+        (isSet ? "border-accent-text/40" : "border-hairline hover:border-navy-interactive hover:shadow-brand")}
+    >
+      {/* Thumbnail / placeholder */}
+      <div className="relative aspect-square w-12 shrink-0 overflow-hidden rounded-card bg-mist-navy">
+        {thumbUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={thumbUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            {component.kind === "toggle" ? (
+              <Plus size={18} className="text-navy-interactive/40" />
+            ) : (
+              <span className="font-heading text-h3 font-bold text-navy-interactive/25">
+                {component.label.charAt(0).toUpperCase()}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
-      {/* Step 1 — variation dropdown. */}
-      {component.options.length > 0 ? (
-        <>
-          <select
-            disabled={disabled}
-            value={pendingTypeId ?? ""}
-            onChange={(e) => {
-              const opt = component.options.find((o) => o.id === e.target.value);
-              if (!opt) return;
-              setPendingTypeId(opt.id);
-              if (!opt.subOptions || opt.subOptions.length === 0) {
-                // No types → commit immediately.
-                onSelect({ variationId: opt.id, placement: selection?.placement });
-              }
-              // Has types → wait for Step 2 (no commit).
-            }}
-            className="w-full rounded-pill border border-hairline bg-chalk-white px-2.5 py-1.5 text-[12px] text-ink-navy focus:border-accent-text focus:outline-none disabled:opacity-50"
-          >
-            <option value="" disabled>
-              Choose {component.label}…
-            </option>
-            {component.options.map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+      {/* Label + value */}
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-body font-semibold leading-tight text-ink-navy">{component.label}</span>
+        <span className={"truncate text-caption leading-snug " + (isSet ? "text-accent-text" : "text-muted")}>
+          {valueText}{placeText ? ` · ${placeText}` : ""}
+        </span>
+      </div>
 
-          {/* Step 2 — type dropdown, only for the chosen variation if it has types. */}
-          {(() => {
-            const chosen = component.options.find((o) => o.id === pendingTypeId);
-            if (!chosen?.subOptions || chosen.subOptions.length === 0) return null;
-            const chosenType = selection?.variationTypeId;
-            return (
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <span className="shrink-0 text-[11px] font-medium text-muted">Type:</span>
-                <select
-                  disabled={disabled}
-                  value={chosenType ?? ""}
-                  onChange={(e) => {
-                    const subId = e.target.value;
-                    if (!subId) return;
-                    setPendingTypeId(chosen.id);
-                    onSelect({
-                      variationId: chosen.id,
-                      variationTypeId: subId,
-                      placement: selection?.placement,
-                    });
-                  }}
-                  className="min-w-0 flex-1 rounded-pill border border-hairline bg-chalk-white px-2 py-1 text-[11px] text-ink-navy focus:border-accent-text focus:outline-none disabled:opacity-50"
-                >
-                  <option value="" disabled>
-                    Select type…
-                  </option>
-                  {chosen.subOptions.map((sub) => (
-                    <option key={sub.id} value={sub.id}>
-                      {sub.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            );
-          })()}
-        </>
-      ) : (
-        // No variations: placement-only addon (e.g. Net work) → single Add chip.
-        hasPlacement && (
+      {/* Clear (only when set) */}
+      {isSet && (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={onClear}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClear(e as unknown as React.MouseEvent); } }}
+          aria-label={`Clear ${component.label}`}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-mist-navy hover:text-ink-navy"
+        >
+          <Close size={14} />
+        </span>
+      )}
+
+      <ChevronRight size={18} className={"shrink-0 transition-transform " + (isSet ? "text-accent-text" : "text-muted")} />
+    </button>
+  );
+}
+
+/**
+ * The picker that lives inside the bottom sheet. Holds a LOCAL draft of the
+ * selection (variation + sub-type + placement) so the user can set multiple
+ * axes (e.g. Keyhole shape + placement) before committing. Nothing is applied
+ * to the live design until Confirm — on confirm, `onConfirm(draft)` fires once
+ * and the sheet closes.
+ */
+function ExtrasPicker({
+  component, initialSelection, disabled, onConfirm,
+}: {
+  component: StepComponent;
+  initialSelection: ComponentSelection | undefined;
+  disabled: boolean;
+  onConfirm: (sel: ComponentSelection | null) => void;
+}) {
+  // Draft state — seeded from the current selection (or component defaults).
+  const isToggle = component.kind === "toggle" || component.options.length === 0;
+  const hasPlacement = !!component.placements && component.placements.length > 0;
+
+  const [draft, setDraft] = useState<ComponentSelection | null>(
+    initialSelection
+      ? { ...initialSelection }
+      : isToggle
+        ? hasPlacement
+          ? { variationId: "__toggle_on__", placement: component.placements![0] }
+          : { variationId: "__toggle_on__" }
+        : null,
+  );
+
+  // For toggle add-ons there are no option cards — just enable/disable + place.
+  if (isToggle) {
+    const on = !!draft;
+    const keepPlacement = draft?.placement ?? component.placements?.[0];
+    return (
+      <>
+        <div className="flex flex-col gap-3 py-2">
           <button
             type="button"
             disabled={disabled}
-            onClick={() =>
-              onSelect(
-                placementActive
-                  ? null
-                  : { variationId: "__placement__", placement: component.placements![0] },
-              )
-            }
-            className={
-              "rounded-pill border px-2 py-0.5 text-[11px] leading-tight transition-all active:scale-[0.97] disabled:opacity-50 " +
-              (placementActive
-                ? "border-accent-text bg-mist-navy text-ink-navy"
-                : "border-hairline bg-chalk-white text-muted hover:border-navy-interactive")
-            }
+            onClick={() => setDraft(on ? null : { variationId: "__toggle_on__", placement: keepPlacement })}
+            className={"flex items-center justify-between gap-3 rounded-card border bg-chalk-white p-3 text-left shadow-card transition-all ease-brand active:scale-[0.99] disabled:opacity-50 " +
+              (on ? "border-accent-text/40" : "border-hairline")}
           >
-            {placementActive ? "Added" : "+ Add"}
+            <span className="text-body font-semibold text-ink-navy">{on ? "Enabled" : `Enable ${component.label}`}</span>
+            <span
+              aria-hidden
+              className="relative h-6 w-11 shrink-0 rounded-pill transition-colors ease-brand"
+              style={on ? { backgroundImage: "var(--tape-gradient)" } : { backgroundColor: "var(--tape-silver)" }}
+            >
+              <span className={"absolute top-0.5 h-5 w-5 rounded-full bg-chalk-white shadow transition-all ease-brand " + (on ? "left-[22px]" : "left-0.5")} />
+            </span>
           </button>
-        )
-      )}
+          {component.description && (
+            <p className="px-1 text-caption leading-snug text-muted">{component.description}</p>
+          )}
+        </div>
+        <PickerFooter
+          canConfirm
+          onConfirm={() => onConfirm(draft)}
+          confirmLabel={on ? strings.myod.done : "Skip"}
+          placementProps={
+            on && hasPlacement
+              ? {
+                  placements: component.placements!,
+                  value: draft?.placement,
+                  onSelect: (p: string) => setDraft((d) => d ? { ...d, placement: p } : { variationId: "__toggle_on__", placement: p }),
+                  disabled,
+                }
+              : undefined
+          }
+        />
+      </>
+    );
+  }
 
-      {/* Placement picker (Latkan, Key Hole, Net) */}
-      <AnimatePresence>
-        {hasPlacement && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mt-1.5 flex flex-wrap gap-1 overflow-hidden pl-0.5"
-          >
-            <span className="self-center text-[10px] text-muted">Place on:</span>
-            {component.placements!.map((p) => {
-              const pSelected = selection?.placement === p;
-              return (
-                <button
-                  key={p}
-                  type="button"
-                  disabled={disabled || !placementActive}
-                  onClick={() =>
-                    onSelect({
-                      variationId: selection?.variationId ?? "__placement__",
-                      variationTypeId: selection?.variationTypeId,
-                      placement: p,
-                    })
-                  }
-                  className={
-                    "rounded-pill border px-1.5 py-0.5 text-[10px] leading-tight transition-all active:scale-[0.97] disabled:opacity-40 " +
-                    (pSelected
-                      ? "border-accent-text bg-chalk-white text-ink-navy"
-                      : "border-hairline bg-chalk-white text-muted hover:border-navy-interactive")
-                  }
+  // Choice component: image cards + optional sub-type chips + optional placement.
+  const selectedId = draft?.variationId;
+  const selectedOpt = component.options.find((o) => o.id === selectedId);
+  const hasSubs = !!selectedOpt?.subOptions && selectedOpt.subOptions.length > 0;
+  const canConfirm = !!draft;
+
+  return (
+    <>
+      <div className="flex flex-col gap-2.5 py-2">
+        {component.options.map((opt) => {
+          const selected = opt.id === selectedId;
+          return (
+            <div
+              key={opt.id}
+              className={"group relative flex w-full flex-row items-stretch overflow-hidden rounded-card border text-left transition-all ease-brand disabled:opacity-50 " +
+                (selected
+                  ? "border-accent-text bg-chalk-white shadow-card"
+                  : "border-hairline bg-chalk-white shadow-card hover:border-navy-interactive hover:shadow-brand")}
+            >
+              {selected && (
+                <span
+                  aria-hidden
+                  className="absolute right-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full text-chalk-white shadow-[0_1px_2px_rgba(208,96,16,0.3)]"
+                  style={{ backgroundImage: "var(--tape-gradient)" }}
                 >
-                  {placementLabel(p)}
-                </button>
-              );
-            })}
-          </motion.div>
-        )}
-      </AnimatePresence>
+                  <Check size={12} />
+                </span>
+              )}
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() =>
+                  setDraft({
+                    variationId: opt.id,
+                    // Keep existing sub-type if still valid for this option, else default/first.
+                    variationTypeId: opt.subOptions?.find((s) => s.id === draft?.variationTypeId)?.id
+                      ?? opt.defaultSubOptionId
+                      ?? opt.subOptions?.[0]?.id,
+                    placement: draft?.placement,
+                  })
+                }
+                className="flex w-full flex-row items-stretch text-left active:scale-[0.99]"
+              >
+                {/* Reference image — left */}
+                <div className="relative aspect-square w-24 shrink-0 overflow-hidden bg-mist-navy">
+                  {opt.assetUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={opt.assetUrl} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center">
+                      <span className="font-heading text-h2 font-bold text-navy-interactive/25">
+                        {opt.label.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {/* Label + description — right */}
+                <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
+                  <span className="text-body font-semibold leading-tight text-ink-navy">{opt.label}</span>
+                  {opt.description && (
+                    <span className="line-clamp-3 text-caption leading-snug text-muted">{opt.description}</span>
+                  )}
+                </div>
+              </button>
+
+              {/* Sub-type chips */}
+              <AnimatePresence initial={false}>
+                {selected && hasSubs && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    className="flex flex-wrap gap-1.5 overflow-hidden border-t border-hairline px-3 py-2.5"
+                  >
+                    {selectedOpt!.subOptions!.map((sub) => {
+                      const subSelected = sub.id === draft?.variationTypeId;
+                      return (
+                        <button
+                          key={sub.id}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => setDraft((d) => d ? { ...d, variationId: opt.id, variationTypeId: sub.id } : { variationId: opt.id, variationTypeId: sub.id, placement: draft?.placement })}
+                          className={"rounded-pill border px-2.5 py-1 text-caption leading-tight transition-all ease-brand active:scale-[0.97] disabled:opacity-50 " +
+                            (subSelected
+                              ? "border-transparent bg-tape text-chalk-white"
+                              : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")}
+                          style={subSelected ? { backgroundImage: "var(--tape-gradient)" } : undefined}
+                        >
+                          {sub.label}
+                        </button>
+                      );
+                    })}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
+      </div>
+      <PickerFooter
+        canConfirm={canConfirm}
+        onConfirm={() => onConfirm(draft)}
+        confirmLabel={strings.myod.done}
+        placementProps={
+          hasPlacement && draft
+            ? {
+                placements: component.placements!,
+                value: draft.placement,
+                onSelect: (p: string) => setDraft((d) => d ? { ...d, placement: p } : { variationId: "__placement__", placement: p }),
+                disabled,
+              }
+            : undefined
+        }
+      />
+    </>
+  );
+}
+
+/**
+ * Sticky footer shared by all pickers: optional "Place on" segmented control +
+ * a tape-gradient Confirm button. Renders outside the scroll area so it stays
+ * visible while the user browses options.
+ */
+function PickerFooter({
+  canConfirm, onConfirm, confirmLabel, placementProps,
+}: {
+  canConfirm: boolean;
+  onConfirm: () => void;
+  confirmLabel: string;
+  placementProps?: {
+    placements: string[];
+    value?: string;
+    onSelect: (p: string) => void;
+    disabled: boolean;
+  };
+}) {
+  return (
+    // Sticky inside the sheet's scroll area so it stays visible while the user
+    // browses option cards above. Mimics the BottomSheet footer slot styling.
+    <div className="sticky bottom-0 -mx-4 mt-2 border-t border-hairline bg-chalk-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+      {placementProps && (
+        <div className="flex flex-wrap items-center gap-1.5 pb-3">
+          <span className="self-center font-mono text-[10px] uppercase tracking-[0.16em] text-muted">Place on</span>
+          {placementProps.placements.map((p) => {
+            const sel = placementProps.value === p;
+            return (
+              <button
+                key={p}
+                type="button"
+                disabled={placementProps.disabled}
+                onClick={() => placementProps.onSelect(p)}
+                className={"rounded-pill border px-2.5 py-1 text-caption leading-tight transition-all ease-brand active:scale-[0.97] disabled:opacity-50 " +
+                  (sel
+                    ? "border-transparent bg-tape text-chalk-white"
+                    : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")}
+                style={sel ? { backgroundImage: "var(--tape-gradient)" } : undefined}
+              >
+                {placementLabel(p)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={!canConfirm}
+          className="rounded-pill bg-tape px-5 py-2.5 text-body font-semibold text-chalk-white shadow-primary transition-all ease-brand hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+          style={{ backgroundImage: "var(--tape-gradient)" }}
+        >
+          {confirmLabel}
+        </button>
+      </div>
     </div>
   );
 }
 
-function ComponentCards({
-  component,
-  showLabel,
-  compact = false,
-  selection,
-  disabled,
-  onSelect,
-}: {
-  component: {
-    id: string;
-    label: string;
-    options: StepOption[];
-    kind?: "choice" | "toggle";
-    description?: string;
-  };
-  showLabel: boolean;
-  /** Dense layout: option chips wrap in a flex row instead of a 3-col grid. */
-  compact?: boolean;
-  selection: ComponentSelection | undefined;
-  disabled: boolean;
-  onSelect: (sel: ComponentSelection | null) => void;
-}) {
-  // Dispatch by kind so each branch owns its own hooks (rules-of-hooks).
-  if (component.kind === "toggle") {
-    return (
-      <ToggleCard
-        component={component}
-        showLabel={showLabel}
-        selection={selection}
-        disabled={disabled}
-        onSelect={onSelect}
-      />
-    );
-  }
-  return (
-    <ChoiceCard
-      component={component}
-      showLabel={showLabel}
-      compact={compact}
-      selection={selection}
-      disabled={disabled}
-      onSelect={onSelect}
-    />
-  );
-}
-
-/* ─── Boolean toggle (add-on with no variations) ──────────────────────── */
-
 function ToggleCard({
-  component,
-  showLabel,
-  selection,
-  disabled,
-  onSelect,
+  component, showLabel, selection, disabled, onSelect,
 }: {
   component: { id: string; label: string; kind?: "choice" | "toggle" };
-  showLabel: boolean;
-  selection: ComponentSelection | undefined;
-  disabled: boolean;
-  onSelect: (sel: ComponentSelection | null) => void;
+  showLabel: boolean; selection: ComponentSelection | undefined;
+  disabled: boolean; onSelect: (sel: ComponentSelection | null) => void;
 }) {
-  const on = !!selection && selection.variationId === TOGGLE_ON;
+  const on = !!selection && selection.variationId === "__toggle_on__";
   return (
     <div>
-      {showLabel && (
-        <p className="mb-1.5 px-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-muted">
-          {component.label}
-        </p>
-      )}
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onSelect(on ? null : { variationId: TOGGLE_ON })}
-        className="flex w-full items-center justify-between gap-2 rounded-card border border-hairline bg-chalk-white px-3 py-2.5 text-left shadow-card transition-all ease-brand active:scale-[0.99] disabled:opacity-50"
-      >
-        <span className="text-caption font-medium text-ink-navy">
-          {component.label}
-        </span>
-        <span
-          aria-hidden
-          className={
-            "relative h-5 w-9 shrink-0 rounded-pill transition-colors " +
-            (on ? "bg-tape" : "bg-tape-silver")
-          }
-          style={on ? { backgroundImage: "var(--tape-gradient)" } : undefined}
-        >
-          <span
-            className={
-              "absolute top-0.5 h-4 w-4 rounded-full bg-chalk-white shadow transition-all " +
-              (on ? "left-[18px]" : "left-0.5")
-            }
-          />
+      {showLabel && <p className="mb-1.5 px-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-muted">{component.label}</p>}
+      <button type="button" disabled={disabled}
+        onClick={() => onSelect(on ? null : { variationId: "__toggle_on__" })}
+        className="flex w-full items-center justify-between gap-2 rounded-card border border-hairline bg-chalk-white px-3 py-2.5 text-left shadow-card transition-all ease-brand active:scale-[0.99] disabled:opacity-50">
+        <span className="text-caption font-medium text-ink-navy">{component.label}</span>
+        <span aria-hidden className={"relative h-5 w-9 shrink-0 rounded-pill transition-colors " + (on ? "bg-tape" : "bg-tape-silver")}
+          style={on ? { backgroundImage: "var(--tape-gradient)" } : undefined}>
+          <span className={"absolute top-0.5 h-4 w-4 rounded-full bg-chalk-white shadow transition-all " + (on ? "left-[18px]" : "left-0.5")} />
         </span>
       </button>
     </div>
   );
 }
 
-/* ─── Single choice (style component or add-on with variations) ───────── */
-
-function ChoiceCard({
-  component,
-  showLabel,
-  compact = false,
-  selection,
-  disabled,
-  onSelect,
+function ComponentCards({
+  component, showLabel, selection, disabled, onSelect,
 }: {
-  component: { id: string; label: string; options: StepOption[] };
-  showLabel: boolean;
-  compact?: boolean;
-  selection: ComponentSelection | undefined;
-  disabled: boolean;
-  onSelect: (sel: ComponentSelection) => void;
+  component: { id: string; label: string; options: StepOption[]; kind?: "choice" | "toggle" };
+  showLabel: boolean; selection: ComponentSelection | undefined;
+  disabled: boolean; onSelect: (sel: ComponentSelection) => void;
 }) {
-  // ── Single choice (style component or add-on with variations) ───────
   const selectedId = selection?.variationId;
+  const [expandedId, setExpandedId] = useState<string | null>(selectedId ?? null);
+  // When the expanded option has sub-types, its card body swaps to a chip group.
+  const expandedOption = component.options.find((o) => o.id === expandedId);
+  const chipsActive = !!expandedOption?.subOptions && expandedOption.subOptions.length > 0;
 
-  // Which variation is currently "expanded" (showing its type chips). Tapping a
-  // variation WITH sub-options expands it instead of committing — the user
-  // then taps a type, which commits. Tapping a variation WITHOUT sub-options
-  // commits immediately.
-  const [expandedId, setExpandedId] = useState<string | null>(
-    selection?.variationId ?? null,
-  );
-  const selectedOption = component.options.find((o) => o.id === expandedId);
-
+  if (component.kind === "toggle") {
+    return <ToggleCard component={component} showLabel={showLabel} selection={selection} disabled={disabled} onSelect={onSelect as (sel: ComponentSelection | null) => void} />;
+  }
   return (
     <div>
-      {showLabel && (
-        <p className="mb-1.5 px-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-muted">
-          {component.label}
-        </p>
-      )}
-
-      <div className={compact ? "flex flex-wrap gap-1.5" : "grid grid-cols-3 gap-2"}>
+      {showLabel && <p className="mb-1.5 px-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-muted">{component.label}</p>}
+      <div className="flex flex-col gap-2">
         {component.options.map((opt) => {
           const selected = opt.id === selectedId;
           const expanded = opt.id === expandedId;
+          // This card's body becomes chips when it is the active sub-type card.
+          const showChipsHere = expanded && !!opt.subOptions && opt.subOptions.length > 0;
           return (
-            <button
+            <div
               key={opt.id}
-              type="button"
-              disabled={disabled}
-              onClick={() => {
-                if (opt.subOptions && opt.subOptions.length > 0) {
-                  // Has types → expand to reveal them (don't commit yet).
-                  setExpandedId(opt.id);
-                } else {
-                  // No types → commit immediately.
-                  setExpandedId(opt.id);
-                  onSelect({ variationId: opt.id });
-                }
-              }}
-              className={
-                "relative flex flex-col items-center justify-center gap-1 rounded-card border px-2 py-3 text-center text-caption font-medium transition-all ease-brand active:scale-[0.97] disabled:opacity-50 " +
+              className={"group relative flex w-full flex-row items-stretch overflow-hidden rounded-card border text-left transition-all ease-brand disabled:opacity-50 " +
                 (selected || expanded
-                  ? "border-accent-text bg-chalk-white text-ink-navy shadow-card"
-                  : "border-hairline bg-chalk-white text-ink-navy shadow-card hover:-translate-y-0.5 hover:border-navy-interactive hover:shadow-brand")
-              }
+                  ? "border-accent-text bg-chalk-white shadow-card"
+                  : "border-hairline bg-chalk-white shadow-card hover:border-navy-interactive hover:shadow-brand")}
             >
-              {selected && (
-                <span
-                  aria-hidden
-                  className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-draep-orange shadow-[0_0_0_2px_rgba(248,144,16,0.22)]"
-                />
-              )}
-              <span className="leading-tight">{opt.label}</span>
-            </button>
+              {selected && <span aria-hidden className="absolute right-2 top-2 z-10 h-2 w-2 rounded-full bg-draep-orange shadow-[0_0_0_2px_rgba(248,144,16,0.22)]" />}
+
+              <AnimatePresence mode="wait" initial={false}>
+                {showChipsHere ? (
+                  // ── Chip body: replaces image + description, hugs the card frame ──
+                  <motion.div
+                    key="chips"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="flex min-w-0 flex-1 flex-col gap-1.5 px-3 py-2.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-body font-semibold leading-tight text-ink-navy">{opt.label}</span>
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setExpandedId(null)}
+                        className="rounded-pill border border-hairline bg-chalk-white px-2 py-0.5 text-[10px] text-muted transition-colors hover:border-navy-interactive hover:text-ink-navy"
+                        aria-label={`Back to ${opt.label}`}
+                      >
+                        Back
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {opt.subOptions!.map((sub) => {
+                        const subSelected = selected && sub.id === selection?.variationTypeId;
+                        return (
+                          <button
+                            key={sub.id}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() =>
+                              onSelect({ variationId: opt.id, variationTypeId: sub.id })
+                            }
+                            className={
+                              "rounded-pill border px-2.5 py-1 text-[12px] leading-tight transition-all active:scale-[0.97] disabled:opacity-50 " +
+                              (subSelected
+                                ? "border-accent-text bg-mist-navy text-ink-navy"
+                                : "border-hairline bg-chalk-white text-muted hover:border-navy-interactive")
+                            }
+                          >
+                            {sub.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                ) : (
+                  // ── Default body: image + label + description (button) ──
+                  <motion.button
+                    key="body"
+                    type="button"
+                    disabled={disabled}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                    onClick={() => {
+                      setExpandedId(opt.id);
+                      if (!opt.subOptions || opt.subOptions.length === 0) {
+                        onSelect({ variationId: opt.id });
+                      }
+                    }}
+                    className="flex w-full flex-row items-stretch text-left active:scale-[0.99]"
+                  >
+                    {/* Reference image — left */}
+                    <div className="relative aspect-square w-20 shrink-0 overflow-hidden bg-mist-navy">
+                      {opt.assetUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={opt.assetUrl}
+                          alt=""
+                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center">
+                          <span className="font-heading text-h2 font-bold text-navy-interactive/25">
+                            {opt.label.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Label + description — right */}
+                    <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
+                      <span className="text-body font-semibold leading-tight text-ink-navy">{opt.label}</span>
+                      {opt.description && (
+                        <span className="line-clamp-3 text-caption leading-snug text-muted">{opt.description}</span>
+                      )}
+                    </div>
+                  </motion.button>
+                )}
+              </AnimatePresence>
+            </div>
           );
         })}
       </div>
-
-      {/* Sub-options (variation types) for the EXPANDED option. Picking a type
-          commits the selection → the parent decides whether to refine. */}
-      <AnimatePresence>
-        {selectedOption?.subOptions && selectedOption.subOptions.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mt-2 flex flex-wrap gap-1.5 overflow-hidden"
-          >
-            {selectedOption.subOptions.map((sub) => {
-              const subSelected = sub.id === selection?.variationTypeId;
-              return (
-                <button
-                  key={sub.id}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() =>
-                    onSelect({ variationId: selectedOption.id, variationTypeId: sub.id })
-                  }
-                  className={
-                    "rounded-pill border px-2.5 py-1 text-[12px] transition-all active:scale-[0.97] disabled:opacity-50 " +
-                    (subSelected
-                      ? "border-accent-text bg-mist-navy text-ink-navy"
-                      : "border-hairline bg-chalk-white text-muted hover:border-navy-interactive")
-                  }
-                >
-                  {sub.label}
-                </button>
-              );
-            })}
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
 
 /* ============================================================ */
-/*  Chat bar                                                    */
+/*  Loading / generating / error                                */
 /* ============================================================ */
 
-function ChatBar({
-  value,
-  onChange,
-  onSubmit,
-  onMic,
-  listening,
-  disabled,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onSubmit: (e: React.FormEvent) => void;
-  onMic: () => void;
-  listening: boolean;
-  disabled: boolean;
-}) {
-  return (
-    <form onSubmit={onSubmit} className="sticky bottom-0">
-      <div className="flex items-center gap-1.5 rounded-card border border-hairline-strong bg-chalk-white p-1.5 shadow-card">
-        <button
-          type="button"
-          onClick={onMic}
-          aria-label={strings.myod.chatMic}
-          className={
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors " +
-            (listening ? "bg-error-bg text-error-text" : "text-muted hover:bg-mist-navy")
-          }
-        >
-          <MicGlyph active={listening} />
-        </button>
-
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={listening ? strings.myod.chatListening : strings.myod.chatPlaceholder}
-          disabled={disabled}
-          className="min-w-0 flex-1 border-none bg-transparent text-body text-ink-navy placeholder:text-muted focus:outline-none disabled:opacity-50"
-        />
-
-        <button
-          type="submit"
-          disabled={!value.trim() || disabled}
-          aria-label={strings.myod.chatSend}
-          className="flex h-9 shrink-0 items-center gap-1 rounded-pill bg-tape px-3 text-caption font-semibold text-chalk-white transition-all hover:brightness-105 active:scale-[0.97] disabled:opacity-40"
-          style={{ backgroundImage: "var(--tape-gradient)" }}
-        >
-          <SendGlyph />
-          <span className="hidden xs:inline">{strings.myod.chatSend}</span>
-        </button>
-      </div>
-    </form>
-  );
-}
-
-/* ============================================================ */
-/*  Loading states                                              */
-/* ============================================================ */
-
-/**
- * GeneratingLoader — a fashion artist sketching a blouse, with a timed
- * progress bar that fills over ~1 minute (the typical gpt-image-2 refine time).
- * The sketch strokes animate in via stroke-dashoffset; the pen hand sways.
- */
 function GeneratingLoader() {
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="flex h-full w-full flex-col items-center justify-center gap-5 px-6"
-    >
-      {/* Sketching artist scene */}
-      <div className="relative flex w-full max-w-[220px] flex-col items-center">
-        {/* Premium spotlight glow behind the sketch */}
-        <motion.div
-          aria-hidden
-          className="absolute -top-6 h-40 w-40 rounded-full bg-draep-orange/15 blur-3xl"
-          animate={{ opacity: [0.5, 0.85, 0.5] }}
-          transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
-        />
-
-        <svg viewBox="0 0 200 150" className="relative w-full" fill="none" aria-hidden>
-          {/* The blouse being sketched — strokes draw in on a loop */}
-          <motion.path
-            d="M70 45 L60 70 L55 120 L80 125 L100 122 L120 125 L145 120 L140 70 L130 45
-               C125 40 115 38 100 38 C85 38 75 40 70 45 Z"
-            stroke="var(--ink-navy)"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            initial={{ pathLength: 0, opacity: 0.3 }}
-            animate={{ pathLength: [0, 1], opacity: [0.3, 0.85] }}
-            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-          />
-          {/* Neckline curve */}
-          <motion.path
-            d="M78 48 Q100 60 122 48"
-            stroke="var(--draep-orange)"
-            strokeWidth="2"
-            strokeLinecap="round"
-            initial={{ pathLength: 0 }}
-            animate={{ pathLength: [0, 1] }}
-            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: 0.6 }}
-          />
-          {/* Center seam */}
-          <motion.path
-            d="M100 60 L100 122"
-            stroke="var(--draep-orange)"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeDasharray="3 3"
-            initial={{ pathLength: 0 }}
-            animate={{ pathLength: [0, 1] }}
-            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: 1.1 }}
-          />
-
-          {/* The pen / artist's hand — sways as if drawing */}
-          <motion.g
-            animate={{ x: [0, 4, -3, 0], y: [0, -2, 1, 0], rotate: [0, 3, -2, 0] }}
-            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-            style={{ transformOrigin: "150px 40px" }}
-          >
-            {/* pen body */}
-            <line x1="150" y1="40" x2="172" y2="20" stroke="var(--ink-navy)" strokeWidth="3" strokeLinecap="round" />
-            {/* pen nib */}
-            <line x1="148" y1="42" x2="152" y2="38" stroke="var(--draep-orange)" strokeWidth="3" strokeLinecap="round" />
-            {/* hand */}
-            <ellipse cx="158" cy="30" rx="9" ry="6" fill="var(--ink-navy)" opacity="0.12" />
-          </motion.g>
-        </svg>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="relative flex flex-col items-center gap-4">
+      <div className="relative flex h-28 w-28 items-center justify-center">
+        <motion.div aria-hidden className="absolute inset-0 rounded-full bg-draep-orange/15 blur-3xl"
+          animate={{ opacity: [0.5, 0.85, 0.5] }} transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }} />
+        <motion.div aria-hidden className="absolute inset-7 rounded-full opacity-95"
+          style={{ backgroundImage: "var(--tape-gradient)" }}
+          animate={{ scale: [1, 1.12, 1], opacity: [0.85, 1, 0.85] }} transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }} />
+        {[0, 1, 2].map((i) => (
+          <motion.div key={i} aria-hidden className="absolute h-2.5 w-2.5 rounded-full bg-chalk-white shadow"
+            style={{ offsetPath: "path('M 56 14 A 42 42 0 1 1 55.9 14 Z')" }}
+            animate={{ offsetDistance: ["0%", "100%"] }}
+            transition={{ duration: 2.2, repeat: Infinity, ease: "linear", delay: i * 0.73 }} />
+        ))}
+        <Sparkles size={24} className="relative z-10 text-chalk-white" />
       </div>
-
-      <div className="flex w-full max-w-[240px] flex-col items-center gap-2">
-        <motion.p
-          className="font-heading text-h3 font-semibold text-ink-navy"
-          animate={{ opacity: [0.65, 1, 0.65] }}
-          transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-        >
-          {strings.myod.generating}
-        </motion.p>
-
-        {/* Timed progress bar — CSS-driven width 0→100% over exactly 60s. */}
-        <div className="h-1.5 w-full overflow-hidden rounded-pill bg-tape-silver">
-          <div
-            className="h-full rounded-full"
-            style={{
-              backgroundImage: "var(--tape-gradient)",
-              animation: "myod-progress-fill 60s linear forwards",
-            }}
-          />
-        </div>
+      <motion.p className="font-heading text-h3 font-semibold text-ink-navy"
+        animate={{ opacity: [0.65, 1, 0.65] }} transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}>
+        {strings.myod.generating}
+      </motion.p>
+      <div className="h-1.5 w-36 overflow-hidden rounded-pill bg-tape-silver">
+        <div className="h-full rounded-full" style={{ width: "100%", transform: "scaleX(0)", transformOrigin: "left", backgroundImage: "var(--tape-gradient)", animation: "myod-progress-fill 60s linear forwards" }} />
       </div>
     </motion.div>
   );
@@ -1212,17 +1048,10 @@ function GeneratingLoader() {
 
 function LoadingTree() {
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="flex h-[44vh] flex-col items-center justify-center gap-3 text-muted"
-    >
-      <motion.div
-        className="h-10 w-10 rounded-full border-2 border-navy-interactive/30 border-t-navy-interactive"
-        animate={{ rotate: 360 }}
-        transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
-      />
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="flex h-[40vh] flex-col items-center justify-center gap-3 text-muted">
+      <motion.div className="h-10 w-10 rounded-full border-2 border-navy-interactive/30 border-t-navy-interactive"
+        animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }} />
       <p className="text-caption">{strings.myod.loadingTree}</p>
     </motion.div>
   );
@@ -1230,67 +1059,18 @@ function LoadingTree() {
 
 function ErrorStage({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
-      transition={{ duration: 0.25 }}
-      className="flex flex-col items-center gap-3 px-6 py-10 text-center"
-    >
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-error-bg text-error-text">
-        <Close size={22} />
-      </div>
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.25 }} className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-error-bg text-error-text"><Close size={22} /></div>
       <p className="font-heading text-h3 font-semibold text-ink-navy">{strings.myod.errorTitle}</p>
       <p className="text-body text-muted">{message}</p>
-      <button
-        type="button"
-        onClick={onRetry}
+      <button type="button" onClick={onRetry}
         className="mt-1 rounded-pill bg-tape px-5 py-2.5 text-body font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98]"
-        style={{ backgroundImage: "var(--tape-gradient)" }}
-      >
+        style={{ backgroundImage: "var(--tape-gradient)" }}>
         {strings.myod.errorRetry}
       </button>
     </motion.div>
   );
 }
 
-/* ─── Glyphs ──────────────────────────────────────────────────────────── */
-
-function MicGlyph({ active }: { active: boolean }) {
-  return (
-    <svg
-      width={18}
-      height={18}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      {active ? (
-        <>
-          <rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor" />
-          <path d="M5 11a7 7 0 0 0 14 0M12 18v4" />
-        </>
-      ) : (
-        <>
-          <rect x="9" y="2" width="6" height="12" rx="3" />
-          <path d="M5 11a7 7 0 0 0 14 0M12 18v4" />
-        </>
-      )}
-    </svg>
-  );
-}
-
-function SendGlyph() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M22 2L11 13M22 2l-7 20-4-9-9-4z" />
-    </svg>
-  );
-}
-
-// Re-export for any external consumers.
 export { labelText };

@@ -1438,6 +1438,11 @@ const STYLE_VARIATIONS: Record<string, { value: string; label: string }[]> = {
   back_cut: [
     { value: "regular", label: "Regular" },
     { value: "deep", label: "Deep" },
+    { value: "round", label: "Round" },
+    { value: "sweetheart", label: "Sweetheart" },
+    { value: "boat", label: "Boat" },
+    { value: "high_neck", label: "High neck" },
+    { value: "racer", label: "Racer back" },
     { value: "backless", label: "Backless" },
   ],
   tying: [
