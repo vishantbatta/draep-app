@@ -1261,6 +1261,8 @@ export interface MeasurementReadingRow {
   id: string;
   measurement_job_id: string | null;
   measurement_metric_id: string | null;
+  /** NULL = base (per-visit) reading; set = garment-instance reading. */
+  garment_order_id?: string | null;
   value_numeric: number | null;
   value_text: string | null;
   unit: string | null;
@@ -1298,6 +1300,118 @@ export interface GarmentMeasurementGroup {
   status: string | null;
   userNote: string | null;
   materials: GarmentOrderMaterialRow[];
+  /** This garment instance's own readings (garment-scoped), rendered as a
+   *  per-garment section on the PDF. */
+  readings?: BodyMeasurementWithMetric[];
+}
+
+// ═══ Entity measurement links (entity_measurement_metrics) ═══════════════════
+// Polymorphic (entity_type, entity_id) links deciding which metrics an
+// entity demands, at what scope/order. entity_id has no DB FK — the backend
+// write-time-guards every create (422 on unknown type / dead entity).
+
+export type MeasurableEntityType =
+  | "garment"
+  | "variation"
+  | "variation_type"
+  | "addon"
+  | "addon_variation";
+
+/** Backing table per entity type — mirrors the backend registry. */
+export const MEASURABLE_ENTITY_TABLES: Record<
+  MeasurableEntityType,
+  string
+> = {
+  garment: "garments",
+  variation: "garment_style_component_variations",
+  variation_type: "garment_style_component_variation_types",
+  addon: "garment_addons",
+  addon_variation: "garment_addon_variations",
+};
+
+export interface EntityMeasurementLink {
+  id: string;
+  entity_type: MeasurableEntityType | string | null;
+  entity_id: string | null;
+  measurement_metric_id: string | null;
+  capture_scope: "per_job" | "per_garment" | string | null;
+  is_required: boolean | null;
+  priority_order: number | null;
+  condition_note: string | null;
+}
+
+export interface EntityLinkInput {
+  entity_type: MeasurableEntityType;
+  entity_id: string;
+  measurement_metric_id: string;
+  capture_scope: "per_job" | "per_garment";
+  is_required: boolean;
+  priority_order?: number | null;
+  condition_note?: string | null;
+}
+
+export async function listMeasurementLinks(params?: {
+  entity_type?: string;
+  entity_id?: string;
+  measurement_metric_id?: string;
+}): Promise<EntityMeasurementLink[]> {
+  const qs = new URLSearchParams();
+  if (params?.entity_type) qs.set("entity_type", params.entity_type);
+  if (params?.entity_id) qs.set("entity_id", params.entity_id);
+  if (params?.measurement_metric_id)
+    qs.set("measurement_metric_id", params.measurement_metric_id);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const data = await adminFetch<{ links: EntityMeasurementLink[] }>(
+    `/admin/measurement-links${suffix}`,
+  );
+  return data.links;
+}
+
+export async function createMeasurementLink(
+  input: EntityLinkInput,
+): Promise<EntityMeasurementLink> {
+  return adminFetch<EntityMeasurementLink>("/admin/measurement-links", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteMeasurementLink(id: string): Promise<void> {
+  await adminFetch(`/admin/measurement-links/${id}`, { method: "DELETE" });
+}
+
+/** Mutable config of a link — its entity/metric identity never changes. */
+export interface EntityLinkPatch {
+  capture_scope?: "per_job" | "per_garment";
+  is_required?: boolean;
+  priority_order?: number | null;
+  condition_note?: string | null;
+}
+
+export async function updateMeasurementLink(
+  id: string,
+  patch: EntityLinkPatch,
+): Promise<EntityMeasurementLink> {
+  return adminFetch<EntityMeasurementLink>(`/admin/measurement-links/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
+export interface OrphanLink {
+  id: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  measurement_metric_id: string | null;
+  capture_scope: string | null;
+}
+
+export async function listOrphanLinks(
+  cleanup = false,
+): Promise<{ orphans: OrphanLink[]; cleaned: number }> {
+  return adminFetch<{ orphans: OrphanLink[]; cleaned: number }>(
+    `/admin/measurement-links/orphans${cleanup ? "?cleanup=true" : ""}`,
+  );
 }
 
 /** Fetch the full metric catalog, ordered by priority_order then code. */
@@ -1953,4 +2067,73 @@ export async function recordRefund(
 /** Live balance breakdown for an order. */
 export async function getOrderBalance(orderId: string): Promise<OrderBalance> {
   return adminFetch<OrderBalance>(`/admin/orders/${orderId}/balance`);
+}
+
+// ─── Short links (Configure → URLs admin sub-tab) ───────────────────────────
+
+export interface ShortLink {
+  id: string;
+  slug: string | null;
+  destination: string | null;
+  label: string | null;
+  is_active: boolean | null;
+  expires_at: string | null;
+  click_limit: number | null;
+  click_count: number | null;
+  last_clicked_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ShortLinkList {
+  links: ShortLink[];
+  total: number;
+}
+
+export interface ShortLinkCreateInput {
+  destination: string;
+  /** Feeds the default `<sanitized-name>-<random5>` slug when `slug` is omitted. */
+  name?: string;
+  slug?: string;
+  label?: string;
+  is_active?: boolean;
+  expires_at?: string | null;
+  click_limit?: number | null;
+}
+
+/** Fields explicitly present are written — null clears the optional ones. */
+export interface ShortLinkUpdateInput {
+  destination?: string;
+  slug?: string;
+  label?: string | null;
+  is_active?: boolean;
+  expires_at?: string | null;
+  click_limit?: number | null;
+  /** Accepted so the counter can be reset (e.g. after bumping the limit). */
+  click_count?: number;
+}
+
+export async function listShortLinks(): Promise<ShortLinkList> {
+  return adminFetch<ShortLinkList>("/admin/short-links");
+}
+
+export async function createShortLink(input: ShortLinkCreateInput): Promise<ShortLink> {
+  return adminFetch<ShortLink>("/admin/short-links", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateShortLink(
+  id: string,
+  input: ShortLinkUpdateInput,
+): Promise<ShortLink> {
+  return adminFetch<ShortLink>(`/admin/short-links/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteShortLink(id: string): Promise<void> {
+  await adminFetch<void>(`/admin/short-links/${id}`, { method: "DELETE" });
 }
