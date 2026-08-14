@@ -505,7 +505,7 @@ export function ReceivePaymentModal({
               </div>
               <p className="text-[11px] text-muted">
                 This records a manual refund in the ledger and recomputes the
-                order's payment status. For gateway-issued refunds via Cashfree,
+                order&apos;s payment status. For gateway-issued refunds via Cashfree,
                 use the Cashfree dashboard.
               </p>
             </>
