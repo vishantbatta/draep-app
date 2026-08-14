@@ -69,6 +69,19 @@ const PRIMARY_TABS: PrimaryTab[] = [
     ),
   },
   {
+    label: "Calendar",
+    href: "/admin/calendar",
+    matchPrefix: "/admin/calendar",
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
+        <rect x="3" y="4.5" width="14" height="12.5" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M3 8.5h14" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <path d="M6.5 11.5h2M11.5 11.5h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     label: "Data",
     href: "/admin",
     matchPrefix: "/admin",

@@ -1605,6 +1605,52 @@ export function fetchOpenSlots(
   return adminFetch<AdminSlotsResponse>(`/admin/slots${qs ? `?${qs}` : ""}`);
 }
 
+// ─── Scheduling calendar (full grid: availability + bookings per slot) ──────
+
+export interface CalendarCaptain {
+  id: string;
+  name: string;
+}
+
+export interface CalendarBookedCaptain extends CalendarCaptain {
+  status: string; // booked | manual | blocked
+  order_id: string | null; // for links to /admin/orders/{id}
+  order_number: string | null;
+}
+
+export interface CalendarSlot {
+  start_at: string;
+  label: string;
+  available: CalendarCaptain[];
+  booked: CalendarBookedCaptain[];
+}
+
+export interface CalendarDay {
+  date: string;
+  slots: CalendarSlot[];
+}
+
+export interface CalendarResponse {
+  days: CalendarDay[];
+  slot_minutes: number;
+}
+
+/** GET /admin/calendar — every grid slot for the window with the captains
+ *  available at it and the claims overlapping it (per-slot hover detail).
+ *  `captainId` scopes grid / availability / claims to one captain. */
+export function fetchCalendar(
+  fromDate?: string,
+  toDate?: string,
+  captainId?: string,
+): Promise<CalendarResponse> {
+  const params = new URLSearchParams();
+  if (fromDate) params.set("from_date", fromDate);
+  if (toDate) params.set("to_date", toDate);
+  if (captainId) params.set("captain_id", captainId);
+  const qs = params.toString();
+  return adminFetch<CalendarResponse>(`/admin/calendar${qs ? `?${qs}` : ""}`);
+}
+
 // ─── Design AI (image → Gemini analysis) ────────────────────────────────────
 
 export interface AISelection {
