@@ -666,9 +666,10 @@ export type FulfillmentStatus =
 export type PaymentStatus =
   | "pending"
   | "paid"
-  | "failed"
+  | "partially_paid"
+  | "partially_refunded"
   | "refunded"
-  | "partial_refunded";
+  | "failed";
 
 export type GarmentOrderStatus =
   | "pending"
@@ -806,9 +807,21 @@ export interface TransactionRow {
   user_id: string | null;
   type: string | null;
   provider: string | null;
+  provider_order_id: string | null;
+  provider_payment_id: string | null;
+  parent_transaction_id: string | null;
   amount: number | null;
+  currency: string | null;
   status: string | null;
   method: string | null;
+  method_detail: Record<string, unknown> | null;
+  /** Audit metadata — manual/offline payments store their note at metadata.note. */
+  metadata: Record<string, unknown> | null;
+  failure_reason: string | null;
+  collected_by: string | null;
+  settlement_status: string | null;
+  captured_at: string | null;
+  refunded_at: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -1819,4 +1832,73 @@ export async function patchSchedulingSettings(
     method: "PATCH",
     body: JSON.stringify(patch),
   });
+}
+
+// ─── Receive payment / refund ───────────────────────────────────────────────
+
+export interface ReceivePaymentResult {
+  mode: string;
+  transaction_id: string | null;
+  cf_order_id: string | null;
+  cf_link_id: string | null;
+  link_url: string | null;
+  payment_session_id: string | null;
+  payment_link: string | null;
+  sms_sent: boolean | null;
+  environment: string | null;
+  payment_status: string | null;
+  balance_due: number | null;
+}
+
+export interface RefundResult {
+  transaction_id: string | null;
+  payment_status: string | null;
+  balance_due: number | null;
+}
+
+export interface OrderBalance {
+  total_price: number | null;
+  captured: number | null;
+  refunded: number | null;
+  balance_due: number | null;
+  payment_status: string | null;
+}
+
+/** Record a received payment (offline or via a Cashfree payment link). */
+export async function receivePayment(
+  orderId: string,
+  payload: {
+    amount_rupees: number;
+    mode: "offline" | "cashfree";
+    method?: string;
+    method_detail?: Record<string, unknown>;
+    note?: string;
+    customer_phone?: string;
+  },
+): Promise<ReceivePaymentResult> {
+  return adminFetch<ReceivePaymentResult>(`/admin/orders/${orderId}/payments`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Record a refund (manual or via Cashfree). Supports partial refunds. */
+export async function recordRefund(
+  orderId: string,
+  payload: {
+    amount_rupees: number;
+    reason?: string;
+    parent_transaction_id?: string;
+    provider?: "manual" | "cashfree";
+  },
+): Promise<RefundResult> {
+  return adminFetch<RefundResult>(`/admin/orders/${orderId}/refunds`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Live balance breakdown for an order. */
+export async function getOrderBalance(orderId: string): Promise<OrderBalance> {
+  return adminFetch<OrderBalance>(`/admin/orders/${orderId}/balance`);
 }

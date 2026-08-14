@@ -54,13 +54,20 @@ import {
 import { ACQUISITION_FIELDS } from "@/lib/acquisition";
 import { SlotPicker } from "@/components/admin/SlotPicker";
 import { Chip } from "@/components/ui/Chip";
-import { downloadMeasurementJobPdf, type StyleSelectionGroup } from "@/lib/job-pdf";
+import { BottomSheet } from "@/components/ui/BottomSheet";
+import {
+  downloadMeasurementJobPdf,
+  type StyleSelectionGroup,
+} from "@/lib/job-pdf";
+import { generateInvoicePdf } from "@/lib/invoice-pdf";
+import { buildUpiPayUrl, UPI_VPA } from "@/lib/upi";
 import { GarmentOrderEditor } from "./GarmentOrderEditor";
 import {
   DesignFromImage,
   aiResultToGarmentOrderItems,
 } from "./DesignFromImage";
 import type { AISelection, AIAddon } from "@/lib/admin-api";
+import { ReceivePaymentModal } from "./ReceivePaymentModal";
 import { VoicePlayer } from "@/components/style-captain/VoicePlayer";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -77,9 +84,10 @@ const FULFILLMENT_STATUSES: FulfillmentStatus[] = [
 const PAYMENT_STATUSES: PaymentStatus[] = [
   "pending",
   "paid",
-  "failed",
+  "partially_paid",
+  "partially_refunded",
   "refunded",
-  "partial_refunded",
+  "failed",
 ];
 
 const GARMENT_ORDER_STATUSES: GarmentOrderStatus[] = [
@@ -108,6 +116,8 @@ const STATUS_STYLE: Record<string, string> = {
   failed: "bg-red-100 text-red-700",
   refunded: "bg-purple-100 text-purple-800",
   partial_refunded: "bg-orange-100 text-orange-800",
+  partially_paid: "bg-teal-100 text-teal-800",
+  partially_refunded: "bg-orange-100 text-orange-800",
   confirmed: "bg-teal-100 text-teal-800",
   in_production: "bg-indigo-100 text-indigo-800",
   ready: "bg-blue-100 text-blue-800",
@@ -131,6 +141,32 @@ function formatPrice(v: number | null | undefined): string {
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(v);
+}
+
+/** Live balance due — mirrors backend _compute_balance_due:
+ *  total_price − Σ captured payments + Σ refunds. */
+function computeBalanceDue(
+  txns: TransactionRow[],
+  totalPrice: number | null | undefined,
+): number {
+  const captured = txns
+    .filter((t) => t.type === "payment" && t.status === "captured")
+    .reduce((s, t) => s + (t.amount ?? 0), 0);
+  const refunded = txns
+    .filter((t) => t.type === "refund" && (t.status === "refunded" || t.status === "captured"))
+    .reduce((s, t) => s + (t.amount ?? 0), 0);
+  return (totalPrice ?? 0) - captured + refunded;
+}
+
+/** Refundable amount — captured payments minus already-refunded. */
+function computeRefundable(txns: TransactionRow[]): number {
+  const captured = txns
+    .filter((t) => t.type === "payment" && t.status === "captured")
+    .reduce((s, t) => s + (t.amount ?? 0), 0);
+  const refunded = txns
+    .filter((t) => t.type === "refund" && (t.status === "refunded" || t.status === "captured"))
+    .reduce((s, t) => s + (t.amount ?? 0), 0);
+  return captured - refunded;
 }
 
 /** Parse an OrderAdjustmentRow.label (JSON string like '{"en":"Rush fee"}') to text. */
@@ -477,6 +513,14 @@ export default function OrderDetailPage() {
   // ── PDF download state ─────────────────────────────────────────────────────
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<string | null>(null);
+  // ── Invoice generation state (single client-side PDF, tax-inclusive total) ─
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  // UPI payment QR sheet (same link the invoice QR carries).
+  const [upiQrOpen, setUpiQrOpen] = useState(false);
+  const [upiQrBusy, setUpiQrBusy] = useState(false);
+  const [upiQrImg, setUpiQrImg] = useState<string | null>(null);
+  const [upiQrUrl, setUpiQrUrl] = useState<string | null>(null);
+  const [upiQrAmount, setUpiQrAmount] = useState<number>(0);
 
   // ── Manage-Measurements override state ─────────────────────────────────────
   // Per-job editable measurement map: keyed by jobId → metricId → draft value
@@ -511,6 +555,10 @@ export default function OrderDetailPage() {
   // Per-scope add loading + per-row delete loading. scopeKey === "creating:<scopeKey>"
   // means that block's Add button is submitting; an id means that row is deleting.
   const [adjBusy, setAdjBusy] = useState<string | null>(null);
+
+  // Receive-payment / refund modal.
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [paymentModalTab, setPaymentModalTab] = useState<"receive" | "refund">("receive");
 
   function flash(msg: string) {
     setSaveMsg(msg);
@@ -901,6 +949,9 @@ export default function OrderDetailPage() {
     // go.total_price is garment-adjustment-inclusive on the backend; refresh
     // garment orders too so per-GO headers stay correct.
     setGarmentOrders(await fetchGarmentOrdersForOrder(order.id));
+    // Payments/refunds change the ledger → re-fetch transactions so the table
+    // and the derived balance/payment-status stay current.
+    setTransactions(await fetchTransactionsForOrder(order.id));
   }
 
   async function handleCreateAdjustment(
@@ -1288,6 +1339,116 @@ export default function OrderDetailPage() {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
+  // INVOICE — one-click GST tax invoice. Treats order.total_price as
+  // tax-inclusive and back-calculates IGST (5%) inside generateInvoicePdf.
+  // No network: consumes the already-loaded order / garment / adjustment /
+  // transaction state.
+  // ──────────────────────────────────────────────────────────────────────────
+  async function handleGenerateInvoice() {
+    if (!order) return;
+    setInvoiceLoading(true);
+    try {
+      // One line per garment order — effective (adjustment-inclusive) total,
+      // the same number the "Order total" card shows for each garment.
+      const garmentLines = garmentOrders.map((go) => ({
+        label: garmentDisplayLabel(go.garment_id),
+        total: effectiveGarmentTotal(
+          go,
+          itemsByGO.get(go.id),
+          garmentMap.get(go.garment_id)?.base_price ?? null,
+          adjustments,
+        ),
+      }));
+
+      // Order-level adjustments (garment_order_id IS NULL) so the subtotal
+      // reconciles to the grand total. Discounts are already negative.
+      const adjustmentLines = adjustments
+        .filter((a) => a.garment_order_id === null)
+        .map((a) => ({
+          label: `${a.type === "discount" ? "Discount" : "Fee"}: ${adjustmentLabel(a.label)}`,
+          total: a.amount ?? 0,
+        }));
+
+      // One "Payment Made" row per captured payment, carrying the note that
+      // was recorded with it (transactions.metadata.note).
+      const payments = transactions
+        .filter((t) => t.type === "payment" && t.status === "captured")
+        .map((t) => ({
+          amount: t.amount ?? 0,
+          note:
+            t.metadata &&
+            typeof t.metadata === "object" &&
+            "note" in t.metadata &&
+            t.metadata.note != null
+              ? String(t.metadata.note)
+              : null,
+        }));
+
+      await generateInvoicePdf({
+        invoiceNumber: order.order_number
+          ? `INV-${order.order_number}`
+          : `INV-${truncateId(order.id)}`,
+        orderNumber: order.order_number ?? truncateId(order.id),
+        customer,
+        address,
+        garmentLines,
+        adjustmentLines,
+        payments,
+      });
+      flash("Invoice downloaded");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Invoice generation failed");
+    } finally {
+      setInvoiceLoading(false);
+    }
+  }
+
+  /** Copy the public invoice link (/invoice/{order id} — the order's random
+   *  UUID doubles as the unguessable share token) so it can be sent to the
+   *  customer; the page it opens renders the same invoice as the PDF. */
+  async function handleCopyInvoiceUrl() {
+    if (!order) return;
+    const url = `${window.location.origin}/invoice/${order.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      flash("Invoice URL copied");
+    } catch {
+      // Clipboard API blocked (permission/insecure context) — still let the
+      // admin copy manually.
+      window.prompt("Copy this invoice URL:", url);
+    }
+  }
+
+  /** Show a UPI payment QR for the outstanding balance (falls back to the
+   *  grand total when already paid) — the same link embedded in the invoice
+   *  PDF's QR, so a customer can scan and pay from either. */
+  async function handleShowUpiQr() {
+    if (!order) return;
+    setUpiQrOpen(true);
+    setUpiQrBusy(true);
+    try {
+      const due = computeBalanceDue(transactions, liveTotal);
+      const amount = due > 0.5 ? due : liveTotal;
+      const url = buildUpiPayUrl(amount, order.order_number ?? truncateId(order.id));
+      setUpiQrUrl(url);
+      setUpiQrAmount(amount);
+      const { toDataURL } = await import("qrcode");
+      setUpiQrImg(
+        await toDataURL(url, {
+          margin: 1,
+          width: 480,
+          errorCorrectionLevel: "M",
+        }),
+      );
+    } catch (e) {
+      setUpiQrOpen(false);
+      alert(e instanceof Error ? e.message : "Failed to build UPI QR");
+    } finally {
+      setUpiQrBusy(false);
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
   // ADMIN MEASUREMENT OVERRIDE — open / save inline-editable grid
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -1585,6 +1746,28 @@ export default function OrderDetailPage() {
     );
   }
 
+  // ── Live (additive) order grand total ──────────────────────────────────────
+  // Computed from the components (Σ garment effective totals + order-level
+  // adjustments) rather than read from the stored order.total_price column.
+  // The stored column is a backend cache that can drift; deriving the displayed
+  // total from the same components the breakdown uses guarantees the header,
+  // the Order-total card, and the invoice always agree with the line items.
+  const liveTotal =
+    garmentOrders.reduce(
+      (s, go) =>
+        s +
+        effectiveGarmentTotal(
+          go,
+          itemsByGO.get(go.id),
+          garmentMap.get(go.garment_id)?.base_price ?? null,
+          adjustments,
+        ),
+      0,
+    ) +
+    adjustments
+      .filter((a) => a.garment_order_id === null)
+      .reduce((s, a) => s + (a.amount ?? 0), 0);
+
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-8">
       {/* Breadcrumb */}
@@ -1622,6 +1805,16 @@ export default function OrderDetailPage() {
           <div className="flex flex-wrap gap-2">
             <StatusBadge value={order.fulfillment_status} />
             <StatusBadge value={order.payment_status} />
+            <button
+              onClick={() => {
+                setPaymentModalTab("receive");
+                setPaymentModalOpen(true);
+              }}
+              className="rounded-lg border border-tape bg-tape/10 px-3 py-1.5 text-xs font-medium text-tape transition hover:bg-tape/20"
+              title="Record a payment or send a payment link"
+            >
+              ₹ Receive payment
+            </button>
             <button
               onClick={handleDownloadPdf}
               disabled={pdfLoading}
@@ -1695,11 +1888,13 @@ export default function OrderDetailPage() {
                 Total Price
               </div>
               <div className="font-mono text-sm text-ink">
-                {/* order.total_price is the backend-resynced grand total:
-                    Σ garment-order totals (each garment-adjustment-inclusive)
-                    + whole-order adjustments. Source of truth — do not sum
-                    client-side or it will drift from balance_due/payment_status. */}
-                {formatPrice(order.total_price)}
+                {/* liveTotal: the additive grand total computed from the
+                    components (Σ garment effective totals + order-level
+                    adjustments), NOT the stored order.total_price column.
+                    Deriving it here keeps the header in lockstep with the
+                    Order-total card and the invoice even if the backend
+                    cache drifts. */}
+                {formatPrice(liveTotal)}
               </div>
               <div className="mt-0.5 text-[10px] text-muted">
                 Derived from garment orders + order-level adjustments.
@@ -1712,6 +1907,15 @@ export default function OrderDetailPage() {
                     balance the customer owes is live-derived from this total
                     minus the captured ledger. */}
                 {formatPrice(order.advance_amount)}
+              </div>
+              {/* Balance due — live-derived from the additive total + the
+                  transactions ledger: liveTotal − Σ captured + Σ refunded.
+                  Mirrors the backend _compute_balance_due. */}
+              <div className="mt-2 text-xs font-medium uppercase tracking-wide text-muted">
+                Balance Due
+              </div>
+              <div className="font-mono text-sm font-semibold text-ink-navy">
+                {formatPrice(computeBalanceDue(transactions, liveTotal))}
               </div>
             </div>
 
@@ -2811,9 +3015,36 @@ export default function OrderDetailPage() {
           shadow, 12px radius, IBM Plex Mono prices, tick dividers, tape
           gradient reserved for the grand-total accent only. */}
       <section className="mb-6">
-        <h2 className="mb-3 font-heading text-lg font-semibold text-ink-navy">
-          Order total
-        </h2>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="font-heading text-lg font-semibold text-ink-navy">
+            Order total
+          </h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleShowUpiQr}
+              disabled={upiQrBusy}
+              title="Show a UPI payment QR for the balance due"
+              className="rounded-lg border border-hairline-strong px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-mist-navy/40 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              ▣ UPI QR
+            </button>
+            <button
+              onClick={handleCopyInvoiceUrl}
+              title="Copy a public link that opens this invoice as a web page"
+              className="rounded-lg border border-hairline-strong px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-mist-navy/40"
+            >
+              🔗 Copy Invoice URL
+            </button>
+            <button
+              onClick={handleGenerateInvoice}
+              disabled={invoiceLoading || pdfLoading}
+              title="Generate a GST tax invoice from the order grand total (tax-inclusive)"
+              className="rounded-lg border border-tape bg-tape/10 px-3 py-1.5 text-xs font-medium text-tape transition hover:bg-tape/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {invoiceLoading ? "Preparing…" : "⬇ Download Invoice PDF"}
+            </button>
+          </div>
+        </div>
 
         {(() => {
           // One source of truth for every number in this card.
@@ -3035,48 +3266,187 @@ export default function OrderDetailPage() {
 
       {/* ─── Transactions ─────────────────────────────────────────────────── */}
       <section className="mb-6">
-        <h2 className="mb-3 font-heading text-lg font-semibold text-ink-navy">
-          Transactions ({transactions.length})
-        </h2>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="font-heading text-lg font-semibold text-ink-navy">
+            Transactions ({transactions.length})
+          </h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setPaymentModalTab("refund");
+                setPaymentModalOpen(true);
+              }}
+              disabled={computeRefundable(transactions) <= 0}
+              className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Refund
+            </button>
+            <button
+              onClick={() => {
+                setPaymentModalTab("receive");
+                setPaymentModalOpen(true);
+              }}
+              className="rounded-md bg-ink-navy px-3 py-1.5 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90"
+            >
+              Receive payment
+            </button>
+          </div>
+        </div>
         {transactions.length === 0 ? (
           <div className="rounded-lg border border-hairline bg-chalk-white px-4 py-6 text-center text-sm text-muted">
             No transactions for this order.
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-hairline bg-chalk-white">
-            <table className="w-full min-w-[500px] text-left text-sm">
+            <table className="w-full min-w-[600px] text-left text-sm">
               <thead>
                 <tr className="border-b border-hairline bg-mist-navy/40 text-xs uppercase tracking-wide text-muted">
                   <th className="px-4 py-2 font-medium">Type</th>
                   <th className="px-4 py-2 font-medium">Provider</th>
                   <th className="px-4 py-2 font-medium">Status</th>
                   <th className="px-4 py-2 font-medium">Method</th>
+                  <th className="px-4 py-2 font-medium">Reference</th>
+                  <th className="px-4 py-2 font-medium">Note</th>
                   <th className="px-4 py-2 text-right font-medium">Amount</th>
                   <th className="px-4 py-2 font-medium">Date</th>
                 </tr>
               </thead>
               <tbody>
-                {transactions.map((tx) => (
-                  <tr key={tx.id} className="border-b border-hairline last:border-0">
-                    <td className="px-4 py-2 text-[13px]">{tx.type ?? "—"}</td>
-                    <td className="px-4 py-2 text-[13px]">{tx.provider ?? "—"}</td>
-                    <td className="px-4 py-2">
-                      <StatusBadge value={tx.status} />
-                    </td>
-                    <td className="px-4 py-2 text-[13px]">{tx.method ?? "—"}</td>
-                    <td className="px-4 py-2 text-right font-mono text-[13px]">
-                      {formatPrice(tx.amount)}
-                    </td>
-                    <td className="px-4 py-2 text-[12px] text-muted">
-                      {formatDate(tx.created_at)}
-                    </td>
-                  </tr>
-                ))}
+                {transactions.map((tx) => {
+                  const isRefund = tx.type === "refund";
+                  const ref =
+                    tx.method_detail &&
+                    typeof tx.method_detail === "object" &&
+                    "reference" in tx.method_detail
+                      ? String((tx.method_detail as Record<string, unknown>).reference)
+                      : tx.provider_payment_id ?? tx.provider_order_id;
+                  // Payment note (recorded in the Receive Payment modal →
+                  // metadata.note); refunds keep their reason in failure_reason.
+                  const note =
+                    tx.metadata &&
+                    typeof tx.metadata === "object" &&
+                    "note" in tx.metadata &&
+                    tx.metadata.note != null
+                      ? String(tx.metadata.note)
+                      : isRefund
+                        ? tx.failure_reason
+                        : null;
+                  return (
+                    <tr key={tx.id} className="border-b border-hairline last:border-0">
+                      <td className="px-4 py-2 text-[13px]">
+                        <span
+                          className={`inline-block rounded-pill px-1.5 py-0.5 text-[10px] font-medium ${
+                            isRefund
+                              ? "bg-purple-50 text-purple-700"
+                              : "bg-green-50 text-green-700"
+                          }`}
+                        >
+                          {tx.type ?? "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-[13px]">{tx.provider ?? "—"}</td>
+                      <td className="px-4 py-2" title={tx.failure_reason ?? undefined}>
+                        <StatusBadge value={tx.status} />
+                      </td>
+                      <td className="px-4 py-2 text-[13px] capitalize">
+                        {tx.method ?? "—"}
+                      </td>
+                      <td className="px-4 py-2 text-[12px] text-muted">
+                        {ref ? <span className="font-mono">{ref}</span> : "—"}
+                      </td>
+                      <td className="px-4 py-2 text-[12px] text-muted">
+                        {note ? (
+                          <div className="max-w-[220px] truncate" title={note}>
+                            {note}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td
+                        className={`px-4 py-2 text-right font-mono text-[13px] ${
+                          isRefund ? "text-purple-700" : "text-ink"
+                        }`}
+                      >
+                        {isRefund ? "−" : ""}
+                        {formatPrice(tx.amount)}
+                      </td>
+                      <td className="px-4 py-2 text-[12px] text-muted">
+                        {formatDate(tx.captured_at ?? tx.refunded_at ?? tx.created_at)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </section>
+
+      {/* ─── Receive payment / refund modal ───────────────────────────────── */}
+      {order && (
+        <ReceivePaymentModal
+          open={paymentModalOpen}
+          onClose={() => setPaymentModalOpen(false)}
+          orderId={order.id}
+          initialTab={paymentModalTab}
+          onSuccess={refreshOrderTotal}
+          totalPrice={liveTotal}
+          customerPhone={customer?.phone}
+        />
+      )}
+
+      {/* ─── UPI payment QR sheet ──────────────────────────────────────────── */}
+      <BottomSheet
+        open={upiQrOpen}
+        onClose={() => setUpiQrOpen(false)}
+        title="UPI Payment"
+      >
+        <div className="flex flex-col items-center gap-4 py-2">
+          {upiQrImg ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={upiQrImg}
+              alt="UPI payment QR"
+              className="h-56 w-56 rounded-xl border border-hairline bg-white p-2"
+            />
+          ) : (
+            <div className="flex h-56 w-56 items-center justify-center rounded-xl border border-hairline text-xs text-muted">
+              {upiQrBusy ? "Building QR…" : "QR unavailable"}
+            </div>
+          )}
+          <div className="text-center">
+            <div className="font-mono text-lg font-semibold text-ink">
+              {formatPrice(upiQrAmount)}
+            </div>
+            <div className="text-[11px] text-muted">
+              Scan with any UPI app &bull; {UPI_VPA}
+            </div>
+          </div>
+          {upiQrUrl && (
+            <div className="w-full">
+              <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+                Payment link
+              </label>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 truncate rounded bg-mist-navy/40 px-2 py-1 text-[11px] text-ink">
+                  {upiQrUrl}
+                </code>
+                <button
+                  onClick={() => {
+                    navigator.clipboard?.writeText(upiQrUrl).catch(() => {});
+                    flash("UPI link copied");
+                  }}
+                  className="shrink-0 rounded border border-hairline px-2 py-1 text-[11px] text-ink hover:bg-mist-navy"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </BottomSheet>
+
     </div>
   );
 }

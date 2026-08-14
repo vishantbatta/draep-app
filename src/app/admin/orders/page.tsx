@@ -31,9 +31,10 @@ const FULFILLMENT_STATUSES: FulfillmentStatus[] = [
 const PAYMENT_STATUSES: PaymentStatus[] = [
   "pending",
   "paid",
-  "failed",
+  "partially_paid",
+  "partially_refunded",
   "refunded",
-  "partial_refunded",
+  "failed",
 ];
 
 const STATUS_STYLE: Record<string, string> = {
@@ -49,6 +50,8 @@ const STATUS_STYLE: Record<string, string> = {
   failed: "bg-red-100 text-red-700",
   refunded: "bg-purple-100 text-purple-800",
   partial_refunded: "bg-orange-100 text-orange-800",
+  partially_paid: "bg-teal-100 text-teal-800",
+  partially_refunded: "bg-orange-100 text-orange-800",
 };
 
 function StatusBadge({ value }: { value: string | null }) {
