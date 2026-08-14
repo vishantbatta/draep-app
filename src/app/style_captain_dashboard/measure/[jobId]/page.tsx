@@ -7,16 +7,19 @@ import {
   scCreateMaterial,
   scDeleteMaterial,
   scFetchJob,
-  scFetchMetrics,
   scSaveMeasurements,
   scStartJob,
   scUpdateMaterial,
   scUploadPhotos,
   scValidateJob,
+  type MeasurementPayload,
   type SCGarmentOrderMaterial,
   type SCJob,
   type SCMaterialInput,
   type SCMetric,
+  type SCChecklist,
+  type SCChecklistGarment,
+  type SCChecklistMetric,
   type SCValidationError,
   type SCValidationResult,
 } from "@/lib/style-captain-api";
@@ -52,13 +55,30 @@ import type {
 
 // ─── Phase state ────────────────────────────────────────────────────────────
 //
-// Two sections, each with a checkpoint:
-//   Section 1 = Body measurements (all measurement_metrics)
-//     "capture" → step through metrics → "checkpoint" (review + notes)
-//   Section 2 = Garment materials (cloth/addon capture)
-//     "garment" → "notes" (final checkpoint + complete)
+// Two sections, each with a checkpoint — driven by the entity-derived
+// checklist (base metrics once per visit + per-garment sections):
+//   Section 1 = Base (body) measurements
+//     "capture" → step through base metrics → "checkpoint" (review + validate)
+//   Section 2 = Per-garment measurements + materials
+//     "garment-metrics" (per-garment tabs, sections grouped by source entity)
+//     → "garment" (cloth/addon materials) → "notes" (final + complete)
 
-type Phase = "capture" | "checkpoint" | "garment" | "notes" | "success";
+type Phase =
+  | "capture"
+  | "checkpoint"
+  | "garment-metrics"
+  | "garment"
+  | "notes"
+  | "success";
+
+/** Draft key helpers — base drafts keyed by metric id, garment drafts
+ *  prefixed with the garment order id so one record serves both scopes. */
+function baseDraftKey(metricId: string): string {
+  return metricId;
+}
+function garmentDraftKey(garmentOrderId: string, metricId: string): string {
+  return `g:${garmentOrderId}:${metricId}`;
+}
 
 // Languages for the checkpoint review toggle
 const LANG_ORDER = ["en", "hi", "kn", "ta", "te"];
@@ -79,6 +99,9 @@ export default function MeasureJobPage() {
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<SCJob | null>(null);
   const [metrics, setMetrics] = useState<SCMetric[]>([]);
+  // Entity-derived checklist — base + per-garment sections (may be empty for
+  // unconfigured garments; the captain is never asked what isn't linked).
+  const [checklist, setChecklist] = useState<SCChecklist | null>(null);
 
   const [phase, setPhase] = useState<Phase>("capture");
   const [step, setStep] = useState(0);
@@ -92,7 +115,18 @@ export default function MeasureJobPage() {
   const [hasInitialized, setHasInitialized] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
 
-  // Validation state
+  // Per-garment capture state (Section 2)
+  const [activeGarmentIdx, setActiveGarmentIdx] = useState(0);
+  const [garmentStep, setGarmentStep] = useState(0);
+  // Set when the captain acknowledges warnings — travels with the complete
+  // call (server-side gate: block never completes, warn needs the ack).
+  const [warningsAcknowledged, setWarningsAcknowledged] = useState(false);
+  // True when the validation sheet was opened by the completion gate — its
+  // acknowledge action should finish the job rather than re-enter capture.
+  const [completeAfterAck, setCompleteAfterAck] = useState(false);
+
+  // Validation state — the engine runs only at the garment checkpoint (and
+  // re-runs server-side at completion), never after the body capture.
   const [validationResult, setValidationResult] = useState<SCValidationResult | null>(null);
   const [validating, setValidating] = useState(false);
   const [showValidationSheet, setShowValidationSheet] = useState(false);
@@ -101,22 +135,25 @@ export default function MeasureJobPage() {
     setLoading(true);
     setError(null);
     try {
-      const [j, m] = await Promise.all([
-        scFetchJob(jobId),
-        scFetchMetrics(),
-      ]);
+      const j = await scFetchJob(jobId);
       setJob(j);
-      setMetrics(m);
 
-      // Pre-fill drafts from any existing readings
+      // The checklist drives capture: base metrics once per visit, then
+      // per-garment sections. Falls back to the flat catalog for legacy
+      // jobs without an order/checklist (empty base).
+      const cl = j.checklist ?? { base: [], garments: [] };
+      setChecklist(cl);
+      setMetrics(cl.base);
+
+      // Pre-fill base drafts (base readings only — garment_order_id NULL).
       const initial: Record<string, MetricDraft> = {};
       let firstUnfilledIdx = -1;
-      let allMetricsFilled = true;
+      let allBaseFilled = true;
 
-      for (let i = 0; i < m.length; i++) {
-        const metric = m[i];
+      for (let i = 0; i < cl.base.length; i++) {
+        const metric = cl.base[i];
         const ex = existingValue(j, metric.id);
-        initial[metric.id] = {
+        initial[baseDraftKey(metric.id)] = {
           metricId: metric.id,
           valueNumeric: ex.numeric,
           valueText: ex.text,
@@ -125,14 +162,37 @@ export default function MeasureJobPage() {
         const isFilled =
           ex.numeric !== null || (ex.text ?? "").trim() !== "";
         if (!isFilled) {
-          allMetricsFilled = false;
+          allBaseFilled = false;
           if (firstUnfilledIdx === -1) firstUnfilledIdx = i;
         }
       }
+
+      // Pre-fill per-garment drafts (instance readings).
+      const allGarmentMetrics: { goid: string; metric: SCChecklistMetric }[] = [];
+      for (const g of cl.garments) {
+        for (const s of g.sections) {
+          for (const m of s.metrics) {
+            allGarmentMetrics.push({ goid: g.garment_order_id, metric: m });
+            const ex = existingValue(j, m.id, g.garment_order_id);
+            initial[garmentDraftKey(g.garment_order_id, m.id)] = {
+              metricId: m.id,
+              valueNumeric: ex.numeric,
+              valueText: ex.text,
+              unit: ex.unit ?? m.unit,
+            };
+          }
+        }
+      }
+      const allGarmentMetricsFilled = allGarmentMetrics.every((x) => {
+        const d = initial[garmentDraftKey(x.goid, x.metric.id)];
+        return d && (d.valueNumeric !== null || (d.valueText ?? "").trim() !== "");
+      });
+
       setDrafts(initial);
       setNotes(j.notes ?? "");
 
-      // Smart phase jumping — only on first load
+      // Smart phase jumping — only on first load; evaluates base + each
+      // garment's fill state independently.
       if (!hasInitialized) {
         const hasMeasurements = j.measurements.length > 0;
         const allGarmentsHaveCloth =
@@ -140,28 +200,27 @@ export default function MeasureJobPage() {
           j.garment_orders.every((go) =>
             go.materials.some((mat) => mat.type === "cloth"),
           );
+        const hasGarmentMetrics = allGarmentMetrics.length > 0;
 
-        if (hasMeasurements && allMetricsFilled && allGarmentsHaveCloth) {
+        if (hasMeasurements && allGarmentsHaveCloth && allGarmentMetricsFilled) {
           // Everything done — final notes
           setPhase("notes");
-        } else if (hasMeasurements && allGarmentsHaveCloth) {
-          // Body + garments done, just need final notes
+        } else if (hasMeasurements && allGarmentsHaveCloth && !hasGarmentMetrics) {
           setPhase("notes");
-        } else if (hasMeasurements && allMetricsFilled) {
-          // All body metrics done — go to checkpoint (→ garment next)
+        } else if (
+          hasMeasurements &&
+          allBaseFilled &&
+          allGarmentMetricsFilled
+        ) {
+          // Base + garment metrics done — checkpoint (→ materials next)
           setPhase("checkpoint");
-
-          // Auto-run validation on checkpoint entry so the captain sees
-          // critical/warning issues immediately without having to click save.
-          setValidating(true);
-          scValidateJob(j.id, j.garment_orders[0]?.id)
-            .then((res) => {
-              setValidationResult(res);
-              setValidating(false);
-            })
-            .catch(() => setValidating(false));
+        } else if (hasMeasurements && allBaseFilled) {
+          // Base done — per-garment metrics next
+          setPhase("garment-metrics");
+          setActiveGarmentIdx(0);
+          setGarmentStep(0);
         } else if (hasMeasurements && firstUnfilledIdx > 0) {
-          // Some metrics filled — jump to first unfilled
+          // Some base metrics filled — jump to first unfilled
           setStep(firstUnfilledIdx);
         }
         setHasInitialized(true);
@@ -189,6 +248,20 @@ export default function MeasureJobPage() {
   const currentMetric = metrics[step] ?? null;
   const currentDraft = currentMetric ? drafts[currentMetric.id] : null;
 
+  // Every checklist metric (base + per-garment), deduped by id — label
+  // lookup for validation error chips + the edit sheet.
+  const allChecklistMetrics: SCMetric[] = useMemo(() => {
+    if (!checklist) return metrics;
+    const byId = new Map<string, SCMetric>();
+    for (const m of checklist.base) byId.set(m.id, m);
+    for (const g of checklist.garments) {
+      for (const s of g.sections) {
+        for (const m of s.metrics) byId.set(m.id, m);
+      }
+    }
+    return [...byId.values()];
+  }, [checklist, metrics]);
+
   function updateDraft(next: MetricDraft) {
     if (!currentMetric) return;
     setDrafts((prev) => ({ ...prev, [next.metricId]: next }));
@@ -201,8 +274,12 @@ export default function MeasureJobPage() {
   /**
    * Fire-and-forget save of a single metric to the backend (upsert).
    * Non-blocking — shows a subtle indicator but never interrupts navigation.
+   * Pass garmentOrderId for an instance reading; omit for a base reading.
    */
-  function saveStepSilently(draft: MetricDraft | undefined) {
+  function saveStepSilently(
+    draft: MetricDraft | undefined,
+    garmentOrderId?: string,
+  ) {
     if (!job || !draft) return;
     const hasValue =
       draft.valueNumeric !== null || (draft.valueText ?? "").trim() !== "";
@@ -211,6 +288,7 @@ export default function MeasureJobPage() {
     scSaveMeasurements(job.id, [
       {
         measurement_metric_id: draft.metricId,
+        garment_order_id: garmentOrderId ?? null,
         value_numeric: draft.valueNumeric,
         value_text: draft.valueText,
         unit: draft.unit,
@@ -249,19 +327,17 @@ export default function MeasureJobPage() {
     }
   }
 
-  /** Save all body measurement drafts, then run validation and open the
-   *  validation bottom sheet showing critical + non-critical results.
-   *  - Critical errors → block proceeding; show remeasure buttons.
-   *  - Non-critical only → show "I have checked" CTA to proceed.
-   *  - Pass → proceed to garment phase. */
+  /** Save all base measurement drafts and move on to per-garment metrics.
+   *  No validation here — the engine runs once at the garment checkpoint
+   *  (after the last garment's readings) so every finding, base- and
+   *  garment-scoped alike, surfaces in one go. */
   async function saveBodyAndAdvance() {
     if (!job) return;
     setSaving(true);
     setError(null);
     try {
-      // 1. Save all measurements
       const payload = metrics
-        .map((m) => drafts[m.id])
+        .map((m) => drafts[baseDraftKey(m.id)])
         .filter(
           (d) =>
             d &&
@@ -269,6 +345,7 @@ export default function MeasureJobPage() {
         )
         .map((d) => ({
           measurement_metric_id: d.metricId,
+          garment_order_id: null,
           value_numeric: d.valueNumeric,
           value_text: d.valueText,
           unit: d.unit,
@@ -276,25 +353,11 @@ export default function MeasureJobPage() {
       if (payload.length > 0) {
         await scSaveMeasurements(job.id, payload);
       }
-
-      // 2. Run validation
-      setValidating(true);
-      const garmentOrderId = job.garment_orders[0]?.id;
-      const result = await scValidateJob(job.id, garmentOrderId);
-      setValidationResult(result);
-      setValidating(false);
-
-      // 3. If all clear, proceed directly
-      if (result.status === "pass") {
-        setPhase("garment");
-        return;
-      }
-
-      // 4. Otherwise open the validation bottom sheet
-      setShowValidationSheet(true);
+      setPhase("garment-metrics");
+      setActiveGarmentIdx(0);
+      setGarmentStep(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save readings");
-      setValidating(false);
     } finally {
       setSaving(false);
     }
@@ -307,12 +370,13 @@ export default function MeasureJobPage() {
     if (!job) return;
     setValidating(true);
     try {
-      const garmentOrderId = job.garment_orders[0]?.id;
-      const result = await scValidateJob(job.id, garmentOrderId);
+      const result = await scValidateJob(job.id);
       setValidationResult(result);
       if (result.status === "pass") {
         setShowValidationSheet(false);
-        setPhase("garment");
+        // Completion-gate sheet: stay on notes so the captain re-taps
+        // complete; the garment checkpoint falls through to materials.
+        if (!completeAfterAck) setPhase("garment");
       }
     } catch {
       /* best-effort */
@@ -324,7 +388,69 @@ export default function MeasureJobPage() {
   /** Called after the user acknowledges non-critical warnings in the sheet. */
   function proceedAfterWarningAck() {
     setShowValidationSheet(false);
+    setWarningsAcknowledged(true);
+    // When the ack came from the completion gate, finish the job instead of
+    // restarting garment capture (e.g. after a mid-visit page reload).
+    if (completeAfterAck) {
+      setCompleteAfterAck(false);
+      void handleComplete();
+      return;
+    }
     setPhase("garment");
+  }
+
+  /** Save every filled per-garment draft, then run THE validation checkpoint
+   *  — the engine's only run in the wizard, fired after the last garment's
+   *  readings so base- and garment-scoped findings surface together, in one
+   *  sheet, before materials. */
+  async function saveGarmentsAndAdvance() {
+    if (!job) return;
+    setSaving(true);
+    setError(null);
+    try {
+      // 1. Bulk-save all filled garment-instance drafts (deduped per
+      //    garment+metric — a metric can surface in more than one section).
+      const byKey = new Map<string, MeasurementPayload>();
+      for (const g of checklist?.garments ?? []) {
+        for (const s of g.sections) {
+          for (const m of s.metrics) {
+            const d = drafts[garmentDraftKey(g.garment_order_id, m.id)];
+            if (!d) continue;
+            const hasValue =
+              d.valueNumeric !== null || (d.valueText ?? "").trim() !== "";
+            if (!hasValue) continue;
+            byKey.set(`${g.garment_order_id}:${m.id}`, {
+              measurement_metric_id: d.metricId,
+              garment_order_id: g.garment_order_id,
+              value_numeric: d.valueNumeric,
+              value_text: d.valueText,
+              unit: d.unit,
+            });
+          }
+        }
+      }
+      if (byKey.size > 0) {
+        await scSaveMeasurements(job.id, [...byKey.values()]);
+      }
+
+      // 2. Validate every instance now that its readings are persisted
+      setValidating(true);
+      const result = await scValidateJob(job.id);
+      setValidationResult(result);
+      setValidating(false);
+
+      // 3. All clear → materials; otherwise the sheet blocks the way
+      if (result.status === "pass") {
+        setPhase("garment");
+        return;
+      }
+      setShowValidationSheet(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save readings");
+      setValidating(false);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleComplete() {
@@ -332,12 +458,32 @@ export default function MeasureJobPage() {
     setSaving(true);
     setError(null);
     try {
-      await scCompleteJob(job.id, notes, voiceNoteUrl ?? undefined);
+      await scCompleteJob(
+        job.id,
+        notes,
+        voiceNoteUrl ?? undefined,
+        warningsAcknowledged,
+      );
       // Reload to pick up the completed status, then show success screen
       await load();
       setPhase("success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to complete job");
+      const message = err instanceof Error ? err.message : "Failed to complete job";
+      // Server-side gate: warn needs acknowledgement. Rather than dead-ending
+      // on the raw API message (e.g. after a page reload reset the ack state),
+      // surface the validation sheet so the captain can verify and acknowledge.
+      if (/acknowledge/i.test(message)) {
+        try {
+          const result = await scValidateJob(job.id);
+          setValidationResult(result);
+          setCompleteAfterAck(true);
+          setShowValidationSheet(true);
+          return;
+        } catch {
+          /* fall through to the generic error below */
+        }
+      }
+      setError(message);
     } finally {
       setSaving(false);
     }
@@ -403,68 +549,103 @@ export default function MeasureJobPage() {
           }
         : null;
 
-      // Map metrics + measurements into BodyMeasurementWithMetric
-      const metricById = new Map(scMetrics.map((m) => [m.id, m]));
-      const readingsByMetric = new Map(
+      // Map metrics + measurements: BASE readings only (garment_order_id
+      // NULL) for the body pages — per-garment readings render on their own
+      // garment's page (doc §10: base section + one section per garment).
+      const baseMetricList: SCMetric[] = checklist?.base ?? metrics;
+      const metricRowById = new Map<string, MeasurementMetricRow>();
+      const toMetricRow = (m: SCMetric): MeasurementMetricRow => {
+        const existing = metricRowById.get(m.id);
+        if (existing) return existing;
+        const row: MeasurementMetricRow = {
+          id: m.id,
+          code: m.code,
+          slug: m.slug,
+          labels: m.labels,
+          descriptions: m.descriptions,
+          asset_urls: m.asset_urls,
+          unit: m.unit,
+          priority_order: null,
+        };
+        metricRowById.set(m.id, row);
+        return row;
+      };
+      const toReadingRow = (r: SCJob["measurements"][number]): MeasurementReadingRow => ({
+        id: r.id,
+        measurement_job_id: scJob.id,
+        measurement_metric_id: r.measurement_metric_id,
+        garment_order_id: r.garment_order_id ?? null,
+        value_numeric: r.value_numeric,
+        value_text: r.value_text,
+        unit: r.unit,
+        captured_at: r.captured_at ?? null,
+      });
+
+      const baseReadings = new Map(
         scJob.measurements
-          .filter((r) => r.measurement_metric_id)
+          .filter((r) => r.measurement_metric_id && !r.garment_order_id)
           .map((r) => [r.measurement_metric_id as string, r]),
       );
+      const garmentReadingsByGo = new Map<string, SCJob["measurements"][number][]>();
+      for (const r of scJob.measurements) {
+        if (r.measurement_metric_id && r.garment_order_id) {
+          const list = garmentReadingsByGo.get(r.garment_order_id) ?? [];
+          list.push(r);
+          garmentReadingsByGo.set(r.garment_order_id, list);
+        }
+      }
 
-      const bodyMeasurements: BodyMeasurementWithMetric[] = scMetrics.map(
-        (m): BodyMeasurementWithMetric => {
-          const metricRow: MeasurementMetricRow = {
-            id: m.id,
-            code: m.code,
-            slug: m.slug,
-            labels: m.labels,
-            descriptions: m.descriptions,
-            asset_urls: m.asset_urls,
-            unit: m.unit,
-            priority_order: null,
-          };
-          const reading = readingsByMetric.get(m.id);
-          const readingRow: MeasurementReadingRow | null = reading
-            ? {
-                id: reading.id,
-                measurement_job_id: scJob.id,
-                measurement_metric_id: reading.measurement_metric_id,
-                value_numeric: reading.value_numeric,
-                value_text: reading.value_text,
-                unit: reading.unit,
-                captured_at: reading.captured_at ?? null,
-              }
-            : null;
-          return { metric: metricRow, reading: readingRow };
-        },
+      const bodyMeasurements: BodyMeasurementWithMetric[] = baseMetricList.map(
+        (m) => ({
+          metric: toMetricRow(m),
+          reading: baseReadings.has(m.id)
+            ? toReadingRow(baseReadings.get(m.id)!)
+            : null,
+        }),
       );
 
-      void metricById; // (kept for reference; not strictly needed)
-
-      // Map garment orders + materials
+      // Map garment orders + materials (+ this instance's own readings)
       const garmentMeasurements: GarmentMeasurementGroup[] = scJob.garment_orders.map(
-        (go): GarmentMeasurementGroup => ({
-          garmentOrderId: go.id,
-          garmentId: go.garment_id,
-          garmentSlug: go.garment_slug,
-          garmentLabels: go.garment_labels,
-          status: go.status,
-          userNote: go.user_note,
-          materials: go.materials.map(
-            (mat): GarmentOrderMaterialRow => ({
-              id: mat.id,
-              garment_order_id: mat.garment_order_id,
-              type: mat.type,
-              name: mat.name,
-              color: mat.color,
-              length: mat.length,
-              breadth: mat.breadth,
-              unit: mat.unit,
-              asset_urls: mat.asset_urls,
-              comment: mat.comment,
-            }),
-          ),
-        }),
+        (go): GarmentMeasurementGroup => {
+          const cl_garment = checklist?.garments.find(
+            (x) => x.garment_order_id === go.id,
+          );
+          const cl_metrics = new Map<string, SCMetric>();
+          for (const s of cl_garment?.sections ?? []) {
+            for (const m of s.metrics) cl_metrics.set(m.id, m);
+          }
+          const readings: BodyMeasurementWithMetric[] = (
+            garmentReadingsByGo.get(go.id) ?? []
+          ).map((r) => ({
+            metric: cl_metrics.get(r.measurement_metric_id as string)
+              ? toMetricRow(cl_metrics.get(r.measurement_metric_id as string)!)
+              : toMetricRow({ id: r.measurement_metric_id as string, code: null, slug: null, labels: null, descriptions: null, asset_urls: null, unit: r.unit }),
+            reading: toReadingRow(r),
+          }));
+          return {
+            garmentOrderId: go.id,
+            garmentId: go.garment_id,
+            garmentSlug: go.garment_slug,
+            garmentLabels: go.garment_labels,
+            status: go.status,
+            userNote: go.user_note,
+            materials: go.materials.map(
+              (mat): GarmentOrderMaterialRow => ({
+                id: mat.id,
+                garment_order_id: mat.garment_order_id,
+                type: mat.type,
+                name: mat.name,
+                color: mat.color,
+                length: mat.length,
+                breadth: mat.breadth,
+                unit: mat.unit,
+                asset_urls: mat.asset_urls,
+                comment: mat.comment,
+              }),
+            ),
+            readings,
+          };
+        },
       );
 
       await downloadMeasurementJobPdf(
@@ -601,17 +782,6 @@ export default function MeasureJobPage() {
             onReview={async () => {
               saveStepSilently(currentDraft);
               setPhase("checkpoint");
-              // Run validation and open the sheet immediately
-              setValidating(true);
-              try {
-                const result = await scValidateJob(job.id, job.garment_orders[0]?.id);
-                setValidationResult(result);
-                if (result.status !== "pass") {
-                  setShowValidationSheet(true);
-                }
-              } catch { /* best-effort */ } finally {
-                setValidating(false);
-              }
             }}
           />
         </>
@@ -625,19 +795,39 @@ export default function MeasureJobPage() {
             setPhase("capture");
           }}
           saving={saving}
-          validating={validating}
-          validationResult={validationResult}
           onBack={() => {
             setStep(0);
             setPhase("capture");
           }}
           onContinue={() => saveBodyAndAdvance()}
         />
+      ) : phase === "garment-metrics" ? (
+        <GarmentMetricsStage
+          checklist={checklist}
+          drafts={drafts}
+          activeGarmentIdx={activeGarmentIdx}
+          garmentStep={garmentStep}
+          savingStep={savingStep}
+          submitting={saving || validating}
+          onActiveGarmentChange={(idx) => {
+            setGarmentStep(0);
+            setActiveGarmentIdx(idx);
+          }}
+          onGarmentStepChange={setGarmentStep}
+          onUpdateDraft={updateDraftById}
+          onSaveSilently={saveStepSilently}
+          onEditMetric={(draftKey) => setEditingMetricId(draftKey)}
+          onBack={() => {
+            setStep(0);
+            setPhase("checkpoint");
+          }}
+          onContinue={saveGarmentsAndAdvance}
+        />
       ) : phase === "garment" ? (
         <GarmentPhase
           job={job}
           onReload={load}
-          onBack={() => setPhase("checkpoint")}
+          onBack={() => setPhase("garment-metrics")}
           onContinue={() => setPhase("notes")}
         />
       ) : (
@@ -690,9 +880,11 @@ export default function MeasureJobPage() {
         <ValidationSheet
           result={validationResult}
           validating={validating}
-          metrics={metrics}
+          metrics={allChecklistMetrics}
           drafts={drafts}
-          onRemeasure={(metricId) => setEditingMetricId(metricId)}
+          checklist={checklist}
+          garmentLabels={garmentLabelMap(checklist?.garments ?? [])}
+          onRemeasure={(draftKey) => setEditingMetricId(draftKey)}
           onRevalidate={revalidate}
           onAcknowledgeWarnings={proceedAfterWarningAck}
           onClose={() => setShowValidationSheet(false)}
@@ -701,26 +893,548 @@ export default function MeasureJobPage() {
 
       {/* ─── Inline edit bottom sheet (checkpoint + notes phase) ──────────
           Rendered LAST so it stacks above the ValidationSheet when opened
-          from within it (both are fixed inset-0; DOM order wins). */}
+          from within it (both are fixed inset-0; DOM order wins).
+          Keys are base metric ids or `g:{garmentOrderId}:{metricId}`. */}
       {editingMetricId &&
-        metrics.find((m) => m.id === editingMetricId) &&
-        drafts[editingMetricId] && (
-          <EditMetricSheet
-            metric={metrics.find((m) => m.id === editingMetricId)!}
-            draft={drafts[editingMetricId]}
-            onChange={(next) => {
-              updateDraftById(editingMetricId, next);
-              saveStepSilently(next);
+        (() => {
+          let metric: SCMetric | null = null;
+          let garmentOrderId: string | undefined;
+          if (editingMetricId.startsWith("g:")) {
+            const parts = editingMetricId.split(":");
+            garmentOrderId = parts[1];
+            metric = findChecklistMetric(checklist, parts[2]);
+          } else {
+            metric = metrics.find((m) => m.id === editingMetricId) ?? null;
+          }
+          const draft = drafts[editingMetricId];
+          if (!metric || !draft) return null;
+          const gLabels = garmentLabelMap(checklist?.garments ?? []);
+          return (
+            <EditMetricSheet
+              metric={metric}
+              draft={draft}
+              garmentLabel={
+                garmentOrderId ? gLabels[garmentOrderId] : undefined
+              }
+              onChange={(next) => {
+                updateDraftById(editingMetricId, next);
+                saveStepSilently(next, garmentOrderId);
+              }}
+              onClose={() => {
+                setEditingMetricId(null);
+                // If the validation sheet is open, re-run validation after edit
+                if (showValidationSheet) {
+                  revalidate();
+                }
+              }}
+            />
+          );
+        })()}
+    </div>
+  );
+}
+
+// ─── Checklist helpers ───────────────────────────────────────────────────────
+
+/** Find a metric anywhere in the checklist (base or garment sections). */
+function findChecklistMetric(
+  checklist: SCChecklist | null,
+  metricId: string | undefined,
+): SCMetric | null {
+  if (!checklist || !metricId) return null;
+  for (const m of checklist.base) {
+    if (m.id === metricId) return m;
+  }
+  for (const g of checklist.garments) {
+    for (const s of g.sections) {
+      for (const m of s.metrics) {
+        if (m.id === metricId) return m;
+      }
+    }
+  }
+  return null;
+}
+
+/** Flatten a garment's sections into an ordered step list with section context. */
+function flattenGarmentSections(
+  garment: SCChecklistGarment,
+): { metric: SCChecklistMetric; sectionLabel: string }[] {
+  const out: { metric: SCChecklistMetric; sectionLabel: string }[] = [];
+  for (const s of garment.sections) {
+    for (const m of s.metrics) {
+      out.push({ metric: m, sectionLabel: s.entity.label });
+    }
+  }
+  return out;
+}
+
+/** Display labels per garment instance — repeated garments get numbered
+ *  ("Blouse", "Blouse 2") so garment-scoped metrics can name their garment
+ *  in the validation sheet and the edit sheet. */
+function garmentLabelMap(
+  garments: SCChecklistGarment[],
+): Record<string, string> {
+  const counts = new Map<string, number>();
+  for (const g of garments) counts.set(g.label, (counts.get(g.label) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  const out: Record<string, string> = {};
+  for (const g of garments) {
+    const nth = (seen.get(g.label) ?? 0) + 1;
+    seen.set(g.label, nth);
+    out[g.garment_order_id] =
+      (counts.get(g.label) ?? 1) > 1 ? `${g.label} ${nth}` : g.label;
+  }
+  return out;
+}
+
+// ─── Garment metrics stage (Section 2 · per-instance capture) ────────────────
+
+function GarmentMetricsStage({
+  checklist,
+  drafts,
+  activeGarmentIdx,
+  garmentStep,
+  savingStep,
+  submitting,
+  onActiveGarmentChange,
+  onGarmentStepChange,
+  onUpdateDraft,
+  onSaveSilently,
+  onEditMetric,
+  onBack,
+  onContinue,
+}: {
+  checklist: SCChecklist | null;
+  drafts: Record<string, MetricDraft>;
+  activeGarmentIdx: number;
+  garmentStep: number;
+  savingStep: boolean;
+  submitting: boolean;
+  onActiveGarmentChange: (idx: number) => void;
+  onGarmentStepChange: (idx: number) => void;
+  onUpdateDraft: (draftKey: string, next: MetricDraft) => void;
+  onSaveSilently: (draft: MetricDraft | undefined, garmentOrderId?: string) => void;
+  onEditMetric: (draftKey: string) => void;
+  onBack: () => void;
+  onContinue: () => void;
+}) {
+  // Label per garment instance ("Blouse 1 · Blouse 2" when repeated)
+  const garments = checklist?.garments ?? [];
+  const gLabels = garmentLabelMap(garments);
+  const displayLabels = garments.map((g) => gLabels[g.garment_order_id]);
+
+  const active: SCChecklistGarment | null = garments[activeGarmentIdx] ?? null;
+  const steps = active ? flattenGarmentSections(active) : [];
+  const clampedStep = Math.min(garmentStep, Math.max(steps.length - 1, 0));
+  const current = steps[clampedStep] ?? null;
+  const currentKey = current
+    ? garmentDraftKey(active!.garment_order_id, current.metric.id)
+    : "";
+  const currentDraft = current ? drafts[currentKey] : null;
+
+  const isFilled = (d: MetricDraft | undefined) =>
+    !!d && (d.valueNumeric !== null || (d.valueText ?? "").trim() !== "");
+
+  // Review-mode state: -1 = stepping; otherwise reviewing garment i
+  const [reviewing, setReviewing] = useState(false);
+
+  // Per-garment progress (filled / total + required gate)
+  const garmentStats = garments.map((g) => {
+    const all = flattenGarmentSections(g);
+    const filled = all.filter((s) =>
+      isFilled(drafts[garmentDraftKey(g.garment_order_id, s.metric.id)]),
+    );
+    const missingRequired = all.filter(
+      (s) =>
+        s.metric.is_required &&
+        !isFilled(drafts[garmentDraftKey(g.garment_order_id, s.metric.id)]),
+    );
+    return { garment: g, total: all.length, filled: filled.length, missingRequired };
+  });
+
+  const activeStats = garmentStats[activeGarmentIdx];
+  void activeStats; // progress is surfaced via the tabs + review screen
+
+  // Nothing garment-specific to capture — go straight through.
+  if (garments.length === 0 || garmentStats.every((s) => s.total === 0)) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-card border border-hairline-strong bg-chalk-white px-4 py-3">
+          <p className="text-body font-semibold text-ink-navy">
+            Garment measurements
+          </p>
+          <p className="mt-1 text-caption text-muted">
+            No garment-specific metrics for this order — capturing materials next.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={onBack}
+            className="tap flex-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy"
+          >
+            ← Back
+          </button>
+          <button
+            onClick={onContinue}
+            disabled={submitting}
+            className="tap flex-1 rounded-pill bg-ink-navy px-4 py-3 text-body font-semibold text-chalk-white disabled:opacity-60"
+          >
+            {submitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-chalk-white border-t-transparent" />
+                Checking…
+              </span>
+            ) : (
+              "Continue →"
+            )}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Per-garment tabs */}
+      {garments.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          {garments.map((g, i) => {
+            const stats = garmentStats[i];
+            const done = stats.missingRequired.length === 0 && stats.filled === stats.total;
+            return (
+              <button
+                key={g.garment_order_id}
+                onClick={() => {
+                  setReviewing(false);
+                  onActiveGarmentChange(i);
+                }}
+                className={`tap rounded-pill px-3 py-1.5 text-caption font-medium transition ${
+                  i === activeGarmentIdx
+                    ? "bg-ink-navy text-chalk-white shadow-card"
+                    : done
+                      ? "bg-success/20 text-success-text"
+                      : "bg-mist-navy text-muted"
+                }`}
+              >
+                {done && i !== activeGarmentIdx ? "✓ " : ""}
+                {displayLabels[i]} · {stats.filled}/{stats.total}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {reviewing && active ? (
+        /* ── Review list for the active garment ── */
+        <GarmentMetricsReview
+          garment={active}
+          label={displayLabels[activeGarmentIdx]}
+          drafts={drafts}
+          checking={submitting}
+          onEdit={(draftKey) => onEditMetric(draftKey)}
+          onJumpToStep={(idx) => {
+            setReviewing(false);
+            onGarmentStepChange(idx);
+          }}
+          onBack={() => setReviewing(false)}
+          onContinue={
+            activeGarmentIdx < garments.length - 1
+              ? () => {
+                  setReviewing(false);
+                  onActiveGarmentChange(activeGarmentIdx + 1);
+                }
+              : onContinue
+          }
+          isLastGarment={activeGarmentIdx >= garments.length - 1}
+        />
+      ) : current && currentDraft && active ? (
+        /* ── Step-through for the active garment ── */
+        <>
+          <div className="flex items-center justify-between text-caption">
+            <span className="font-medium text-accent-text">
+              Section 2 · {displayLabels[activeGarmentIdx]} · Step{" "}
+              {clampedStep + 1} of {steps.length}
+              {savingStep && <span className="ml-2 text-muted">· saving…</span>}
+            </span>
+            <button
+              onClick={() => {
+                onSaveSilently(currentDraft, active.garment_order_id);
+                setReviewing(true);
+              }}
+              className="tap text-muted underline"
+            >
+              Preview
+            </button>
+          </div>
+
+          {/* Section context — which entity asked for this metric */}
+          <div className="rounded-pill bg-mist-navy px-3 py-1 text-[11px] font-medium text-muted inline-block w-fit">
+            {current.sectionLabel}
+          </div>
+
+          <StepJumpBar
+            metrics={steps.map((s) => s.metric)}
+            drafts={drafts}
+            currentIdx={clampedStep}
+            onJump={(idx) => onGarmentStepChange(idx)}
+          />
+
+          <MetricCard
+            metric={current.metric}
+            draft={currentDraft}
+            onChange={(next) => onUpdateDraft(currentKey, next)}
+          />
+
+          <MetricInputBar
+            draft={currentDraft}
+            onChange={(next) => onUpdateDraft(currentKey, next)}
+            isLastStep={clampedStep >= steps.length - 1}
+            onBack={() => {
+              onSaveSilently(currentDraft, active.garment_order_id);
+              if (clampedStep > 0) onGarmentStepChange(clampedStep - 1);
+              else onBack();
             }}
-            onClose={() => {
-              setEditingMetricId(null);
-              // If the validation sheet is open, re-run validation after edit
-              if (showValidationSheet) {
-                revalidate();
+            onNext={() => {
+              onSaveSilently(currentDraft, active.garment_order_id);
+              if (clampedStep < steps.length - 1) {
+                onGarmentStepChange(clampedStep + 1);
+              } else {
+                setReviewing(true);
               }
             }}
+            onReview={() => {
+              onSaveSilently(currentDraft, active.garment_order_id);
+              setReviewing(true);
+            }}
           />
-        )}
+        </>
+      ) : (
+        <div className="py-8 text-center text-caption text-muted">
+          {active
+            ? `All ${displayLabels[activeGarmentIdx] ?? ""} metrics captured.`
+            : "No garment metrics."}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Review list for ONE garment's captured metrics (filled + missing). */
+function GarmentMetricsReview({
+  garment,
+  label,
+  drafts,
+  checking,
+  onEdit,
+  onJumpToStep,
+  onBack,
+  onContinue,
+  isLastGarment,
+}: {
+  garment: SCChecklistGarment;
+  label: string;
+  drafts: Record<string, MetricDraft>;
+  checking: boolean;
+  onEdit: (draftKey: string) => void;
+  onJumpToStep: (idx: number) => void;
+  onBack: () => void;
+  onContinue: () => void;
+  isLastGarment: boolean;
+}) {
+  const [activeLang, setActiveLang] = useState("en");
+  const steps = flattenGarmentSections(garment);
+
+  // Build list of available languages across this garment's metrics (for
+  // the toggle) — same mechanics as the body checkpoint.
+  const availableLangs = LANG_ORDER.filter((lang) =>
+    steps.some((s) => s.metric.labels?.[lang] ?? s.metric.descriptions?.[lang]),
+  );
+  useEffect(() => {
+    if (availableLangs.length > 0 && !availableLangs.includes(activeLang)) {
+      setActiveLang(availableLangs[0]);
+    }
+  }, [availableLangs, activeLang]);
+
+  const filled = steps
+    .map((step, idx) => ({
+      step,
+      idx,
+      draft: drafts[garmentDraftKey(garment.garment_order_id, step.metric.id)],
+    }))
+    .filter(
+      (x) =>
+        x.draft &&
+        (x.draft.valueNumeric !== null || (x.draft.valueText ?? "").trim() !== ""),
+    );
+  const skipped = steps.length - filled.length;
+  const missingRequired = steps.filter(
+    (s) =>
+      s.metric.is_required &&
+      !drafts[garmentDraftKey(garment.garment_order_id, s.metric.id)],
+  );
+
+  /** Resolve label in the active language, falling back to other languages. */
+  function labelFor(metric: SCChecklistMetric): string {
+    const labels = metric.labels ?? {};
+    return (
+      labels[activeLang] ??
+      labels.en ??
+      labels.hi ??
+      labels.kn ??
+      labels.ta ??
+      labels.te ??
+      metric.code ??
+      "Metric"
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* ─── Header ─────────────────────────────────────────────────────── */}
+      <div>
+        <p className="text-eyebrow uppercase tracking-wider text-accent-text">
+          Section 2 · {label}
+        </p>
+        <h1 className="font-heading text-h4 font-semibold text-ink-navy">
+          {label} measurements — review
+        </h1>
+        <p className="mt-1 text-body text-muted">
+          {filled.length} of {steps.length} captured
+          {skipped > 0 ? ` · ${skipped} skipped` : ""}
+        </p>
+      </div>
+
+      {/* ─── Language toggle ──────────────────────────────────────────── */}
+      {availableLangs.length > 1 && (
+        <div className="flex gap-1 rounded-pill bg-mist-navy p-0.5">
+          {availableLangs.map((lang) => {
+            const isActive = lang === activeLang;
+            return (
+              <button
+                key={lang}
+                onClick={() => setActiveLang(lang)}
+                className={`tap flex-1 rounded-pill px-3 py-1.5 text-caption font-semibold uppercase tracking-wide transition ${
+                  isActive
+                    ? "bg-chalk-white text-ink-navy shadow-card"
+                    : "text-muted"
+                }`}
+              >
+                {LANG_TAGS[lang] ?? lang}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ─── Readings summary ──────────────────────────────────────────── */}
+      {filled.length === 0 ? (
+        <div className="rounded-card border border-dashed border-hairline-strong bg-chalk-white/50 px-6 py-10 text-center">
+          <p className="text-body font-medium text-ink-navy">
+            No readings captured yet
+          </p>
+          <p className="mt-1 text-caption text-muted">
+            Go back and capture at least one measurement for this garment.
+          </p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-hairline overflow-hidden rounded-card border border-hairline bg-chalk-white shadow-card">
+          {filled.map(({ step, draft, idx }) => {
+            const key = garmentDraftKey(garment.garment_order_id, step.metric.id);
+            return (
+              <li
+                key={key}
+                className="flex items-center justify-between gap-3 px-4 py-3"
+              >
+                <button
+                  onClick={() => onJumpToStep(idx)}
+                  className="tap flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-mist-navy text-[10px] font-bold text-ink-navy">
+                    {idx + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-body font-medium text-ink-navy">
+                      {labelFor(step.metric)}
+                    </span>
+                    <span className="block truncate text-caption text-muted">
+                      {step.metric.code}
+                    </span>
+                  </span>
+                </button>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="font-mono text-body font-semibold text-ink">
+                    {draft!.valueNumeric !== null
+                      ? `${draft!.valueNumeric}${draft!.unit ? ` ${draft!.unit}` : ""}`
+                      : draft!.valueText}
+                  </span>
+                  <button
+                    onClick={() => onEdit(key)}
+                    className="tap rounded-pill bg-mist-navy px-2.5 py-1 text-[11px] font-medium text-ink-navy"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* ─── Missing required metrics warning ─────────────────────────── */}
+      {missingRequired.length > 0 && (
+        <div className="rounded-card border border-error-border bg-error-bg/50 px-4 py-3">
+          <p className="text-caption font-medium text-error-text">
+            ⚠ {missingRequired.length} required{" "}
+            {missingRequired.length === 1 ? "metric is" : "metrics are"} missing
+          </p>
+          <p className="mt-0.5 text-[11px] text-error-text/80">
+            All {label.toLowerCase()} measurements must be captured before
+            continuing. Tap a metric below to fill it.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {missingRequired.map((s) => (
+              <button
+                key={s.metric.id}
+                onClick={() => onJumpToStep(steps.indexOf(s))}
+                className="tap rounded-pill border border-error-border bg-chalk-white px-2.5 py-1 text-[11px] font-medium text-ink-navy"
+              >
+                + {labelFor(s.metric)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Nav ───────────────────────────────────────────────────────── */}
+      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+        <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
+          <button
+            onClick={onBack}
+            disabled={checking}
+            className="tap flex-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy disabled:opacity-50"
+          >
+            Back
+          </button>
+          <button
+            onClick={onContinue}
+            disabled={missingRequired.length > 0 || checking}
+            className="tap flex-[2] rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary disabled:opacity-50"
+          >
+            {checking ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-chalk-white border-t-transparent" />
+                Checking…
+              </span>
+            ) : missingRequired.length > 0 ? (
+              "Fill required metrics"
+            ) : isLastGarment ? (
+              "Continue → materials"
+            ) : (
+              "Next garment →"
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -774,8 +1488,6 @@ function CheckpointScreen({
   onEdit,
   onJumpToStep,
   saving,
-  validating,
-  validationResult,
   onBack,
   onContinue,
 }: {
@@ -784,8 +1496,6 @@ function CheckpointScreen({
   onEdit: (metricId: string) => void;
   onJumpToStep: (idx: number) => void;
   saving: boolean;
-  validating: boolean;
-  validationResult: SCValidationResult | null;
   onBack: () => void;
   onContinue: () => void;
 }) {
@@ -946,102 +1656,6 @@ function CheckpointScreen({
         </div>
       )}
 
-      {/* ─── Validation: critical errors (block proceeding) ─────────────── */}
-      {validating && (
-        <div className="rounded-card border border-hairline bg-mist-navy/50 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent-text border-t-transparent" />
-            <p className="text-caption font-medium text-ink-navy">
-              Checking measurements…
-            </p>
-          </div>
-        </div>
-      )}
-
-      {!validating &&
-        validationResult &&
-        validationResult.status !== "pass" && (
-          <div className="space-y-2">
-            {validationResult.critical_errors.length > 0 && (
-              <div className="rounded-card border border-error-border bg-error-bg px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-4 w-4 shrink-0 text-error-text"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                  <p className="text-caption font-bold text-error-text">
-                    {validationResult.critical_errors.length} critical{" "}
-                    {validationResult.critical_errors.length === 1
-                      ? "issue"
-                      : "issues"}{" "}
-                    — must fix before continuing
-                  </p>
-                </div>
-              </div>
-            )}
-            {validationResult.non_critical_errors.length > 0 && (
-              <div className="rounded-card border border-warning-border bg-warning-bg px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-4 w-4 shrink-0 text-warning-text"
-                    aria-hidden="true"
-                  >
-                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                    <line x1="12" y1="9" x2="12" y2="13" />
-                    <line x1="12" y1="17" x2="12.01" y2="17" />
-                  </svg>
-                  <p className="text-caption font-bold text-warning-text">
-                    {validationResult.non_critical_errors.length}{" "}
-                    {validationResult.non_critical_errors.length === 1
-                      ? "advisory"
-                      : "advisories"}{" "}
-                    — tap review to see details
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-      {/* ─── Validation: all clear ─────────────────────────────────────── */}
-      {!validating &&
-        validationResult &&
-        validationResult.status === "pass" && (
-          <div className="flex items-center gap-2 rounded-card border border-success-border bg-success-bg px-4 py-2.5">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-4 w-4 shrink-0 text-success-text"
-              aria-hidden="true"
-            >
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            <p className="text-caption font-medium text-success-text">
-              All measurements look good
-            </p>
-          </div>
-        )}
-
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
       <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
@@ -1054,16 +1668,14 @@ function CheckpointScreen({
           </button>
           <button
             onClick={onContinue}
-            disabled={saving || validating || skipped > 0}
+            disabled={saving || skipped > 0}
             className="tap flex-[2] rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary disabled:opacity-50"
           >
-            {validating
-              ? "Checking…"
-              : saving
-                ? "Saving…"
-                : skipped > 0
-                  ? "Fill all metrics to continue"
-                  : "Continue →"}
+            {saving
+              ? "Saving…"
+              : skipped > 0
+                ? "Fill all metrics to continue"
+                : "Continue →"}
           </button>
         </div>
       </div>
@@ -1097,11 +1709,51 @@ function findMetricsForError(
   return result;
 }
 
+/** Resolve the draft a validation chip should open: garment instances are
+ *  keyed `g:{garmentOrderId}:{metricId}`, base readings `b:{metricId}`.
+ *  When several instances carry the same metric, prefer the one whose value
+ *  matches the engine's snapshot (`error.values`) — that's the instance the
+ *  rule actually fired on. */
+function draftKeyForErrorMetric(
+  checklist: SCChecklist | null,
+  drafts: Record<string, MetricDraft>,
+  metricId: string,
+  error?: SCValidationError,
+): { key: string; draft: MetricDraft | undefined } {
+  const code = findChecklistMetric(checklist, metricId)?.code;
+  const snapshotValue =
+    error?.values && code ? error.values[code] : undefined;
+
+  const garmentKeys: string[] = [];
+  for (const g of checklist?.garments ?? []) {
+    const has = g.sections.some((s) =>
+      s.metrics.some((m) => m.id === metricId),
+    );
+    if (has) garmentKeys.push(garmentDraftKey(g.garment_order_id, metricId));
+  }
+  const candidates = [
+    ...garmentKeys.map((k) => ({ key: k, draft: drafts[k] })),
+    { key: baseDraftKey(metricId), draft: drafts[baseDraftKey(metricId)] },
+  ];
+
+  const filled = candidates.filter(
+    (c) => c.draft && (c.draft.valueNumeric !== null || (c.draft.valueText ?? "").trim() !== ""),
+  );
+  const bySnapshot =
+    typeof snapshotValue === "number"
+      ? filled.find((c) => c.draft?.valueNumeric === snapshotValue)
+      : undefined;
+  const chosen = bySnapshot ?? filled[0] ?? candidates[0];
+  return { key: chosen.key, draft: chosen.draft };
+}
+
 function ValidationSheet({
   result,
   validating,
   metrics,
   drafts,
+  checklist,
+  garmentLabels,
   onRemeasure,
   onRevalidate,
   onAcknowledgeWarnings,
@@ -1111,7 +1763,9 @@ function ValidationSheet({
   validating: boolean;
   metrics: SCMetric[];
   drafts: Record<string, MetricDraft>;
-  onRemeasure: (metricId: string) => void;
+  checklist: SCChecklist | null;
+  garmentLabels: Record<string, string>;
+  onRemeasure: (draftKey: string) => void;
   onRevalidate: () => void;
   onAcknowledgeWarnings: () => void;
   onClose: () => void;
@@ -1244,7 +1898,7 @@ function ValidationSheet({
           )}
           <div className="space-y-2.5 pb-4">
             {hasCritical && result.critical_errors.map((err, idx) => (
-              <ValidationItem key={`c-${idx}`} error={err} critical metrics={metrics} drafts={drafts} onRemeasure={onRemeasure} lang={activeLang} />
+              <ValidationItem key={`c-${idx}`} error={err} critical metrics={metrics} drafts={drafts} checklist={checklist} garmentLabels={garmentLabels} onRemeasure={onRemeasure} lang={activeLang} />
             ))}
             {hasCritical && hasWarnings && (
               <div className="flex items-center gap-3 py-1">
@@ -1261,6 +1915,8 @@ function ValidationSheet({
                   error={err}
                   metrics={metrics}
                   drafts={drafts}
+                  checklist={checklist}
+                  garmentLabels={garmentLabels}
                   onRemeasure={onRemeasure}
                   verified={verifiedSet.has(vKey)}
                   onVerify={() => toggleVerify(vKey)}
@@ -1308,6 +1964,8 @@ function ValidationItem({
   critical,
   metrics,
   drafts,
+  checklist,
+  garmentLabels,
   onRemeasure,
   verified,
   onVerify,
@@ -1317,7 +1975,9 @@ function ValidationItem({
   critical?: boolean;
   metrics: SCMetric[];
   drafts: Record<string, MetricDraft>;
-  onRemeasure: (metricId: string) => void;
+  checklist: SCChecklist | null;
+  garmentLabels: Record<string, string>;
+  onRemeasure: (draftKey: string) => void;
   verified?: boolean;
   onVerify?: () => void;
   lang?: string;
@@ -1362,22 +2022,39 @@ function ValidationItem({
           <div className="flex flex-wrap items-center gap-2 pt-0.5">
             {/* Readable measurement chips: "Shoulder Left  1.0" */}
             {relatedMetrics.map((m) => {
-              const d = drafts[m.id];
+              const { key: dKey, draft: d } = draftKeyForErrorMetric(
+                checklist,
+                drafts,
+                m.id,
+                error,
+              );
               const val = d
                 ? d.valueNumeric !== null
                   ? `${d.valueNumeric}${d.unit === "in" ? '"' : d.unit ?? ""}`
                   : d.valueText ?? "—"
                 : "—";
               const label = pickLabel(m.labels, m.code ?? "");
+              // Garment-scoped drafts carry their instance in the key — name
+              // it on the chip so "Blouse 1 patti" is distinguishable from
+              // "Blouse 2 patti" when the same rule fires on both.
+              const goId = dKey.startsWith("g:")
+                ? dKey.split(":")[1]
+                : undefined;
+              const garment = goId ? garmentLabels[goId] : undefined;
               return (
                 <button
                   key={m.id}
-                  onClick={() => onRemeasure(m.id)}
+                  onClick={() => onRemeasure(dKey)}
                   className="tap inline-flex items-center gap-1.5 rounded-pill border border-hairline-strong bg-chalk-white px-2.5 py-1 text-[12px] text-ink-navy"
-                  aria-label={`Edit ${label}`}
+                  aria-label={`Edit ${garment ? `${garment} ` : ""}${label}`}
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 flex-none text-accent-text"><path d="M23 4v6h-6" /><path d="M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" /><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" /></svg>
                   <span className="text-muted">{label}</span>
+                  {garment && (
+                    <span className="rounded-pill bg-mist-navy px-1.5 py-0.5 text-[10px] font-semibold text-ink-navy">
+                      {garment}
+                    </span>
+                  )}
                   <span className="font-mono font-semibold text-ink">{val}</span>
                 </button>
               );

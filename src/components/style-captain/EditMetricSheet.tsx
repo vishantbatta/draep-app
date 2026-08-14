@@ -18,11 +18,15 @@ const LANG_TAGS: Record<string, string> = { en: "EN", hi: "हि", kn: "ಕ" };
 export function EditMetricSheet({
   metric,
   draft,
+  garmentLabel,
   onChange,
   onClose,
 }: {
   metric: SCMetric;
   draft: MetricDraft;
+  /** Garment instance this reading belongs to ("Blouse 2") — shown as an
+   *  eyebrow when the metric is garment-scoped; omitted for base readings. */
+  garmentLabel?: string;
   onChange: (next: MetricDraft) => void;
   onClose: () => void;
 }) {
@@ -107,6 +111,11 @@ export function EditMetricSheet({
           {/* Header row */}
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
+              {garmentLabel && (
+                <p className="text-eyebrow uppercase tracking-wider text-accent-text">
+                  {garmentLabel}
+                </p>
+              )}
               <h2 className="font-heading text-h4 font-semibold leading-tight text-ink-navy">
                 {primary}
               </h2>
