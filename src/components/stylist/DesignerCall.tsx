@@ -89,44 +89,70 @@ export function DesignerCall({
   const showCallError =
     (status === "connecting" || status === "connected" || isReconnecting || isRinging) && !!errorMsg;
 
+  // Presentation mode (Google Meet / WhatsApp screen-share pattern): once a
+  // design is sketching or ready, the design takes over a solid STAGE between
+  // header and controls, and the self-view camera is demoted to a floating
+  // picture-in-picture tile. Until then the classic full-bleed call layout.
+  const presenting = designPendingCount > 0 || designImages.length > 0;
+
   return (
     <div className="fixed inset-0 z-[200] flex flex-col bg-ink-navy">
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* ─── Full-screen self-view video (mirrored) ─── */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className="absolute inset-0 h-full w-full object-cover"
-        style={{ transform: "scaleX(-1)" }}
-      />
-
-      {/* Navy scrims top + bottom for legibility (keeps the brand canvas underneath) */}
+      {/* ─── Self-view video (mirrored) — full-bleed, or a floating PiP tile
+             over the design stage while presenting. The <video> element stays
+             mounted in the same wrapper regardless of mode, so the live
+             MediaStream never detaches when the layout switches. ─── */}
       <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(180deg, rgba(8,48,104,0.55) 0%, rgba(8,48,104,0.0) 22%, rgba(8,48,104,0.0) 58%, rgba(8,48,104,0.72) 100%)",
-        }}
-      />
+        className={
+          presenting
+            ? "absolute bottom-[calc(env(safe-area-inset-bottom)_+_7.75rem)] right-3 z-[21] h-44 w-32 overflow-hidden rounded-card border border-white/30"
+            : "absolute inset-0 z-0"
+        }
+        style={presenting ? { boxShadow: "var(--shadow-brand)" } : undefined}
+      >
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="h-full w-full object-cover"
+          style={{ transform: "scaleX(-1)" }}
+        />
+      </div>
 
-      {/* ─── Camera off → navy placeholder + Draep alpha mark ─── */}
+      {/* Navy scrims top + bottom for legibility — only for the full-bleed
+          call layout; the design stage carries its own solid surfaces. */}
+      {!presenting && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(180deg, rgba(8,48,104,0.55) 0%, rgba(8,48,104,0.0) 22%, rgba(8,48,104,0.0) 58%, rgba(8,48,104,0.72) 100%)",
+          }}
+        />
+      )}
+
+      {/* ─── Camera off → navy placeholder + Draep alpha mark (full-screen, or
+             inside the PiP tile while presenting) ─── */}
       <AnimatePresence>
         {!videoOn && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-[1] flex items-center justify-center bg-ink-navy"
+            className={
+              presenting
+                ? "absolute bottom-[calc(env(safe-area-inset-bottom)_+_7.75rem)] right-3 z-[21] flex h-44 w-32 items-center justify-center rounded-card border border-white/30 bg-ink-navy"
+                : "absolute inset-0 z-[1] flex items-center justify-center bg-ink-navy"
+            }
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo_alpha_icon.png"
               alt="draep"
-              className="h-24 w-24 rounded-card object-cover opacity-90"
+              className={presenting ? "h-12 w-12 rounded-card object-cover opacity-90" : "h-24 w-24 rounded-card object-cover opacity-90"}
             />
           </motion.div>
         )}
@@ -179,69 +205,35 @@ export function DesignerCall({
         )}
       </AnimatePresence>
 
-      {/* ─── Sketching card — design rendering in progress ─── */}
-      <AnimatePresence>
-        {designPendingCount > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 24, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 24 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            className="relative z-10 mx-auto mt-4 w-full max-w-[calc(100%-2rem)]"
-          >
-            <SketchingCard count={designPendingCount} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ─── Design preview sheet ─── */}
-      <AnimatePresence>
-        {designImages.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 48, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 48 }}
-            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-            className="relative z-10 mx-auto mt-4 w-full max-w-[calc(100%-2rem)]"
-          >
-            <DesignGallery designs={designImages} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ─── Design generation error toast ─── */}
-      <AnimatePresence>
-        {designError && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            className="relative z-10 mx-auto mt-3 w-full max-w-[calc(100%-2rem)]"
-          >
-            <div
-              className="flex items-center gap-2 rounded-card px-3.5 py-2.5"
-              style={{ background: "rgba(220,38,38,0.30)" }}
-            >
-              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="shrink-0 text-red-200" aria-hidden>
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              <span className="text-caption text-red-50">{designError}</span>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ─── Floating agent wavebeat — Draep alpha + circular wave ─── */}
-      <AgentWavebeat
-        isRinging={isRinging}
-        isConnected={isConnected}
-        isReconnecting={isReconnecting}
-        getSpeakingAmplitude={getSpeakingAmplitude}
-      />
-
-      <div className="flex-1" />
+      {/* ─── Design presentation stage OR floating agent wavebeat ───
+          While presenting, the stage owns everything between the header and
+          the controls; the wavebeat docks as a compact chip inside it. */}
+      {presenting ? (
+        <PresentationStage
+          designs={designImages}
+          pendingCount={designPendingCount}
+          designError={designError}
+          wavebeat={
+            <AgentWavebeat
+              compact
+              isRinging={isRinging}
+              isConnected={isConnected}
+              isReconnecting={isReconnecting}
+              getSpeakingAmplitude={getSpeakingAmplitude}
+            />
+          }
+        />
+      ) : (
+        <>
+          <AgentWavebeat
+            isRinging={isRinging}
+            isConnected={isConnected}
+            isReconnecting={isReconnecting}
+            getSpeakingAmplitude={getSpeakingAmplitude}
+          />
+          <div className="flex-1" />
+        </>
+      )}
 
       {/* ─── Bottom control dock ─── */}
       <div className="relative z-10 px-6 pb-[max(1.75rem,env(safe-area-inset-bottom))] pt-3">
@@ -343,11 +335,14 @@ function CallHeader({
 /* ============================================================ */
 
 function AgentWavebeat({
+  compact = false,
   isRinging,
   isConnected,
   isReconnecting,
   getSpeakingAmplitude,
 }: {
+  /** Docked participant-chip form used while the design stage is up. */
+  compact?: boolean;
   isRinging: boolean;
   isConnected: boolean;
   isReconnecting: boolean;
@@ -412,11 +407,19 @@ function AgentWavebeat({
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -16, scale: 0.9 }}
           transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-          className="relative z-10 mx-auto mt-2 flex w-fit max-w-[calc(100%-2rem)] items-center gap-3 rounded-pill px-3.5 py-2.5"
-          style={{ background: "rgba(8,48,104,0.78)" }}
+          className={
+            compact
+              ? "relative flex w-fit items-center gap-2 rounded-pill px-2.5 py-2"
+              : "relative z-10 mx-auto mt-2 flex w-fit max-w-[calc(100%-2rem)] items-center gap-3 rounded-pill px-3.5 py-2.5"
+          }
+          style={
+            compact
+              ? { background: "rgba(4,16,43,0.88)", border: "1px solid rgba(255,255,255,0.22)" }
+              : { background: "rgba(8,48,104,0.78)" }
+          }
         >
           {/* Alpha + circular wavebeat */}
-          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center">
+          <div className={`relative flex shrink-0 items-center justify-center ${compact ? "h-11 w-11" : "h-14 w-14"}`}>
             {/* Concentric pulsing tape rings (the "speaking from the other side" pulse) */}
             {[0, 1, 2].map((ring) => (
               <motion.span
@@ -560,34 +563,54 @@ function RoundControl({
 }
 
 /* ============================================================ */
-/*  SketchingCard — design rendering in progress                 */
-/*  (pairs with the pencil-scratch audio from the call hook)     */
+/*  SketchingState — centered stage content while the first     */
+/*  design renders (or failed). Big, centered, unmissable —     */
+/*  pairs with the pencil-scratch audio from the call hook.     */
 /* ============================================================ */
 
-function SketchingCard({ count }: { count: number }) {
+function SketchingState({ count, error }: { count: number; error: string | null }) {
   return (
-    <div
-      className="overflow-hidden rounded-sheet px-4 py-3"
-      style={{ background: "rgba(8,48,104,0.82)", border: "1px solid rgba(255,255,255,0.16)", boxShadow: "var(--shadow-brand)" }}
-    >
-      <div className="flex items-center gap-3">
-        {/* Wiggling pencil — hand-sketching feel */}
-        <motion.span
-          aria-hidden
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-draep-orange"
-          style={{ background: "rgba(255,255,255,0.08)" }}
-          animate={{ rotate: [-7, 7, -7] }}
-          transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
-        >
-          <PencilIcon />
-        </motion.span>
+    <div className="flex max-w-sm flex-col items-center px-6 text-center">
+      {error ? (
+        <>
+          <span
+            aria-hidden
+            className="flex h-14 w-14 items-center justify-center rounded-full text-red-200"
+            style={{ background: "rgba(153,27,27,0.55)", border: "1px solid rgba(255,255,255,0.18)" }}
+          >
+            <svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </span>
+          <p className="mt-4 text-sm font-medium text-chalk-white">
+            That sketch didn’t come through
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-chalk-white/60">
+            {error} — keep talking with your designer, they’ll try again.
+          </p>
+        </>
+      ) : (
+        <>
+          {/* Wiggling pencil — hand-sketching feel */}
+          <motion.span
+            aria-hidden
+            className="flex h-14 w-14 items-center justify-center rounded-full text-draep-orange"
+            style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)" }}
+            animate={{ rotate: [-7, 7, -7] }}
+            transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <PencilIcon />
+          </motion.span>
 
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-chalk-white">
+          <p className="mt-4 text-sm font-medium text-chalk-white">
             {count > 1 ? `Sketching ${count} designs…` : strings.stylist.sketching}
           </p>
+          <p className="mt-1.5 text-xs text-chalk-white/60">{strings.stylist.sketchingHint}</p>
+
           {/* Indeterminate shimmer — we can't know image-gen ETA, so no percent */}
-          <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/10">
+          <div className="mt-4 h-1 w-56 overflow-hidden rounded-full bg-white/12">
             <motion.div
               className="h-full w-1/3 rounded-full"
               style={{ background: "var(--tape-gradient)" }}
@@ -595,10 +618,8 @@ function SketchingCard({ count }: { count: number }) {
               transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
             />
           </div>
-        </div>
-
-        <span className="shrink-0 text-caption text-chalk-white/50">{strings.stylist.sketchingHint}</span>
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -927,10 +948,32 @@ function ErrorModal({
 }
 
 /* ============================================================ */
-/*  Design gallery — stepper through all generated previews     */
+/*  PresentationStage — the screen-share takeover for designs.  */
+/*                                                               */
+/*  Follows the Google Meet / WhatsApp screen-share pattern:     */
+/*   - a solid STAGE owns the space between header and controls  */
+/*     (no translucent cards floating over the live video),      */
+/*   - content is letterboxed + centered on a near-black field   */
+/*     (Meet's presentation tile),                               */
+/*   - a solid, high-contrast title bar carries the label, the   */
+/*     prev/next stepper and expand,                             */
+/*   - loading + errors render CENTERED in the stage, never as   */
+/*     hidden low-contrast chips,                                */
+/*   - the agent wavebeat docks as a compact participant chip    */
+/*     pinned bottom-left, and the camera is a floating PiP.     */
 /* ============================================================ */
 
-function DesignGallery({ designs }: { designs: DesignImage[] }) {
+function PresentationStage({
+  designs,
+  pendingCount,
+  designError,
+  wavebeat,
+}: {
+  designs: DesignImage[];
+  pendingCount: number;
+  designError: string | null;
+  wavebeat: React.ReactNode;
+}) {
   const [activeIdx, setActiveIdx] = useState(designs.length - 1);
   const [fullscreen, setFullscreen] = useState(false);
 
@@ -950,67 +993,160 @@ function DesignGallery({ designs }: { designs: DesignImage[] }) {
   }, [designs.length]);
 
   const design = designs[Math.min(activeIdx, designs.length - 1)];
+  const hasImage = designs.length > 0;
+  const loading = pendingCount > 0;
 
   return (
-    <div
-      className="overflow-hidden rounded-sheet"
-      style={{ background: "rgba(8,48,104,0.82)", border: "1px solid rgba(255,255,255,0.16)", boxShadow: "var(--shadow-brand)" }}
+    <motion.div
+      initial={{ opacity: 0, scale: 0.97, y: 12 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.97, y: 12 }}
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden"
+      style={{ background: "#04102B" }}
     >
-      <div className="flex items-center justify-between px-4 pt-3">
-        <div className="flex items-center gap-1.5">
-          <DraepSymbol variant="color" className="h-3.5 w-3.5" />
-          <span className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-chalk-white/70">
-            {strings.stylist.designsLabel} · {String(activeIdx + 1).padStart(2, "0")}/{String(designs.length).padStart(2, "0")}
+      {/* ─── Title bar — solid, legible (Meet's presentation banner) ─── */}
+      <div
+        className="flex shrink-0 items-center justify-between gap-2 px-4 py-2.5"
+        style={{ background: "#071F44", borderBottom: "1px solid rgba(255,255,255,0.14)" }}
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
+          <DraepSymbol variant="color" className="h-4 w-4 shrink-0" />
+          <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-chalk-white">
+            {strings.stylist.designsLabel}
           </span>
+          {hasImage && (
+            <span
+              className="shrink-0 rounded-full px-2 py-0.5 font-mono text-[11px] font-medium text-chalk-white/95"
+              style={{ background: "rgba(255,255,255,0.14)" }}
+            >
+              {String(activeIdx + 1).padStart(2, "0")}/{String(designs.length).padStart(2, "0")}
+            </span>
+          )}
         </div>
 
-        {/* Prev / next stepper (only when >1 design) */}
-        {designs.length > 1 && (
-          <div className="flex items-center gap-1">
-            <StepperButton dir="prev" disabled={activeIdx === 0} onClick={() => setActiveIdx((i) => Math.max(0, i - 1))} />
-            <StepperButton
-              dir="next"
-              disabled={activeIdx === designs.length - 1}
-              notify={activeIdx < designs.length - 1}
-              onClick={() => setActiveIdx((i) => Math.min(designs.length - 1, i + 1))}
-            />
-          </div>
-        )}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {/* Prev / next stepper — kept prominent (user-liked) */}
+          {hasImage && designs.length > 1 && (
+            <>
+              <StepperButton dir="prev" disabled={activeIdx === 0} onClick={() => setActiveIdx((i) => Math.max(0, i - 1))} />
+              <StepperButton
+                dir="next"
+                disabled={activeIdx === designs.length - 1}
+                notify={activeIdx < designs.length - 1}
+                onClick={() => setActiveIdx((i) => Math.min(designs.length - 1, i + 1))}
+              />
+            </>
+          )}
 
-        <button
-          type="button"
-          onClick={() => setFullscreen(true)}
-          className="flex items-center gap-1 rounded-pill px-2.5 py-1 text-[11px] font-medium text-chalk-white/85 transition-colors hover:bg-white/10"
-        >
-          Expand
-          <ExpandIcon />
-        </button>
+          {hasImage && (
+            <button
+              type="button"
+              onClick={() => setFullscreen(true)}
+              className="flex items-center gap-1.5 rounded-pill px-3 py-1.5 text-[11px] font-semibold text-chalk-white transition-colors hover:bg-white/15"
+              style={{ background: "rgba(255,255,255,0.14)" }}
+            >
+              Expand
+              <ExpandIcon />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={design.url}
-        alt={design.description}
-        className="mt-2 max-h-[30vh] w-full cursor-zoom-in object-contain"
-        onClick={() => setFullscreen(true)}
-      />
-      {design.description && (
-        <p className="px-4 pb-3 pt-2 text-[11px] leading-snug text-chalk-white/55 line-clamp-2">
-          {design.description}
-        </p>
+      {/* ─── Stage body — letterboxed, centered content ─── */}
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
+        style={{ background: "#04102B" }}
+      >
+        {hasImage ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={design.url}
+              alt={design.description}
+              className="h-full w-full cursor-zoom-in object-contain"
+              onClick={() => setFullscreen(true)}
+            />
+
+            {/* A follow-up design is rendering while an earlier one is on
+                stage — small pinned chip, exactly like Meet's "presenting…" */}
+            {loading && (
+              <div
+                className="absolute right-3 top-3 flex items-center gap-2 rounded-pill px-3 py-1.5"
+                style={{ background: "rgba(4,16,43,0.88)", border: "1px solid rgba(255,255,255,0.22)" }}
+              >
+                <motion.span
+                  aria-hidden
+                  className="text-draep-orange"
+                  animate={{ rotate: [-7, 7, -7] }}
+                  transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  <PencilIcon />
+                </motion.span>
+                <span className="text-xs font-medium text-chalk-white">
+                  {pendingCount > 1 ? `Sketching ${pendingCount} more…` : "Sketching next…"}
+                </span>
+              </div>
+            )}
+
+            {/* Rendering failed with designs already on stage — pinned, solid,
+                readable (never a translucent toast lost over the video). */}
+            {designError && (
+              <div
+                className="absolute left-1/2 top-3 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-pill px-3.5 py-1.5"
+                style={{ background: "rgba(153,27,27,0.92)", border: "1px solid rgba(255,255,255,0.18)" }}
+              >
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="shrink-0 text-red-100" aria-hidden>
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <span className="truncate text-xs font-medium text-red-50">{designError}</span>
+              </div>
+            )}
+          </>
+        ) : (
+          /* Nothing on stage yet — centered loading (or first-attempt error) */
+          <SketchingState count={pendingCount} error={designError} />
+        )}
+      </div>
+
+      {/* ─── Caption bar — solid, always readable ─── */}
+      {hasImage && design?.description && (
+        <div
+          className="shrink-0 px-4 py-2"
+          style={{ background: "#071F44", borderTop: "1px solid rgba(255,255,255,0.14)" }}
+        >
+          <p className="line-clamp-2 text-xs leading-snug text-chalk-white/90">
+            {design.description}
+          </p>
+        </div>
       )}
 
+      {/* ─── Agent wavebeat chip — participant tile pinned bottom-left ─── */}
+      <div className="absolute bottom-3 left-3 z-10">{wavebeat}</div>
+
+      {/* ─── Fullscreen viewer ─── */}
       <AnimatePresence>
         {fullscreen && (
           <motion.div
-            className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 px-4 backdrop-blur-md"
+            className="fixed inset-0 z-[300] flex flex-col items-center justify-center gap-4 bg-black/95 px-4 py-8 backdrop-blur-md"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setFullscreen(false)}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={design.url} alt={design.description} className="max-h-[88vh] max-w-[94vw] rounded-sheet object-contain" />
+            <img
+              src={design.url}
+              alt={design.description}
+              className="max-h-[78vh] max-w-[94vw] rounded-sheet object-contain"
+            />
+            {design.description && (
+              <p className="max-w-2xl text-center text-sm leading-snug text-chalk-white/85 line-clamp-3">
+                {design.description}
+              </p>
+            )}
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setFullscreen(false); }}
@@ -1023,7 +1159,7 @@ function DesignGallery({ designs }: { designs: DesignImage[] }) {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }
 
