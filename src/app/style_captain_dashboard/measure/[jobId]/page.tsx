@@ -7,6 +7,7 @@ import {
   scCreateMaterial,
   scDeleteMaterial,
   scFetchJob,
+  scFetchMetrics,
   scSaveMeasurements,
   scStartJob,
   scUpdateMaterial,
@@ -99,6 +100,10 @@ export default function MeasureJobPage() {
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<SCJob | null>(null);
   const [metrics, setMetrics] = useState<SCMetric[]>([]);
+  // Label-resolution catalog for views that render ALL readings (completed /
+  // success summaries, PDF): base + every garment section, deduped by id.
+  // `metrics` above is base-only and can't resolve garment-scoped readings.
+  const [allMetrics, setAllMetrics] = useState<SCMetric[]>([]);
   // Entity-derived checklist — base + per-garment sections (may be empty for
   // unconfigured garments; the captain is never asked what isn't linked).
   const [checklist, setChecklist] = useState<SCChecklist | null>(null);
@@ -144,6 +149,28 @@ export default function MeasureJobPage() {
       const cl = j.checklist ?? { base: [], garments: [] };
       setChecklist(cl);
       setMetrics(cl.base);
+
+      // Label-resolution catalog: base + every garment section. If a recorded
+      // reading's metric isn't checklisted (legacy jobs measured before the
+      // entity reconfiguration), merge in the flat catalog so it still names.
+      const labelById = new Map<string, SCMetric>();
+      for (const m of cl.base) labelById.set(m.id, m);
+      for (const g of cl.garments)
+        for (const s of g.sections)
+          for (const m of s.metrics) labelById.set(m.id, m);
+      const hasOrphan = j.measurements.some(
+        (r) =>
+          r.measurement_metric_id && !labelById.has(r.measurement_metric_id),
+      );
+      if (hasOrphan) {
+        try {
+          for (const m of await scFetchMetrics())
+            if (!labelById.has(m.id)) labelById.set(m.id, m);
+        } catch {
+          // Non-fatal — unresolved readings fall back to "Unknown metric".
+        }
+      }
+      setAllMetrics(Array.from(labelById.values()));
 
       // Pre-fill base drafts (base readings only — garment_order_id NULL).
       const initial: Record<string, MetricDraft> = {};
@@ -610,7 +637,11 @@ export default function MeasureJobPage() {
           const cl_garment = checklist?.garments.find(
             (x) => x.garment_order_id === go.id,
           );
-          const cl_metrics = new Map<string, SCMetric>();
+          // Seed with the full label catalog so readings whose metric isn't
+          // in this garment's sections (legacy captures) still resolve.
+          const cl_metrics = new Map<string, SCMetric>(
+            scMetrics.map((m) => [m.id, m]),
+          );
           for (const s of cl_garment?.sections ?? []) {
             for (const m of s.metrics) cl_metrics.set(m.id, m);
           }
@@ -710,9 +741,9 @@ export default function MeasureJobPage() {
       {phase === "success" ? (
         <SuccessScreen
           job={job}
-          metrics={metrics}
+          metrics={allMetrics}
           onDownloadPdf={(onProgress) =>
-            handleDownloadPdf(job, metrics, onProgress)
+            handleDownloadPdf(job, allMetrics, onProgress)
           }
           onEdit={() => {
             setStep(0);
@@ -723,10 +754,10 @@ export default function MeasureJobPage() {
       ) : isClosed ? (
         <CompletedView
           job={job}
-          metrics={metrics}
+          metrics={allMetrics}
           onReload={load}
           onDownloadPdf={(onProgress) =>
-            handleDownloadPdf(job, metrics, onProgress)
+            handleDownloadPdf(job, allMetrics, onProgress)
           }
           onEdit={async () => {
             // Reopen the job: set status back to in_progress
