@@ -766,7 +766,6 @@ export interface OrderRow {
   payment_status: PaymentStatus | null;
   fulfillment_status: FulfillmentStatus | null;
   comments: string | null;
-  style_captain_id: string | null;
   order_number: string | null;
   slot: OrderSlot;
   created_at?: string;

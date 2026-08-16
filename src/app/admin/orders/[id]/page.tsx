@@ -1328,7 +1328,7 @@ export default function OrderDetailPage() {
           id: `order-${order.id}`,
           user_id: order.user_id,
           order_id: order.id,
-          style_captain_id: order.style_captain_id,
+          style_captain_id: null,
           status: null,
           scheduled_at: null,
           performed_at: null,
@@ -2066,34 +2066,42 @@ export default function OrderDetailPage() {
           </div>
         ) : null}
 
-        {/* Style captain — resolved from the measurement job(s).
-            Captains are assigned per job, not per order, so this is read-only. */}
+        {/* Style captain — lives on the measurement job (orders carry no
+            captain column). Editable here; writes through to the job. */}
         <div className="mt-4 border-t border-hairline pt-4">
           <div className="text-xs font-medium uppercase tracking-wide text-muted">
             Style Captain
           </div>
           {(() => {
-            const resolvedId =
-              order.style_captain_id ??
-              jobs.find((j) => j.style_captain_id)?.style_captain_id ??
-              null;
-            const resolved = resolvedId
-              ? captains.find((c) => c.id === resolvedId) ?? null
-              : null;
-            if (!resolved) {
+            // At most one active job per order (unique constraint); prefer
+            // the job that already carries a captain, else the first job.
+            const job =
+              jobs.find((j) => j.style_captain_id) ?? jobs[0] ?? null;
+            if (!job) {
               return (
-                <div className="mt-0.5 text-sm text-muted">Unassigned</div>
+                <div className="mt-0.5 text-sm text-muted">
+                  Unassigned — no measurement job yet
+                </div>
               );
             }
             return (
-              <div className="mt-0.5">
-                <div className="text-sm font-medium text-ink">
-                  {resolved.name ?? "Unnamed"}
-                </div>
-                <div className="text-xs text-muted">
-                  {resolved.phone ?? resolved.email ?? "—"}
-                </div>
-              </div>
+              <select
+                value={job.style_captain_id ?? ""}
+                onChange={(e) =>
+                  handleUpdateJob(job.id, {
+                    style_captain_id: e.target.value || null,
+                  })
+                }
+                className="mt-1 w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-1.5 text-sm focus:border-ink-navy focus:outline-none"
+              >
+                <option value="">— Unassigned —</option>
+                {captains.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name ?? "Unnamed"}
+                    {c.phone ? ` · ${c.phone}` : ""}
+                  </option>
+                ))}
+              </select>
             );
           })()}
         </div>
