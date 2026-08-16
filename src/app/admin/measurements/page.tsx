@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   fetchAll,
   getLabel,
@@ -196,7 +196,11 @@ function LangRowEditor({
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function MeasurementsPage() {
-  return <MeasurementsPageInner />;
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <MeasurementsPageInner />
+    </Suspense>
+  );
 }
 
 function MeasurementsPageInner() {
@@ -318,6 +322,21 @@ function MeasurementsPageInner() {
       .catch((e) => setError(e.message ?? "Failed to load"))
       .finally(() => setLoading(false));
   }, [reloadKey]);
+
+  // ─── Deep-link: ?metric=<id> auto-opens that metric's edit modal ──────────
+  // Used by the entity pages' "Measurements to take" section (Edit buttons).
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (loading) return;
+    const id = searchParams.get("metric");
+    if (!id) return;
+    const m = metrics.find((x) => x.id === id);
+    if (!m) return;
+    setEditMetric(m);
+    setEditMode("edit");
+    // Clear the param so closing the modal doesn't re-open it on refresh.
+    router.replace("/admin/measurements", { scroll: false });
+  }, [searchParams, metrics, loading, router]);
 
   // ─── Build lookup maps ────────────────────────────────────────────────────
   const garmentMap = useMemo(() => {

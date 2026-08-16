@@ -230,6 +230,23 @@ export const strings = {
     loadingTree: "Loading your design options…",
     generating: "Designing…",
     done: "Done",
+    // Final CTA on the extras step + completion view
+    finalCta: "Generate Blouse",
+    finalTitle: "Your blouse is ready",
+    finalBody: "Every choice you made is reflected in the final drawings above.",
+    finalKeepEditing: "Keep editing",
+    finalDone: "Back to library",
+    // AI render of the finished blouse (front / back / side)
+    renderLoading: "Rendering your blouse…",
+    renderFailed: "We couldn't render the preview images.",
+    renderMissed: "Didn't render",
+    renderRetry: "Retry",
+    regenerate: "Regenerate",
+    completeOrder: "Complete Order",
+    regenTitle: "Refine the render",
+    regenBody: "Tell us what to change — we'll redraw the photos keeping your design.",
+    regenPlaceholder: "e.g. make the piping thinner, deepen the back cut",
+    regenCta: "Regenerate",
     tryOnCta: "Try it on",
     // Chat bar
     chatPlaceholder: "Describe a change…  e.g. make the neckline deeper",

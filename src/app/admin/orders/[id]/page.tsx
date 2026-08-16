@@ -2590,7 +2590,9 @@ export default function OrderDetailPage() {
                                     {it.label_snapshot ?? "—"}
                                   </td>
                                   <td className="py-2 pr-3 text-muted">
-                                    {it.placement ?? "—"}
+                                    {Array.isArray(it.placement)
+                                      ? it.placement.join(", ") || "—"
+                                      : it.placement ?? "—"}
                                   </td>
                                   <td className="py-2 pr-3 text-right font-mono text-sm text-ink">
                                     {/* Snapshot from catalog at checkout — read-only.

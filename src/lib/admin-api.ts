@@ -474,6 +474,8 @@ export interface AddonVariation {
   size: string | null;
   type: string | null;
   color: string | null;
+  /** placement-specific pricing axis; null = applies at every placement */
+  placement: string | null;
   price: number | null;
 }
 
@@ -489,6 +491,7 @@ export interface AddonVariationCreateInput {
   size?: string | null;
   type?: string | null;
   color?: string | null;
+  placement?: string | null;
   price?: number | null;
 }
 
@@ -504,6 +507,7 @@ export interface AddonVariationUpdateInput {
   size?: string | null;
   type?: string | null;
   color?: string | null;
+  placement?: string | null;
   price?: number | null;
 }
 
@@ -523,6 +527,64 @@ export async function updateAddonVariation(id: string, input: AddonVariationUpda
 
 export async function deleteAddonVariation(id: string): Promise<void> {
   await adminFetch<void>(`/admin/garment_addon_variations/${id}`, { method: "DELETE" });
+}
+
+// ─── Add-on variation price matrix ───────────────────────────────────────────
+
+/** One matrix cell = one combination of axis values + its price. */
+export interface AddonMatrixCellInput {
+  axis_values: string[];
+  price: number | null;
+  is_default?: boolean;
+  /**
+   * Display-name override for the resulting variation. Null/empty =
+   * auto-generate from the cell's style/type/shape values (size/color/
+   * placement become tag badges on the card instead of name parts).
+   */
+  label?: string | null;
+}
+
+export interface AddonMatrixInput {
+  /** Ordered axis columns used by the matrix, e.g. ["shape", "size"]. */
+  axes: string[];
+  /** Allowed values per axis, aligned with `axes`. */
+  values: string[][];
+  /** The cells to save. */
+  cells: AddonMatrixCellInput[];
+  /**
+   * "add" (used by the matrix modal): create cells that don't exist yet,
+   * price-update the ones that do, and never delete anything — rows missing
+   * from `cells` are left untouched. "replace" reconciles the add-on's full
+   * variation set to the payload, deleting unclaimed rows.
+   */
+  mode?: "add" | "replace";
+}
+
+export interface AddonMatrixResult {
+  addon_id: string;
+  created: number;
+  updated: number;
+  deleted: number;
+  variations: AddonVariation[];
+}
+
+/**
+ * Save an add-on price matrix (one row per combination). Existing rows are
+ * matched by axis-value tuple, so combinations that already exist keep their
+ * ids. The add-on's flat price is cleared server-side (it would otherwise
+ * shadow the matrix prices).
+ */
+export async function saveAddonVariationMatrix(
+  addonId: string,
+  input: AddonMatrixInput,
+): Promise<AddonMatrixResult> {
+  return adminFetch<AddonMatrixResult>(`/admin/garment_addons/${addonId}/variations`, {
+    method: "PUT",
+    // Belt-and-suspenders: the endpoint's default is the non-destructive
+    // "add", and the client injects it too — a caller (or stale bundle) that
+    // forgets the flag must never fall through to a destructive reconcile.
+    body: JSON.stringify({ mode: "add", ...input }),
+  });
 }
 
 // ─── Catalogue helpers: fetch all rows by parent FK ──────────────────────────
@@ -763,7 +825,13 @@ export interface GarmentOrderItemRow {
   variation_type_id: string | null;
   addon_id: string | null;
   addon_variation_id: string | null;
-  placement: string | null;
+  /**
+   * JSONB column: an array on rows written by the customer flow and the new
+   * admin editor (["Sleeves"]), but a scalar string on rows written by older
+   * admin flows. Consumers should normalize (see normalizePlacement in
+   * GarmentOrderEditor).
+   */
+  placement: string | string[] | null;
   price: number | null;
   custom_input: string | null;
   label_snapshot: string | null;
@@ -969,6 +1037,7 @@ export const deleteGarmentOrder = (id: string) => deleteTableRow("garment_orders
 export const deleteGarmentOrderItem = (id: string) =>
   deleteTableRow("garment_orders_items", id);
 export const deleteOrder = (id: string) => deleteTableRow("orders", id);
+export const deleteUser = (id: string) => deleteTableRow("users", id);
 
 /** Fetch every adjustment for an order (both garment-level and order-level). */
 export async function fetchOrderAdjustments(
@@ -1196,6 +1265,8 @@ export interface CatalogAddonVariation {
   size: string | null;
   type: string | null;
   color: string | null;
+  /** placement-specific pricing axis; null = applies at every placement */
+  placement: string | null;
   price: number | null;
 }
 
@@ -2184,4 +2255,60 @@ export async function updateShortLink(
 
 export async function deleteShortLink(id: string): Promise<void> {
   await adminFetch<void>(`/admin/short-links/${id}`, { method: "DELETE" });
+}
+
+// ─── Admin AI content (descriptions + images) ────────────────────────────────
+
+export type AiEntityType =
+  | "garment"
+  | "component"
+  | "variation"
+  | "variation_type"
+  | "addon"
+  | "addon_variation";
+
+export interface AiContentInput {
+  entity_type: AiEntityType;
+  /** Saved row id — when present the backend reads context from the DB. */
+  entity_id?: string | null;
+  /** Unsaved child rows: the parent's id (component/variation/addon/garment). */
+  parent_id?: string | null;
+  /** All typed labels, lang → value (unsaved edits override the DB). */
+  names?: Record<string, string> | null;
+  /** All typed descriptions, lang → value. */
+  descriptions?: Record<string, string> | null;
+}
+
+export interface AiDescribeInput extends AiContentInput {
+  language: string;
+  /** Current name in the target language (may be empty). */
+  name?: string | null;
+  /** Existing description in the target language, if any. */
+  existing_description?: string | null;
+}
+
+export interface AiDescribeResult {
+  language: string;
+  /** null when the AI couldn't produce one and the form should keep its own. */
+  name: string | null;
+  description: string;
+}
+
+export interface AiImageResult {
+  url: string;
+  prompt: string;
+}
+
+export async function aiDescribe(input: AiDescribeInput): Promise<AiDescribeResult> {
+  return adminFetch<AiDescribeResult>("/admin/ai-content/describe", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function aiGenerateImage(input: AiContentInput): Promise<AiImageResult> {
+  return adminFetch<AiImageResult>("/admin/ai-content/image", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }

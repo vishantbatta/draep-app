@@ -116,6 +116,9 @@ export interface StepOption {
   description?: string;
   /** Reference image URL for this variation (first asset_urls entry), if any. */
   assetUrl?: string;
+  /** Raw axis values (where/style/shape/size/type/color) for add-on variations
+   *  that decompose along axes — used to resolve chip combinations. */
+  axisValues?: Record<string, string>;
   /** Sub-options (variation_types), if any — e.g. Deep → U/V/Round/Square. */
   subOptions?: { id: string; label: string; description?: string }[];
   /** Pre-selected sub-option id (variation.default_type_id), if any. */
@@ -126,6 +129,14 @@ export interface StepOption {
  *  add-ons may be a boolean toggle (no variations) or a single choice. */
 export type ComponentKind = "choice" | "toggle";
 
+/** One selectable axis of an add-on's variations (e.g. Shape, Size). */
+export interface StepAxis {
+  key: string; // "where" | "style" | "shape" | "size" | "type" | "color"
+  label: string;
+  /** Distinct raw values in priority order. */
+  values: string[];
+}
+
 /** One component group rendered inside a step. */
 export interface StepComponent {
   id: string; // component id
@@ -135,6 +146,14 @@ export interface StepComponent {
   description?: string;
   /** Selection style. Defaults to "choice"; add-ons with no variations are "toggle". */
   kind?: ComponentKind;
+  /** Reference image for the component/add-on itself (first asset_urls entry).
+   *  Carries the thumbnail for bool add-ons, which have no variations/options
+   *  to hold an image of their own. */
+  assetUrl?: string;
+  /** Variation axes for add-ons whose variations decompose along 2+ axes
+   *  (e.g. Key Hole: Where · Shape · Size). When set, the extras picker shows
+   *  one chip section per axis instead of a flat card per variation. */
+  axes?: StepAxis[];
   options: StepOption[];
   /** Pre-selected option id (component.default_variation_id), if any. */
   defaultOptionId?: string;
@@ -331,26 +350,91 @@ export function buildDesignSteps(tree: GarmentTreeOut): DesignStep[] {
   return steps;
 }
 
+const AXIS_FIELDS = [
+  { field: "style", label: "Style" },
+  { field: "shape", label: "Shape" },
+  { field: "size", label: "Size" },
+  { field: "type", label: "Type" },
+  { field: "color", label: "Color" },
+] as const;
+
+/**
+ * Derive the variation axes of an add-on: the style/shape/size/type/color
+ * fields, plus — when every variation's label is a " · "-separated string like
+ * "Front Neck Cut · Round · Small" — the leading design-area segment as a
+ * "Where" axis. Axes are only returned when the variations decompose cleanly
+ * (every variation has a value on every axis) along TWO OR MORE varying axes —
+ * that's when the extras picker switches from a flat card per variation to
+ * sectioned per-axis selection. Anything less (single-axis Lining/Latkan, or
+ * an oddball variation like Latkan's "Special Latkan" with no axis values)
+ * keeps the flat cards so every variation stays reachable.
+ */
+function addonAxisModel(variations: AddonVariationOut[]): {
+  axes: StepAxis[];
+  axisValuesOf: (v: AddonVariationOut) => Record<string, string>;
+} {
+  const fail = { axes: [] as StepAxis[], axisValuesOf: () => ({}) };
+  if (variations.length < 2) return fail;
+  const segLists = variations.map((v) =>
+    addonVariationLabel(v).split("·").map((s) => s.trim()).filter(Boolean),
+  );
+  const allMulti = segLists.every((s) => s.length >= 2);
+  const valueOf = (v: AddonVariationOut, i: number, key: string): string | undefined =>
+    key === "where"
+      ? allMulti ? segLists[i][0] : undefined
+      : (v as unknown as Record<string, string | null>)[key] ?? undefined;
+  const distinct = (vals: (string | undefined)[]): string[] => {
+    const out: string[] = [];
+    for (const val of vals) if (val && !out.includes(val)) out.push(val);
+    return out;
+  };
+
+  const axes: StepAxis[] = [];
+  if (allMulti) {
+    const wheres = distinct(segLists.map((s) => s[0]));
+    if (wheres.length > 1) axes.push({ key: "where", label: "Where", values: wheres });
+  }
+  for (const { field, label } of AXIS_FIELDS) {
+    const values = distinct(variations.map((v) => valueOf(v, -1, field)));
+    if (values.length > 1) axes.push({ key: field, label, values });
+  }
+  if (axes.length < 2) return fail;
+  if (!variations.every((v, i) => axes.every((a) => valueOf(v, i, a.key) !== undefined))) {
+    return fail;
+  }
+  return {
+    axes,
+    axisValuesOf: (v) => {
+      const i = variations.indexOf(v);
+      return Object.fromEntries(axes.map((a) => [a.key, valueOf(v, i, a.key)!]));
+    },
+  };
+}
+
 function addonToStepComponent(a: AddonOut): StepComponent {
   // Flatten addon variations into options; the axis fields (style/shape/size/...)
   // are surfaced via the variation label. An add-on with no variations is a
   // boolean toggle (on/off); one with variations is a single choice.
   const variations = (a.variations ?? []).slice().sort(byPriority);
   const isToggle = variations.length === 0;
+  const { axes, axisValuesOf } = addonAxisModel(variations);
   return {
     id: a.id,
     label: labelText(a.labels) || a.id,
     description: descText(a.descriptions) || undefined,
+    assetUrl: a.asset_urls?.[0] || undefined,
     kind: isToggle ? "toggle" : "choice",
     defaultOn: a.is_default_on ?? undefined,
     defaultOptionId: a.default_variation_id ?? undefined,
     placements: (a.placements ?? undefined)?.filter(Boolean),
     section: "Add-ons",
+    ...(axes.length > 0 ? { axes } : {}),
     options: variations.map((v) => ({
       id: v.id,
       label: addonVariationLabel(v),
       description: descText(v.descriptions) || undefined,
       assetUrl: v.asset_urls?.[0] || undefined,
+      ...(axes.length > 0 ? { axisValues: axisValuesOf(v) } : {}),
     })),
   };
 }

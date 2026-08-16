@@ -182,11 +182,14 @@ export function SectionHeader({
   count,
   onAdd,
   addLabel = "Add",
+  actions,
 }: {
   title: string;
   count?: number;
   onAdd?: () => void;
   addLabel?: string;
+  /** Extra controls rendered left of the Add button (e.g. Bulk Generate). */
+  actions?: React.ReactNode;
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
@@ -198,17 +201,20 @@ export function SectionHeader({
           </span>
         )}
       </div>
-      {onAdd && (
-        <button
-          onClick={onAdd}
-          className="tap inline-flex items-center gap-1.5 rounded-pill bg-ink-navy px-3.5 py-1.5 text-[13px] font-medium text-chalk-white transition hover:bg-ink-navy/90 active:scale-95"
-        >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
-            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-          {addLabel}
-        </button>
-      )}
+      <div className="flex items-center gap-2">
+        {actions}
+        {onAdd && (
+          <button
+            onClick={onAdd}
+            className="tap inline-flex items-center gap-1.5 rounded-pill bg-ink-navy px-3.5 py-1.5 text-[13px] font-medium text-chalk-white transition hover:bg-ink-navy/90 active:scale-95"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            {addLabel}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -223,12 +229,15 @@ export function Modal({
   onClose,
   children,
   maxWidth = "max-w-lg",
+  headerAction,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   maxWidth?: string;
+  // Optional control rendered in the header, left of the close ×.
+  headerAction?: React.ReactNode;
 }) {
   if (!open) return null;
 
@@ -244,14 +253,17 @@ export function Modal({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-hairline px-5 py-3.5">
           <h3 className="font-heading text-base font-semibold text-ink-navy">{title}</h3>
-          <button
-            onClick={onClose}
-            className="tap flex h-8 w-8 items-center justify-center rounded-lg text-muted transition hover:bg-mist-navy hover:text-ink-navy"
-          >
-            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
-              <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            {headerAction}
+            <button
+              onClick={onClose}
+              className="tap flex h-8 w-8 items-center justify-center rounded-lg text-muted transition hover:bg-mist-navy hover:text-ink-navy"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
+                <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Body */}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createTableRow,
+  deleteUser,
   fetchTableRows,
   type UserRow,
 } from "@/lib/admin-api";
@@ -65,6 +66,10 @@ export default function UsersListPage() {
   const [filterRole, setFilterRole] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
+
+  // ── Multi-select + bulk actions ─────────────────────────────────────────
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   // ── Create user form state ──────────────────────────────────────────────
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -199,6 +204,63 @@ export default function UsersListPage() {
   }, [loadUsers]);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
+
+  // ── Clear selection whenever the view changes ─────────────────────────────
+  useEffect(() => {
+    setSelected(new Set());
+  }, [page, filterRole, search]);
+
+  // ── Selection handlers ────────────────────────────────────────────────────
+  const toggleUser = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const currentPageIds = users.map((u) => u.id);
+  const allOnPageSelected =
+    currentPageIds.length > 0 && currentPageIds.every((id) => selected.has(id));
+
+  const toggleSelectAll = useCallback(() => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (currentPageIds.every((id) => next.has(id))) {
+        currentPageIds.forEach((id) => next.delete(id));
+      } else {
+        currentPageIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }, [currentPageIds]);
+
+  const clearSelection = useCallback(() => setSelected(new Set()), []);
+
+  // ── Bulk delete handler ───────────────────────────────────────────────────
+  const handleBulkDelete = useCallback(async () => {
+    const count = selected.size;
+    if (count === 0) return;
+    if (!window.confirm(`Delete ${count} user(s)? This cannot be undone.`)) return;
+
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    const results = await Promise.allSettled(
+      ids.map((id) => deleteUser(id)),
+    );
+    const fulfilled = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.length - fulfilled;
+    setBulkBusy(false);
+
+    setFlash(
+      failed === 0
+        ? `Deleted ${fulfilled} user${fulfilled !== 1 ? "s" : ""}.`
+        : `Deleted ${fulfilled}, ${failed} failed.`,
+    );
+    clearSelection();
+    loadUsers();
+  }, [selected, clearSelection, loadUsers]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -453,6 +515,31 @@ export default function UsersListPage() {
         )}
       </div>
 
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-ink-navy/30 bg-mist-navy/40 px-4 py-2.5">
+          <span className="text-xs font-semibold text-ink-navy">
+            {selected.size} selected
+          </span>
+
+          <button
+            onClick={handleBulkDelete}
+            disabled={bulkBusy}
+            className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-40"
+          >
+            {bulkBusy ? "Deleting…" : "Delete"}
+          </button>
+
+          <button
+            onClick={clearSelection}
+            disabled={bulkBusy}
+            className="text-xs font-medium text-muted underline hover:text-ink-navy disabled:opacity-40"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Loading / Error */}
       {loading && (
         <div className="py-12 text-center text-muted">Loading users…</div>
@@ -475,6 +562,15 @@ export default function UsersListPage() {
               <table className="w-full min-w-[700px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-hairline bg-mist-navy/40 text-xs uppercase tracking-wide text-muted">
+                    <th className="w-10 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={allOnPageSelected}
+                        onChange={toggleSelectAll}
+                        aria-label="Select all on page"
+                        className="h-4 w-4 cursor-pointer rounded border-hairline-strong accent-ink-navy"
+                      />
+                    </th>
                     <th className="px-4 py-3 font-medium">Name</th>
                     <th className="px-4 py-3 font-medium">Phone</th>
                     <th className="px-4 py-3 font-medium">Email</th>
@@ -488,8 +584,17 @@ export default function UsersListPage() {
                     <tr
                       key={user.id}
                       onClick={() => router.push(`/admin/users/${user.id}`)}
-                      className="cursor-pointer border-b border-hairline transition hover:bg-mist-navy/30 last:border-0"
+                      className={`cursor-pointer border-b border-hairline transition hover:bg-mist-navy/30 last:border-0 ${selected.has(user.id) ? "bg-mist-navy/40" : ""}`}
                     >
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(user.id)}
+                          onChange={() => toggleUser(user.id)}
+                          aria-label={`Select user ${user.name ?? user.id.slice(0, 8)}`}
+                          className="h-4 w-4 cursor-pointer rounded border-hairline-strong accent-ink-navy"
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <div className="text-[13px] font-medium text-ink-navy">
                           {user.name ?? "Unnamed"}

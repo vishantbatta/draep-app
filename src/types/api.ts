@@ -100,6 +100,8 @@ export interface AddonVariationOut {
   size: string | null;
   type: string | null;
   color: string | null;
+  /** placement-specific pricing axis; null = applies at every placement */
+  placement: string | null;
   price: number | null;
 }
 

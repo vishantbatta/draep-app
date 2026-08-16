@@ -157,19 +157,28 @@ function aiResultToDraftItems(
   for (const addon of addons) {
     const addonLabel = addon.addon_label ?? addon.addon_id;
     const avLabel = addon.addon_variation_label;
-    const labelSnapshot = avLabel ? `${addonLabel} → ${avLabel}` : addonLabel;
 
-    items.push({
-      type: "add_on",
-      garment_style_component_id: null,
-      variation_id: null,
-      variation_type_id: null,
-      addon_id: addon.addon_id,
-      addon_variation_id: addon.addon_variation_id,
-      placement: addon.placement?.join(", ") ?? null,
-      price: null,
-      label_snapshot: labelSnapshot,
-    });
+    // One item per placement — the same add-on can sit on several placements,
+    // each with its own variation. Placement-less add-ons emit a single item.
+    const placements = addon.placement && addon.placement.length > 0
+      ? addon.placement
+      : [null];
+    for (const p of placements) {
+      const parts = [addonLabel];
+      if (p) parts.push(p);
+      if (avLabel) parts.push(avLabel);
+      items.push({
+        type: "add_on",
+        garment_style_component_id: null,
+        variation_id: null,
+        variation_type_id: null,
+        addon_id: addon.addon_id,
+        addon_variation_id: addon.addon_variation_id,
+        placement: p ? [p] : null,
+        price: null,
+        label_snapshot: parts.join(" → "),
+      });
+    }
   }
 
   return items;

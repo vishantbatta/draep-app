@@ -118,6 +118,73 @@ export interface SCGarmentOrderMaterial {
   updated_at?: string | null;
 }
 
+export interface SCEntityBrief {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+}
+
+export interface SCVariationTypeOption {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  price: number | null;
+}
+
+/** A sibling variation the captain can switch to (same component). */
+export interface SCVariationOption {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  price: number | null;
+  /** Type choice is mandatory (unpriced variation with sub-types). */
+  type_required: boolean;
+  types: SCVariationTypeOption[];
+}
+
+/** A variation of a catalog add-on — one cell of its price matrix. The axis
+ *  fields (style/shape/size/type/color + placement) let the client decompose
+ *  matrix add-ons into per-axis chip groups, like the /myod flow. */
+export interface SCAddonVariationOption {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  price: number | null;
+  /** Priced-for placement (null = any placement / whole garment). */
+  placement: string | null;
+  style: string | null;
+  shape: string | null;
+  size: string | null;
+  type: string | null;
+  color: string | null;
+}
+
+/** A catalog add-on that can be added to this garment order mid-visit. */
+export interface SCAvailableAddon {
+  addon: SCEntityBrief;
+  placements: string[] | null;
+  price: number | null;
+  default_variation_id: string | null;
+  variations: SCAddonVariationOption[];
+}
+
+/** One garment_orders_items row, serialized with catalog briefs + options.
+ *  On variation entries `options` are sibling variations; on add_on entries
+ *  the shape differs (no type_required/types) — use the addon UI instead. */
+export interface SCSelection {
+  item_id: string;
+  type: "variation" | "add_on";
+  component: SCEntityBrief | null;
+  variation: SCEntityBrief | null;
+  variation_type: SCEntityBrief | null;
+  addon: SCEntityBrief | null;
+  addon_variation: SCEntityBrief | null;
+  placement: string[] | null;
+  price: number | null;
+  source: string | null;
+  options: SCVariationOption[];
+}
+
 export interface SCGarmentOrder {
   id: string;
   garment_id: string | null;
@@ -126,6 +193,12 @@ export interface SCGarmentOrder {
   status: string | null;
   user_note: string | null;
   materials: SCGarmentOrderMaterial[];
+  /** Reference images shared for this garment instance (hidden when null). */
+  asset_urls: string[] | null;
+  /** Style selections + sibling options for the edit flow. */
+  selections: SCSelection[] | null;
+  /** Catalog add-ons offered for this garment (add / remove mid-visit). */
+  available_addons: SCAvailableAddon[] | null;
 }
 
 export interface SCJob {
@@ -393,6 +466,63 @@ export async function scFetchJobs(
 
 export async function scFetchJob(jobId: string): Promise<SCJob> {
   return scFetch<SCJob>(`/style-captain/jobs/${jobId}`);
+}
+
+/** Change one selection mid-visit — a variation (and its sub-type) or, for
+ *  add-on items, the add-on's variation. Returns the refreshed entry. */
+export async function scUpdateSelection(
+  garmentOrderId: string,
+  itemId: string,
+  input: {
+    variation_id?: string;
+    variation_type_id?: string | null;
+    addon_variation_id?: string;
+  },
+): Promise<SCSelection | null> {
+  return scFetch<SCSelection | null>(
+    `/style-captain/garment-orders/${garmentOrderId}/items/${itemId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        variation_id: input.variation_id ?? null,
+        variation_type_id: input.variation_type_id ?? null,
+        addon_variation_id: input.addon_variation_id ?? null,
+      }),
+    },
+  );
+}
+
+/** Add a catalog add-on to a placed garment order (mid-visit request). */
+export async function scAddAddon(
+  garmentOrderId: string,
+  input: {
+    addon_id: string;
+    addon_variation_id?: string | null;
+    placement?: string | null;
+  },
+): Promise<SCSelection | null> {
+  return scFetch<SCSelection | null>(
+    `/style-captain/garment-orders/${garmentOrderId}/addons`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        addon_id: input.addon_id,
+        addon_variation_id: input.addon_variation_id ?? null,
+        placement: input.placement ?? null,
+      }),
+    },
+  );
+}
+
+/** Remove an add-on item (variation items must be changed, not removed). */
+export async function scRemoveAddonItem(
+  garmentOrderId: string,
+  itemId: string,
+): Promise<{ ok: boolean; item_id: string }> {
+  return scFetch<{ ok: boolean; item_id: string }>(
+    `/style-captain/garment-orders/${garmentOrderId}/items/${itemId}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function scFetchMetrics(): Promise<SCMetric[]> {

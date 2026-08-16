@@ -396,6 +396,16 @@ function adjustmentLabelText(raw: string | null | undefined): string {
 }
 
 /**
+ * `garment_orders_items.placement` is a JSONB array on rows written by the
+ * customer flow and the admin editor (["Sleeves"]), but a scalar string on
+ * rows written by older admin flows. Normalize to a display string.
+ */
+function placementText(p: string | string[] | null | undefined): string | null {
+  if (Array.isArray(p)) return p.length > 0 ? p.join(", ") : null;
+  return p ?? null;
+}
+
+/**
  * Best-effort display label for a garment-order item, mirroring the page's
  * `itemDisplayLabel`. The label_snapshot is a JSON string like
  * '{"en":"Blouse cut → Princess cut"}'; parse it and return the localized
@@ -414,7 +424,8 @@ function itemLabelText(it: GarmentOrderItemRow): string {
     }
   }
   const type = it.type === "add_on" ? "Add-on" : "Selection";
-  return it.placement ? `${type} (${it.placement})` : type;
+  const placement = placementText(it.placement);
+  return placement ? `${type} (${placement})` : type;
 }
 
 /** One body-measurement per page — large image so a tailor can read it clearly. */
@@ -650,7 +661,7 @@ function styleSelectionsPages(
 
       const variationCards = variations.map((it) => {
         const { component, choice } = splitLabel(itemLabelText(it));
-        const placement = it.placement && it.placement.trim() ? it.placement : null;
+        const placement = placementText(it.placement);
         return `
           <div class="spec-chip">
             <div class="spec-chip-head">
@@ -664,7 +675,7 @@ function styleSelectionsPages(
 
       const addonCards = addons.map((it) => {
         const { component, choice } = splitLabel(itemLabelText(it));
-        const placement = it.placement && it.placement.trim() ? it.placement : null;
+        const placement = placementText(it.placement);
         return `
           <div class="spec-chip spec-chip-addon">
             <div class="spec-chip-head">

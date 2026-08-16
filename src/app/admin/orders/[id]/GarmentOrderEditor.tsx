@@ -33,6 +33,7 @@ import {
   type CatalogVariation,
   type CatalogVariationType,
   type CatalogAddon,
+  type CatalogAddonVariation,
   type GarmentOrderItemRow,
 } from "@/lib/admin-api";
 
@@ -45,12 +46,22 @@ interface ComponentSelection {
   variationTypeId: string | null;
 }
 
+/**
+ * A single selected add-on placement slot: where it goes on the garment and
+ * which variation (for matrix add-ons: which axis combination) it uses.
+ * The same add-on can occupy several placements, each with its own variation.
+ */
+interface AddonSlot {
+  /** null = the add-on has no placements (piping, boning, …). */
+  placement: string | null;
+  variationId: string | null;
+}
+
 /** A single selected add-on, held in local state before saving. */
 interface AddonSelection {
   addonId: string;
   enabled: boolean;
-  variationId: string | null;
-  placement: string | null;
+  slots: AddonSlot[];
 }
 
 /** A collected draft item (before persistence) for draft mode. */
@@ -61,7 +72,8 @@ export interface DraftItem {
   variation_type_id: string | null;
   addon_id: string | null;
   addon_variation_id: string | null;
-  placement: string | null;
+  /** JSONB array on the row, e.g. ["Sleeves"]; null where N/A. */
+  placement: string[] | null;
   price: number | null;
   label_snapshot: string;
 }
@@ -114,9 +126,105 @@ function buildLabelSnapshot(
 function buildAddonLabel(
   addonLabel: string,
   variationLabel: string | null,
+  placement: string | null = null,
 ): string {
-  if (variationLabel) return `${addonLabel} → ${variationLabel}`;
-  return addonLabel;
+  const parts = [addonLabel];
+  if (placement) parts.push(placement);
+  if (variationLabel) parts.push(variationLabel);
+  return parts.join(" → ");
+}
+
+/**
+ * `garment_orders_items.placement` is a JSONB array on the customer path
+ * (["Sleeves"]) but a scalar string on rows written by older admin flows.
+ * Normalize to a single placement string (arrays are always single-element)
+ * or null.
+ */
+function normalizePlacement(
+  p: string | string[] | null | undefined,
+): string | null {
+  if (Array.isArray(p)) return p[0] ?? null;
+  return p ?? null;
+}
+
+// ─── Add-on matrix axes ──────────────────────────────────────────────────
+//
+// A matrix add-on prices combinations of option axes (shape × size × …),
+// one variation row per combination. When an add-on uses 2+ axes we render
+// grouped chip rows (one per axis) instead of a flat variation list and
+// resolve the selection to the single matching variation row.
+
+const ADDON_AXES = ["style", "shape", "size", "type", "color"] as const;
+
+interface AddonAxisInfo {
+  /** Variations visible in this context (placement-filtered). */
+  pool: CatalogAddonVariation[];
+  /** Axis columns with at least one distinct value, in display order. */
+  axes: string[];
+  /** Distinct values per axis, in variation order. */
+  values: Record<string, string[]>;
+  /** Fully-specified priced rows, keyed by axis-value tuple. */
+  byKey: Map<string, CatalogAddonVariation>;
+}
+
+function axisTuple(axes: string[], row: CatalogAddonVariation): string[] | null {
+  const tuple: string[] = [];
+  for (const ax of axes) {
+    const v = row[ax as keyof CatalogAddonVariation] as string | null;
+    if (!v) return null; // row not fully specified on these axes
+    tuple.push(v);
+  }
+  return tuple;
+}
+
+// A placement-priced variation (placement column set) is only visible inside
+// the slot for its own placement; agnostic rows (null) are visible everywhere
+// and act as the fallback when the same combination exists both ways.
+function variationPool(
+  variations: CatalogAddonVariation[],
+  placement: string | null,
+): CatalogAddonVariation[] {
+  return placement == null
+    ? variations.filter((v) => v.placement == null)
+    : variations.filter((v) => v.placement == null || v.placement === placement);
+}
+
+/** placement undefined = all rows (e.g. axis badges); null = agnostic only. */
+function deriveAddonAxes(
+  variations: CatalogAddonVariation[],
+  placement?: string | null,
+): AddonAxisInfo {
+  const pool = placement === undefined ? variations : variationPool(variations, placement);
+  const axes: string[] = [];
+  const values: Record<string, string[]> = {};
+  for (const ax of ADDON_AXES) {
+    const vals: string[] = [];
+    for (const v of pool) {
+      const val = v[ax as keyof CatalogAddonVariation] as string | null;
+      if (val && !vals.includes(val)) vals.push(val);
+    }
+    if (vals.length > 0) {
+      axes.push(ax);
+      values[ax] = vals;
+    }
+  }
+  const byKey = new Map<string, CatalogAddonVariation>();
+  for (const v of pool) {
+    if (v.price == null) continue; // unpriced combination = not sellable
+    const tuple = axisTuple(axes, v);
+    if (!tuple) continue;
+    const key = tuple.join("\u0000");
+    const prev = byKey.get(key);
+    // Same combination both ways → the placement-specific price wins.
+    if (!prev || (prev.placement == null && v.placement != null)) {
+      byKey.set(key, v);
+    }
+  }
+  return { pool, axes, values, byKey };
+}
+
+function cap(v: string): string {
+  return v ? v[0].toUpperCase() + v.slice(1) : v;
 }
 
 // ─── Component ─────────────────────────────────────────────────────────
@@ -199,25 +307,37 @@ export function GarmentOrderEditor({
         }
         setComponentSelections(nextComps);
 
-        // Initialise addon selections from existing items / defaults
+        // Initialise addon selections from existing items / defaults.
+        // One slot per existing (addon, placement) item — the same add-on can
+        // appear on several placements, each with its own variation.
         const nextAddons: Record<string, AddonSelection> = {};
         for (const addon of t.addons) {
-          const existing = initialItems.find(
+          const existing = initialItems.filter(
             (it) => it.type === "add_on" && it.addon_id === addon.id,
           );
-          if (existing) {
+          if (existing.length > 0) {
             nextAddons[addon.id] = {
               addonId: addon.id,
               enabled: true,
-              variationId: existing.addon_variation_id ?? null,
-              placement: existing.placement ?? null,
+              slots: existing.map((it) => ({
+                placement: normalizePlacement(it.placement),
+                variationId: it.addon_variation_id ?? null,
+              })),
             };
           } else {
+            const isPlacementBased = (addon.placements ?? []).length > 0;
             nextAddons[addon.id] = {
               addonId: addon.id,
               enabled: Boolean(addon.is_default_on),
-              variationId: addon.default_variation_id ?? null,
-              placement: null,
+              slots:
+                addon.is_default_on && !isPlacementBased
+                  ? [
+                      {
+                        placement: null,
+                        variationId: addon.default_variation_id ?? null,
+                      },
+                    ]
+                  : [],
             };
           }
         }
@@ -256,15 +376,17 @@ export function GarmentOrderEditor({
       }
     }
 
-    // Add-ons: add addon price or variation price
+    // Add-ons: sum each placement slot (variation price, else flat price)
     for (const addon of tree.addons) {
       const sel = addonSelections[addon.id];
       if (!sel?.enabled) continue;
-      if (sel.variationId) {
-        const av = addon.variations.find((x) => x.id === sel.variationId);
-        if (av?.price) total += av.price;
-      } else if (addon.price) {
-        total += addon.price;
+      for (const slot of sel.slots) {
+        if (slot.variationId) {
+          const av = addon.variations.find((x) => x.id === slot.variationId);
+          if (av?.price) total += av.price;
+        } else if (addon.price) {
+          total += addon.price;
+        }
       }
     }
 
@@ -301,26 +423,30 @@ export function GarmentOrderEditor({
       });
     }
 
-    // Add-ons → add_on items (only enabled)
+    // Add-ons → one add_on item per placement slot (only enabled). A slot on
+    // a variations add-on emits nothing until its combination is resolved.
     for (const addon of tree.addons) {
       const sel = addonSelections[addon.id];
       if (!sel?.enabled) continue;
-      const av = sel.variationId
-        ? addon.variations.find((x) => x.id === sel.variationId)
-        : null;
       const addonLabel = catalogLabel(addon.labels, addon.id);
-      const avLabel = av ? catalogLabel(av.labels, av.id) : null;
-      items.push({
-        type: "add_on",
-        garment_style_component_id: null,
-        variation_id: null,
-        variation_type_id: null,
-        addon_id: addon.id,
-        addon_variation_id: av?.id ?? null,
-        placement: sel.placement,
-        price: av?.price ?? addon.price ?? null,
-        label_snapshot: buildAddonLabel(addonLabel, avLabel),
-      });
+      for (const slot of sel.slots) {
+        const av = slot.variationId
+          ? addon.variations.find((x) => x.id === slot.variationId)
+          : null;
+        if (addon.variations.length > 0 && !av) continue;
+        const avLabel = av ? catalogLabel(av.labels, av.id) : null;
+        items.push({
+          type: "add_on",
+          garment_style_component_id: null,
+          variation_id: null,
+          variation_type_id: null,
+          addon_id: addon.id,
+          addon_variation_id: av?.id ?? null,
+          placement: slot.placement ? [slot.placement] : null,
+          price: av?.price ?? addon.price ?? null,
+          label_snapshot: buildAddonLabel(addonLabel, avLabel, slot.placement),
+        });
+      }
     }
 
     return items;
@@ -372,36 +498,76 @@ export function GarmentOrderEditor({
     }));
   }
 
+  /** Default variation for a new slot: the add-on default when it is valid
+   * at this placement (agnostic or matching), else the first priced row that
+   * is valid there. */
+  function defaultVariationFor(addonId: string, placement: string | null): string | null {
+    const addon = tree?.addons.find((a) => a.id === addonId);
+    if (!addon) return null;
+    const valid = (v: CatalogAddonVariation) =>
+      v.price != null && (v.placement == null || v.placement === placement);
+    if (addon.default_variation_id) {
+      const def = addon.variations.find((v) => v.id === addon.default_variation_id);
+      if (def && valid(def)) return def.id;
+    }
+    return addon.variations.find(valid)?.id ?? null;
+  }
+
   function toggleAddon(addonId: string, enabled: boolean) {
-    setAddonSelections((prev) => ({
-      ...prev,
-      [addonId]: {
-        ...prev[addonId],
-        addonId,
-        enabled,
-      },
-    }));
+    setAddonSelections((prev) => {
+      const sel = prev[addonId];
+      if (!sel) return prev;
+      let slots = sel.slots;
+      // Placement-less add-ons always carry one implicit slot when enabled.
+      if (enabled && slots.length === 0) {
+        const addon = tree?.addons.find((a) => a.id === addonId);
+        if ((addon?.placements ?? []).length === 0) {
+          slots = [{ placement: null, variationId: defaultVariationFor(addonId, null) }];
+        }
+      }
+      return { ...prev, [addonId]: { ...sel, enabled, slots } };
+    });
   }
 
-  function selectAddonVariation(addonId: string, variationId: string | null) {
-    setAddonSelections((prev) => ({
-      ...prev,
-      [addonId]: {
-        ...prev[addonId],
-        addonId,
-        variationId,
-      },
-    }));
+  /** Enable/disable a placement slot (no-op for placement-less add-ons). */
+  function togglePlacement(addonId: string, placement: string, on: boolean) {
+    setAddonSelections((prev) => {
+      const sel = prev[addonId];
+      if (!sel) return prev;
+      const slots = on
+        ? [
+            ...sel.slots,
+            // New slots start on a default valid at this placement
+            // (the add-on default if it applies there).
+            {
+              placement,
+              variationId: defaultVariationFor(addonId, placement),
+            },
+          ]
+        : sel.slots.filter((s) => s.placement !== placement);
+      return { ...prev, [addonId]: { ...sel, slots } };
+    });
   }
 
-  function setAddonPlacement(addonId: string, placement: string | null) {
-    setAddonSelections((prev) => ({
-      ...prev,
-      [addonId]: {
-        ...prev[addonId],
-        placement,
-      },
-    }));
+  /** Set the variation of one slot (placement null = the single slot of a
+ * placement-less add-on, creating it if needed). */
+  function selectSlotVariation(
+    addonId: string,
+    placement: string | null,
+    variationId: string | null,
+  ) {
+    setAddonSelections((prev) => {
+      const sel = prev[addonId];
+      if (!sel) return prev;
+      const idx = sel.slots.findIndex((s) => s.placement === placement);
+      const slots = [...sel.slots];
+      if (idx >= 0) {
+        slots[idx] = { ...slots[idx], variationId };
+      } else {
+        slots.push({ placement, variationId });
+      }
+      return { ...prev, [addonId]: { ...sel, slots } };
+    });
   }
 
   // ── Save: diff against existing items and CRUD ─────────────────────────
@@ -453,51 +619,52 @@ export function GarmentOrderEditor({
         });
       }
 
-      // Add-ons → add_on items (only enabled)
+      // Add-ons → one item per placement slot (mirrors desiredItems)
       for (const addon of tree.addons) {
         const sel = addonSelections[addon.id];
         if (!sel?.enabled) continue;
-        const av = sel.variationId
-          ? addon.variations.find((x) => x.id === sel.variationId)
-          : null;
         const addonLabel = catalogLabel(addon.labels, addon.id);
-        const avLabel = av ? catalogLabel(av.labels, av.id) : null;
-        desired.push({
-          componentId: null,
-          addonId: addon.id,
-          variationId: null,
-          variationTypeId: null,
-          addonVariationId: av?.id ?? null,
-          type: "add_on",
-          placement: sel.placement,
-          price: av?.price ?? addon.price ?? null,
-          labelSnapshot: buildAddonLabel(addonLabel, avLabel),
-        });
+        for (const slot of sel.slots) {
+          const av = slot.variationId
+            ? addon.variations.find((x) => x.id === slot.variationId)
+            : null;
+          if (addon.variations.length > 0 && !av) continue;
+          const avLabel = av ? catalogLabel(av.labels, av.id) : null;
+          desired.push({
+            componentId: null,
+            addonId: addon.id,
+            variationId: null,
+            variationTypeId: null,
+            addonVariationId: av?.id ?? null,
+            type: "add_on",
+            placement: slot.placement,
+            price: av?.price ?? addon.price ?? null,
+            labelSnapshot: buildAddonLabel(addonLabel, avLabel, slot.placement),
+          });
+        }
       }
 
       // Diff against existing items.
-      // Match key: (type, componentId, addonId). One item per component / addon.
-      const findExisting = (d: DesiredItem) =>
-        existingItems.find((it) => {
-          if (it.type !== d.type) return false;
-          if (d.type === "variation") {
-            return it.garment_style_component_id === d.componentId;
-          }
-          return it.addon_id === d.addonId;
-        });
+      // Match key: one item per component / per (add-on, placement).
+      const desiredKey = (d: DesiredItem) =>
+        d.type === "variation"
+          ? `variation:${d.componentId}`
+          : `add_on:${d.addonId}:${d.placement ?? ""}`;
+      const existingKey = (it: GarmentOrderItemRow) =>
+        it.type === "variation"
+          ? `variation:${it.garment_style_component_id}`
+          : `add_on:${it.addon_id}:${normalizePlacement(it.placement) ?? ""}`;
 
-      const desiredKeys = new Set(
-        desired.map(
-          (d) => `${d.type}:${d.componentId ?? d.addonId}`,
-        ),
-      );
+      const findExisting = (d: DesiredItem) =>
+        existingItems.find((it) => existingKey(it) === desiredKey(d));
+
+      const desiredKeys = new Set(desired.map(desiredKey));
 
       const updatedItems: GarmentOrderItemRow[] = [];
 
       // 1. Delete items that are no longer desired
       for (const it of existingItems) {
-        const key = `${it.type}:${it.type === "variation" ? it.garment_style_component_id : it.addon_id}`;
-        if (!desiredKeys.has(key)) {
+        if (!desiredKeys.has(existingKey(it))) {
           await deleteTableRow("garment_orders_items", it.id);
         }
       }
@@ -505,6 +672,7 @@ export function GarmentOrderEditor({
       // 2. Create or update desired items
       for (const d of desired) {
         const existing = findExisting(d);
+        // placement is stored as a JSONB array (["Sleeves"]); null where N/A.
         const payload: Record<string, unknown> = {
           garment_order_id: garmentOrderId,
           type: d.type,
@@ -513,7 +681,7 @@ export function GarmentOrderEditor({
           variation_type_id: d.variationTypeId,
           addon_id: d.addonId,
           addon_variation_id: d.addonVariationId,
-          placement: d.placement,
+          placement: d.placement ? [d.placement] : null,
           label_snapshot: d.labelSnapshot,
         };
 
@@ -527,7 +695,7 @@ export function GarmentOrderEditor({
             existing.variation_id !== d.variationId ||
             existing.variation_type_id !== d.variationTypeId ||
             existing.addon_variation_id !== d.addonVariationId ||
-            (existing.placement ?? null) !== (d.placement ?? null) ||
+            normalizePlacement(existing.placement) !== d.placement ||
             (existing.label_snapshot ?? null) !== (d.labelSnapshot ?? null);
           if (needsUpdate) {
             await updateTableRow(
@@ -642,10 +810,10 @@ export function GarmentOrderEditor({
               addon={addon}
               selection={addonSelections[addon.id]}
               onToggle={(en) => toggleAddon(addon.id, en)}
-              onSelectVariation={(vid) =>
-                selectAddonVariation(addon.id, vid)
+              onTogglePlacement={(p, on) => togglePlacement(addon.id, p, on)}
+              onSelectSlotVariation={(p, vid) =>
+                selectSlotVariation(addon.id, p, vid)
               }
-              onPlacementChange={(p) => setAddonPlacement(addon.id, p)}
             />
           ))}
         </div>
@@ -841,23 +1009,195 @@ function VariationChipAndSub({
   );
 }
 
-/** A single add-on editor — toggle + optional variation chips + placement. */
+/**
+ * Variation picker for a single add-on slot. Matrix add-ons (2+ option axes)
+ * render one chip row per axis and resolve the picks to a combination;
+ * others render a flat variation chip list. Returns null for flat-price
+ * add-ons with no variations (nothing to pick).
+ */
+function AddonVariationPicker({
+  addon,
+  placement,
+  selectedVariationId,
+  onSelectVariation,
+}: {
+  addon: CatalogAddon;
+  /** Slot placement — filters the visible variation pool. */
+  placement: string | null;
+  selectedVariationId: string | null;
+  onSelectVariation: (variationId: string | null) => void;
+}) {
+  const matrix = useMemo(
+    () => deriveAddonAxes(addon.variations, placement),
+    [addon.variations, placement],
+  );
+  const isMatrix = matrix.axes.length >= 2;
+
+  // Partial picks per axis, held locally until every axis has a value and
+  // the combination resolves to a variation row.
+  const [axisPicks, setAxisPicks] = useState<Record<string, string>>({});
+
+  const selectedAv = selectedVariationId
+    ? (matrix.pool.find((v) => v.id === selectedVariationId) ?? null)
+    : null;
+
+  // Current per-axis picks: explicit local picks win; else infer from the
+  // selected variation row (covers defaults and re-loaded existing items).
+  const currentPicks: Record<string, string> = {};
+  if (isMatrix && selectedAv) {
+    for (const ax of matrix.axes) {
+      const val = axisPicks[ax] ?? (selectedAv[ax as keyof CatalogAddonVariation] as string | null);
+      if (val && matrix.values[ax].includes(val)) currentPicks[ax] = val;
+    }
+  }
+
+  function pickAxisValue(ax: string, value: string | null) {
+    const next = { ...currentPicks };
+    if (value === null) delete next[ax];
+    else next[ax] = value;
+    setAxisPicks(next);
+    if (matrix.axes.every((a) => next[a])) {
+      const av = matrix.byKey.get(matrix.axes.map((a) => next[a]).join("\u0000")) ?? null;
+      onSelectVariation(av ? av.id : null);
+    } else {
+      onSelectVariation(null);
+    }
+  }
+
+  // A value is choosable if some priced variation in this slot's pool
+  // matches it and the picks already made on every other axis.
+  function valueAvailable(ax: string, v: string): boolean {
+    return matrix.pool.some((w) => {
+      if (w.price == null || w[ax as keyof CatalogAddonVariation] !== v) return false;
+      return matrix.axes.every((a) => a === ax || !currentPicks[a] || w[a as keyof CatalogAddonVariation] === currentPicks[a]);
+    });
+  }
+
+  if (matrix.pool.length === 0) return null;
+
+  if (isMatrix) {
+    return (
+      <div className="space-y-2">
+        {matrix.axes.map((ax) => (
+          <div key={ax}>
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+              {cap(ax)}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {matrix.values[ax].map((v) => {
+                const vSel = currentPicks[ax] === v;
+                const avail = valueAvailable(ax, v);
+                return (
+                  <button
+                    key={v}
+                    disabled={!avail}
+                    onClick={() => pickAxisValue(ax, vSel ? null : v)}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+                      vSel
+                        ? "border-tape bg-tape/10 text-ink-navy"
+                        : "border-hairline-strong bg-chalk-white text-muted hover:bg-mist-navy disabled:cursor-not-allowed disabled:opacity-30"
+                    }`}
+                  >
+                    {cap(v)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        <div className="text-[11px] text-muted">
+          {selectedAv && selectedAv.price != null ? (
+            <>
+              {matrix.axes.map((a) => cap(currentPicks[a] ?? "")).join(" · ")} —{" "}
+              <span className="font-medium text-ink-navy">+{formatPrice(selectedAv.price)}</span>
+            </>
+          ) : (
+            "Pick an option in each row to see the price."
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Flat variation list (single axis or none)
+  return (
+    <div>
+      <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+        Variation
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {matrix.pool.map((av) => {
+          const avLabel = catalogLabel(av.labels, av.id);
+          const avSel = selectedVariationId === av.id;
+          return (
+            <button
+              key={av.id}
+              onClick={() => onSelectVariation(avSel ? null : av.id)}
+              className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+                avSel
+                  ? "border-tape bg-tape/10 text-ink-navy"
+                  : "border-hairline-strong bg-chalk-white text-muted hover:bg-mist-navy"
+              }`}
+            >
+              {avLabel}
+              {av.price ? ` +${formatPrice(av.price)}` : ""}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A single add-on editor — toggle + one variation picker per placement slot.
+ * The same add-on can be enabled on several placements, each with its own
+ * combination (e.g. Back neck → small round, Sleeves → large flat).
+ */
 function AddonEditor({
   addon,
   selection,
   onToggle,
-  onSelectVariation,
-  onPlacementChange,
+  onTogglePlacement,
+  onSelectSlotVariation,
 }: {
   addon: CatalogAddon;
   selection: AddonSelection | undefined;
   onToggle: (enabled: boolean) => void;
-  onSelectVariation: (variationId: string | null) => void;
-  onPlacementChange: (placement: string | null) => void;
+  onTogglePlacement: (placement: string, on: boolean) => void;
+  onSelectSlotVariation: (
+    placement: string | null,
+    variationId: string | null,
+  ) => void;
 }) {
   const label = catalogLabel(addon.labels, addon.id);
   const enabled = selection?.enabled ?? false;
   const placements = addon.placements ?? [];
+  const isPlacementBased = placements.length > 0;
+  const slots = selection?.slots ?? [];
+
+  const matrix = useMemo(
+    () => deriveAddonAxes(addon.variations),
+    [addon.variations],
+  );
+  const isMatrix = matrix.axes.length >= 2;
+
+  // Resolved price total across slots (for the header)
+  let slotTotal = 0;
+  for (const slot of slots) {
+    const av = slot.variationId
+      ? addon.variations.find((x) => x.id === slot.variationId)
+      : null;
+    slotTotal += av?.price ?? addon.price ?? 0;
+  }
+
+  // Resolve the price of one slot for its sub-block header.
+  function slotPrice(slot: AddonSlot): number | null {
+    const av = slot.variationId
+      ? addon.variations.find((x) => x.id === slot.variationId)
+      : null;
+    return av?.price ?? addon.price ?? null;
+  }
 
   return (
     <div
@@ -889,71 +1229,105 @@ function AddonEditor({
               {addon.type}
             </span>
           )}
+          {isMatrix && (
+            <span className="rounded-pill bg-mist-navy px-1.5 py-0.5 text-[10px] text-muted">
+              {matrix.axes.map(cap).join(" × ")}
+            </span>
+          )}
         </div>
         <div className="text-[11px] text-muted">
-          {addon.price ? formatPrice(addon.price) : ""}
+          {enabled && slots.length > 0
+            ? `+${formatPrice(slotTotal)}${slots.length > 1 ? ` (${slots.length}×)` : ""}`
+            : addon.price
+              ? formatPrice(addon.price)
+              : ""}
         </div>
       </div>
 
       {/* Expanded add-on config */}
       {enabled && (
         <div className="border-t border-hairline px-3 py-2">
-          {/* Variations */}
-          {addon.variations.length > 0 && (
-            <div className="mb-2">
-              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-                Variation
+          {isPlacementBased ? (
+            <>
+              {/* Placement chips — multi-select; each active placement gets
+                  its own slot (its own variation combination). */}
+              <div className="mb-2">
+                <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+                  Placements
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {placements.map((p) => {
+                    const slot = slots.find((s) => s.placement === p);
+                    return (
+                      <button
+                        key={p}
+                        onClick={() => onTogglePlacement(p, !slot)}
+                        className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+                          slot
+                            ? "border-tape bg-tape/10 text-ink-navy"
+                            : "border-hairline-strong bg-chalk-white text-muted hover:bg-mist-navy"
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {addon.variations.map((av) => {
-                  const avLabel = catalogLabel(av.labels, av.id);
-                  const avSel = selection?.variationId === av.id;
-                  return (
-                    <button
-                      key={av.id}
-                      onClick={() => onSelectVariation(avSel ? null : av.id)}
-                      className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
-                        avSel
-                          ? "border-tape bg-tape/10 text-ink-navy"
-                          : "border-hairline-strong bg-chalk-white text-muted hover:bg-mist-navy"
-                      }`}
-                    >
-                      {avLabel}
-                      {av.price ? ` +${formatPrice(av.price)}` : ""}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
-          {/* Placements */}
-          {placements.length > 0 && (
-            <div>
-              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-                Placement
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {placements.map((p) => {
-                  const pSel = selection?.placement === p;
-                  return (
-                    <button
-                      key={p}
-                      onClick={() =>
-                        onPlacementChange(pSel ? null : p)
+              {/* One variation picker per active placement */}
+              {slots.length === 0 && (
+                <div className="text-[11px] text-muted">
+                  Pick at least one placement.
+                </div>
+              )}
+              <div className="space-y-2">
+                {slots.map((slot) => (
+                  <div
+                    key={slot.placement ?? "none"}
+                    className="rounded-md border border-hairline bg-chalk-white px-2.5 py-2"
+                  >
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-ink-navy">
+                        {slot.placement}
+                        {slotPrice(slot) != null && (
+                          <span className="ml-1.5 font-mono text-[11px] text-muted">
+                            +{formatPrice(slotPrice(slot))}
+                          </span>
+                        )}
+                      </span>
+                      <button
+                        onClick={() =>
+                          slot.placement && onTogglePlacement(slot.placement, false)
+                        }
+                        className="text-[11px] text-muted hover:text-ink-navy"
+                        aria-label={`Remove ${slot.placement}`}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <AddonVariationPicker
+                      addon={addon}
+                      placement={slot.placement}
+                      selectedVariationId={slot.variationId}
+                      onSelectVariation={(vid) =>
+                        onSelectSlotVariation(slot.placement, vid)
                       }
-                      className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
-                        pSel
-                          ? "border-tape bg-tape/10 text-ink-navy"
-                          : "border-hairline-strong bg-chalk-white text-muted hover:bg-mist-navy"
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  );
-                })}
+                    />
+                  </div>
+                ))}
               </div>
-            </div>
+            </>
+          ) : (
+            /* Placement-less add-on: a single picker for the single slot. */
+            <AddonVariationPicker
+              addon={addon}
+              placement={null}
+              selectedVariationId={
+                slots.find((s) => s.placement === null)?.variationId ?? null
+              }
+              onSelectVariation={(vid) => onSelectSlotVariation(null, vid)}
+            />
           )}
         </div>
       )}

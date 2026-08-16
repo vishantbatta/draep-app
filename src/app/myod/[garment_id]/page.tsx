@@ -1,21 +1,25 @@
 "use client";
 
 /**
- * /library/myod — Make Your Own Draep (full page).
+ * /myod/[garment_id] — Make Your Own Draep (full page).
  *
- * A full-screen page: navy header with a back chevron + MYOD title, and a
- * scrollable body that mounts the MyodSheet configurator directly (not a
- * bottom sheet). The MYOD garment starts as the pre-generated default and is
- * refined as the user makes selections.
+ * One URL per garment: /myod/blouse is the blouse configurator, the next
+ * garment (e.g. a kurti) gets /myod/<its-id-or-slug>. The segment accepts the
+ * garment's id or its slug. A full-screen page: navy header with a back
+ * chevron + MYOD title, and a scrollable body that mounts the MyodSheet
+ * configurator directly (not a bottom sheet). The garment starts as the
+ * pre-generated default and is refined as the user makes selections.
  */
 
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import { MyodSheet } from "@/components/myod/MyodSheet";
 import { ArrowLeft } from "@/components/ui/icons";
 
 export default function MyodPage() {
   const router = useRouter();
+  const params = useParams<{ garment_id: string }>();
+  const garmentId = typeof params?.garment_id === "string" ? params.garment_id : undefined;
 
   return (
     <div className="column flex h-dvh flex-col bg-warm-sand">
@@ -52,7 +56,7 @@ export default function MyodPage() {
 
       {/* ───── Body: full-page configurator ───── */}
       <div className="min-h-0 flex-1 overflow-y-auto pt-4">
-        <MyodSheet />
+        <MyodSheet garmentId={garmentId} />
       </div>
     </div>
   );

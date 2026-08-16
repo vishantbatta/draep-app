@@ -45,6 +45,13 @@ export type AnalyticsEvent =
   | { event: "myod_succeeded" }
   | { event: "myod_failed"; error?: string }
   | { event: "myod_refined"; instruction: string }
+  | { event: "myod_generate" }
+  | { event: "myod_generated" }
+  | { event: "myod_render_succeeded"; views: number }
+  | { event: "myod_render_failed" }
+  | { event: "myod_render_reused" }
+  | { event: "myod_render_regenerate"; has_comment: boolean }
+  | { event: "myod_order_cta"; cta: "complete_order" }
   | { event: "myod_tried_on" };
 
 export function track(event: AnalyticsEvent): void {

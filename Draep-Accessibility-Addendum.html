@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Draep Brand Book&nbsp;&#8212; Accessibility Addendum</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #083068;
+    --navy-70: rgba(8,48,104,.72);
+    --navy-55: rgba(8,48,104,.55);
+    --orange: #F89010;
+    --ember: #D06010;
+    --deep: #A85010;
+    --deep2: #B85A10;
+    --sand: #FFF6EA;
+    --mist: #EAF0F8;
+    --line: #E6EBF3;
+    --pass: #15803D;
+    --fail: #DC2626;
+    --warn: #EAB308;
+    --amber: #A16207;
+  }
+  @page { size: 794px 1123px; margin: 0; }
+  html, body { margin: 0; padding: 0; width: 794px; background: #FFFFFF; }
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    color: var(--navy);
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    width: 794px; height: 1123px;
+    position: relative;
+    display: flex; flex-direction: column;
+    background: #FFFFFF;
+    break-after: page;
+  }
+  .page:last-child { break-after: auto; }
+  .inner { padding: 44px 52px 36px; display: flex; flex-direction: column; flex: 1; }
+
+  /* ---------- shared ---------- */
+  .kicker {
+    font: 600 10.5px 'Inter', Arial, sans-serif;
+    letter-spacing: 2.2px; text-transform: uppercase;
+    color: var(--navy-55);
+    display: flex; justify-content: space-between;
+  }
+  h2.pagetitle {
+    font: 700 27px 'Poppins', 'Trebuchet MS', sans-serif;
+    margin: 10px 0 6px; color: var(--navy);
+  }
+  .accentbar { width: 46px; height: 4px; background: var(--ember); border-radius: 2px; margin: 2px 0 16px; }
+  .lede { font-size: 12.5px; line-height: 1.6; color: var(--navy-70); max-width: 660px; }
+
+  .footer {
+    margin-top: auto; padding-top: 12px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between;
+    font: 500 10px 'Inter', Arial, sans-serif;
+    color: var(--navy-55); letter-spacing: .4px;
+  }
+
+  .v {
+    display: inline-block; font: 700 10px 'Inter', Arial, sans-serif;
+    letter-spacing: .8px; padding: 3px 9px; border-radius: 999px;
+    color: #FFFFFF; white-space: nowrap;
+  }
+  .v-fail { background: var(--fail); }
+  .v-pass { background: var(--pass); }
+  .v-aaa  { background: var(--navy); }
+
+  .mono { font-family: 'IBM Plex Mono', 'Courier New', monospace; }
+
+  .card {
+    background: #FFFFFF; border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px 20px; margin-bottom: 14px;
+  }
+  .card.fail  { border-left: 4px solid var(--fail); }
+  .card.pass  { border-left: 4px solid var(--pass); }
+
+  .cardhead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .cardhead .tag {
+    font: 600 10px 'IBM Plex Mono', monospace; letter-spacing: 1.2px;
+    color: var(--navy-55); text-transform: uppercase;
+  }
+  .cardhead .name { font: 600 14px 'Inter', Arial, sans-serif; }
+  .cardhead .v { margin-left: auto; }
+
+  .note { font-size: 11px; line-height: 1.55; color: var(--navy-70); margin-top: 10px; }
+  .note b { color: var(--navy); }
+
+  /* ---------- buttons ---------- */
+  .btn {
+    display: inline-block; padding: 13px 30px; border-radius: 999px;
+    font: 600 15px 'Inter', Arial, sans-serif; white-space: nowrap;
+  }
+  .btn-before { background: linear-gradient(135deg, #F89010 0%, #E87810 35%, #D06010 68%, #A85010 100%); color: #FFFFFF; }
+  .btn-recipeA { background: linear-gradient(135deg, #B85A10 0%, #B0560F 50%, #A85010 100%); color: #FFFFFF; }
+  .btn-recipeB { background: linear-gradient(135deg, #F89010 0%, #EE7E10 100%); color: var(--navy); border: 1.5px solid var(--navy); }
+
+  .demorow { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+
+  /* ---------- gradient stop strip ---------- */
+  .stops { display: flex; gap: 8px; margin-top: 14px; }
+  .stop { flex: 1; }
+  .stop .sw { height: 38px; border-radius: 8px; }
+  .stop .hx { font: 500 10px 'IBM Plex Mono', monospace; margin-top: 6px; color: var(--navy); }
+  .stop .rt { font: 700 11.5px 'Inter', Arial, sans-serif; margin-top: 1px; }
+  .rt-bad { color: var(--fail); }
+  .rt-ok { color: var(--pass); }
+
+  /* ---------- audit table ---------- */
+  table.audit { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.audit th {
+    background: var(--navy); color: #FFFFFF; text-align: left;
+    font: 600 10px 'Inter', Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase;
+    padding: 8px 10px;
+  }
+  table.audit td { padding: 7.5px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  table.audit tr.group td {
+    background: var(--mist); font: 600 11px 'Inter', Arial, sans-serif;
+    letter-spacing: 1.2px; text-transform: uppercase; color: var(--navy);
+    padding: 6px 10px;
+  }
+  .ratio { font: 600 12px 'IBM Plex Mono', monospace; }
+  .r-bad { color: var(--fail); } .r-ok { color: var(--pass); }
+
+  .thresh { display: flex; gap: 8px; margin: 14px 0 16px; flex-wrap: wrap; }
+  .tchip {
+    background: var(--mist); color: var(--navy); border-radius: 999px;
+    padding: 6px 14px; font: 600 11px 'Inter', Arial, sans-serif;
+  }
+  .tchip .mono { font-weight: 600; }
+
+  .callout {
+    background: var(--mist); border-radius: 12px; padding: 14px 18px;
+    font-size: 11.5px; line-height: 1.6; color: var(--navy-70);
+  }
+  .callout b { color: var(--navy); }
+
+  /* ---------- samples & chips ---------- */
+  .demobox { border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .sample-label { font: 600 10px 'Inter', Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase; color: var(--navy-55); margin-bottom: 8px; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 13px; border-radius: 999px; font: 600 12.5px 'Inter', Arial, sans-serif;
+  }
+  .badge-outline { background: #FFFFFF; border: 1px solid var(--line); }
+
+  .sandstrip { background: var(--sand); border-radius: 8px; padding: 12px 16px; }
+
+  /* ticks demo */
+  .ticks {
+    height: 12px; border-radius: 6px;
+    background-image: repeating-linear-gradient(90deg, var(--tickcol) 0 2px, transparent 2px 22px);
+  }
+  .tl { display: flex; align-items: center; margin: 6px 4px 2px; }
+  .tl .seg { flex: 1; height: 3px; }
+  .tl .dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+  .tl-labels { display: flex; margin-top: 7px; }
+  .tl-labels span { flex: 1; text-align: center; font: 500 9.5px 'Inter', Arial, sans-serif; color: var(--navy-70); }
+
+  /* ---------- summary table ---------- */
+  table.summary { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  table.summary th {
+    background: var(--navy); color: #FFFFFF; text-align: left;
+    font: 600 10px 'Inter', Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase;
+    padding: 8px 10px;
+  }
+  table.summary td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.45; }
+
+  ol.rules { margin: 12px 0 0; padding-left: 20px; }
+  ol.rules li { font-size: 11.5px; line-height: 1.62; color: var(--navy-70); margin-bottom: 7px; }
+  ol.rules li b { color: var(--navy); }
+
+  /* ---------- cover ---------- */
+  .cover { background: var(--sand); }
+  .cover .inner { padding: 56px 60px 44px; }
+  .tapeband {
+    margin-top: 26px; height: 16px; border-radius: 8px;
+    background: linear-gradient(90deg, #F89010, #E87810, #D06010, #A85010);
+    position: relative;
+  }
+  .tapeband .ticks {
+    position: absolute; inset: 0; height: 16px;
+    background-image: repeating-linear-gradient(90deg, rgba(8,48,104,.30) 0 2px, transparent 2px 26px);
+  }
+  .cover h1 {
+    font: 700 56px 'Poppins', 'Trebuchet MS', sans-serif;
+    line-height: 1.04; margin: 40px 0 0; color: var(--navy);
+  }
+  .cover .sub { font: 400 16px 'Inter', Arial, sans-serif; line-height: 1.55; color: var(--navy-70); margin-top: 18px; max-width: 560px; }
+  .summarycard {
+    background: #FFFFFF; border-radius: 12px; padding: 22px 26px; margin-top: 44px;
+    box-shadow: 0 8px 24px rgba(8,48,104,.08);
+  }
+  .summarycard .big { font: 600 15.5px 'Inter', Arial, sans-serif; line-height: 1.55; color: var(--navy); }
+  .metarow { display: flex; gap: 34px; margin-top: 16px; flex-wrap: wrap; }
+  .metarow .m .k { font: 600 9.5px 'Inter', Arial, sans-serif; letter-spacing: 1.4px; text-transform: uppercase; color: var(--navy-55); }
+  .metarow .m .w { font: 600 13px 'Inter', Arial, sans-serif; color: var(--navy); margin-top: 3px; }
+  .cover .kicker { color: rgba(8,48,104,.60); }
+
+  @media screen {
+    html { height: auto; display: flex; justify-content: center; background: #FFFFFF; }
+    body { transform-origin: top center; scale: min(1, calc(100vw / 794px)); margin: 0 auto; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= PAGE 1 · COVER ================= -->
+<div class="page cover">
+  <div class="inner">
+    <div class="kicker"><span>Draep Brand System · Design QA</span><span>16 Aug 2026</span></div>
+    <div class="tapeband"><div class="ticks"></div></div>
+    <h1>Accessibility<br>Addendum</h1>
+    <div class="sub">A WCAG 2.2 AA contrast audit of the Draep Brand Book, v1.0&nbsp;&#8212; every failing pairing, and a verified fix for each, shown before and after.</div>
+    <div class="summarycard">
+      <div class="big">14 color pairings tested · 5 fail AA · every proposed replacement verified at <span class="mono">4.5 : 1</span> or better, computed to WCAG relative luminance.</div>
+      <div class="metarow">
+        <div class="m"><div class="k">Standard</div><div class="w">WCAG 2.2 AA</div></div>
+        <div class="m"><div class="k">Scope</div><div class="w">§04–06 · palette &amp; components</div></div>
+        <div class="m"><div class="k">Fixes</div><div class="w">2 CTA recipes · 4 color swaps</div></div>
+      </div>
+    </div>
+    <div class="footer"><span>Measured for everyone.</span><span>01 / 06</span></div>
+  </div>
+</div>
+
+<!-- ================= PAGE 2 · AUDIT ================= -->
+<div class="page">
+  <div class="inner">
+    <div class="kicker"><span>Audit · Summary</span><span>Draep · Accessibility Addendum</span></div>
+    <h2 class="pagetitle">The audit at a glance</h2>
+    <div class="accentbar"></div>
+    <div class="lede">Every color pairing the Brand Book defines (§04 Color Palette, §06 Component Library) was computed against WCAG 2.2 relative luminance. Note that the spec&#8217;s 15&nbsp;px SemiBold button label counts as <b>normal</b> text&nbsp;&#8212; it gets no large-text leniency.</div>
+    <div class="thresh">
+      <div class="tchip">AA · <span class="mono">4.5 : 1</span> · normal text</div>
+      <div class="tchip">AA · <span class="mono">3 : 1</span> · large text &amp; non-text UI</div>
+      <div class="tchip">AAA · <span class="mono">7 : 1</span> · enhanced</div>
+    </div>
+    <table class="audit">
+      <tr><th style="width:38%">Pairing (as used in the Brand Book)</th><th style="width:15%">Foreground</th><th style="width:15%">Background</th><th style="width:12%">Ratio</th><th style="width:11%">AA 4.5:1</th><th style="width:9%">AAA</th></tr>
+      <tr class="group"><td colspan="6">Pass&nbsp;&#8212; keep as-is</td></tr>
+      <tr><td>Wordmark, text &amp; structure</td><td class="mono">#083068</td><td class="mono">#FFFFFF</td><td class="ratio r-ok">12.86</td><td><span class="v v-pass">PASS</span></td><td><span class="v v-aaa">AAA</span></td></tr>
+      <tr><td>Text on page backgrounds</td><td class="mono">#083068</td><td class="mono">#FFF6EA</td><td class="ratio r-ok">12.02</td><td><span class="v v-pass">PASS</span></td><td><span class="v v-aaa">AAA</span></td></tr>
+      <tr><td>Text on secondary sections</td><td class="mono">#083068</td><td class="mono">#EAF0F8</td><td class="ratio r-ok">11.22</td><td><span class="v v-pass">PASS</span></td><td><span class="v v-aaa">AAA</span></td></tr>
+      <tr><td>Error messages &amp; QC-failed badge</td><td class="mono">#DC2626</td><td class="mono">#FFFFFF</td><td class="ratio r-ok">4.83</td><td><span class="v v-pass">PASS</span></td><td></td></tr>
+      <tr><td>Info messages</td><td class="mono">#2563EB</td><td class="mono">#FFFFFF</td><td class="ratio r-ok">5.17</td><td><span class="v v-pass">PASS</span></td><td></td></tr>
+      <tr class="group"><td colspan="6">Fail&nbsp;&#8212; fixed in this addendum</td></tr>
+      <tr><td>Primary CTA label on tape gradient</td><td class="mono">#FFFFFF</td><td class="mono">4 stops</td><td class="ratio r-bad">2.34&#8211;5.50</td><td><span class="v v-fail">FAIL</span></td><td></td></tr>
+      <tr><td>Orange text on white (prices, links)</td><td class="mono">#F89010</td><td class="mono">#FFFFFF</td><td class="ratio r-bad">2.34</td><td><span class="v v-fail">FAIL</span></td><td></td></tr>
+      <tr><td>Orange ticks &amp; dividers on Warm Sand</td><td class="mono">#F89010</td><td class="mono">#FFF6EA</td><td class="ratio r-bad">2.18</td><td><span class="v v-fail">FAIL</span></td><td></td></tr>
+      <tr><td>Success text &amp; Delivered badge</td><td class="mono">#16A34A</td><td class="mono">#FFFFFF</td><td class="ratio r-bad">3.30</td><td><span class="v v-fail">FAIL</span></td><td></td></tr>
+      <tr><td>Warning text</td><td class="mono">#EAB308</td><td class="mono">#FFFFFF</td><td class="ratio r-bad">1.92</td><td><span class="v v-fail">FAIL</span></td><td></td></tr>
+    </table>
+    <div class="callout" style="margin-top:16px"><b>Already strong:</b> Ink Navy on all three light neutrals clears AAA at 11.2&#8211;12.9 : 1, and Error / Info already pass AA&nbsp;&#8212; the foundation is solid. The failures all involve <b>orange carrying text</b> and <b>two underpowered semantic colors</b>; the four pages that follow fix each one without leaving the brand&#8217;s hue families.</div>
+    <div class="footer"><span>Draep Brand Book v1.0 · Accessibility Addendum</span><span>02 / 06</span></div>
+  </div>
+</div>
+
+<!-- ================= PAGE 3 · FIX 01 CTA ================= -->
+<div class="page">
+  <div class="inner">
+    <div class="kicker"><span>Fix 01 · Primary CTA</span><span>Draep · Accessibility Addendum</span></div>
+    <h2 class="pagetitle">The tape-gradient button</h2>
+    <div class="accentbar"></div>
+
+    <div class="card fail">
+      <div class="cardhead"><span class="tag">Current</span><span class="name">White label on the tape gradient</span><span class="v v-fail">FAIL · 2.34&#8211;3.92</span></div>
+      <div class="demorow"><span class="btn btn-before">Book a free visit</span><span class="note" style="margin-top:0">135&#176; gradient, pill, white 15&nbsp;px SemiBold label,<br>exactly as specified in &#167;06.</span></div>
+      <div class="stops">
+        <div class="stop"><div class="sw" style="background:#F89010"></div><div class="hx">#F89010</div><div class="rt rt-bad">2.34</div></div>
+        <div class="stop"><div class="sw" style="background:#E87810"></div><div class="hx">#E87810</div><div class="rt rt-bad">2.95</div></div>
+        <div class="stop"><div class="sw" style="background:#D06010"></div><div class="hx">#D06010</div><div class="rt rt-bad">3.92</div></div>
+        <div class="stop"><div class="sw" style="background:#A85010"></div><div class="hx">#A85010</div><div class="rt rt-ok">5.50</div></div>
+      </div>
+      <div class="note">Three of the four stops fail AA for normal text; only the darkest end passes. A 15&nbsp;px SemiBold label is <b>normal</b> text, so it must hold <b>4.5&nbsp;:&nbsp;1 everywhere on the button</b>, not just at the dark end.</div>
+    </div>
+
+    <div class="card pass">
+      <div class="cardhead"><span class="tag">Recipe A · Drop-in</span><span class="name">Deep Tape&nbsp;&#8212; keep the white label</span><span class="v v-pass">PASS · 4.66&#8211;5.50</span></div>
+      <div class="demorow"><span class="btn btn-recipeA">Book a free visit</span><span class="note" style="margin-top:0">Same pill, same 135&#176; flow, same white label &#8212;<br>only the stops deepen.</span></div>
+      <div class="stops">
+        <div class="stop"><div class="sw" style="background:#B85A10"></div><div class="hx">#B85A10</div><div class="rt rt-ok">4.66</div></div>
+        <div class="stop"><div class="sw" style="background:#B0560F"></div><div class="hx">#B0560F</div><div class="rt rt-ok">5.02</div></div>
+        <div class="stop"><div class="sw" style="background:#A85010"></div><div class="hx">#A85010</div><div class="rt rt-ok">5.50</div></div>
+      </div>
+      <div class="note">Every stop clears 4.5&nbsp;:&nbsp;1 with white text, and the button edge sits at <b>4.35&nbsp;:&nbsp;1</b> against Warm Sand (non-text AA needs 3&nbsp;:&nbsp;1). A richer, jam-toned tape&nbsp;&#8212; the closest one-line change to the current spec.</div>
+    </div>
+
+    <div class="card pass">
+      <div class="cardhead"><span class="tag">Recipe B · Alternative</span><span class="name">Bright Tape&nbsp;&#8212; Ink Navy label</span><span class="v v-pass">PASS · 4.67&#8211;5.50</span></div>
+      <div class="demorow"><span class="btn btn-recipeB">Book a free visit</span><span class="note" style="margin-top:0">Keeps the brand&#8217;s bright orange and makes the label<br>navy&nbsp;&#8212; the navy + orange handshake, on the button itself.</span></div>
+      <div class="stops">
+        <div class="stop"><div class="sw" style="background:#F89010"></div><div class="hx">#F89010 + navy</div><div class="rt rt-ok">5.50</div></div>
+        <div class="stop"><div class="sw" style="background:#EE7E10"></div><div class="hx">#EE7E10 + navy</div><div class="rt rt-ok">4.67</div></div>
+      </div>
+      <div class="note">Navy text passes on both stops. Keep the 1.5&nbsp;px navy ring shown above: the bright fill&#8217;s edge against Warm Sand is 2.18&nbsp;:&nbsp;1, so the ring carries the non-text 3&nbsp;:&nbsp;1 duty for the component boundary.</div>
+    </div>
+
+    <div class="callout"><b>Either recipe is compliant.</b> What is never compliant: flattening the gradient to solid <span class="mono">#F89010</span> and keeping the white label&nbsp;&#8212; that is still 2.34&nbsp;:&nbsp;1.</div>
+    <div class="footer"><span>Draep Brand Book v1.0 · Accessibility Addendum</span><span>03 / 06</span></div>
+  </div>
+</div>
+
+<!-- ================= PAGE 4 · FIX 02 ORANGE ON LIGHT ================= -->
+<div class="page">
+  <div class="inner">
+    <div class="kicker"><span>Fix 02 · Orange on light</span><span>Draep · Accessibility Addendum</span></div>
+    <h2 class="pagetitle">Orange text &amp; tape marks on light backgrounds</h2>
+    <div class="accentbar"></div>
+
+    <div class="card fail">
+      <div class="cardhead"><span class="tag">Current</span><span class="name">Draep Orange carrying text and UI marks</span><span class="v v-fail">FAIL · 2.18&#8211;2.34</span></div>
+      <div class="demobox" style="margin-bottom:12px">
+        <div class="sample-label">Catalogue price&nbsp;&#8212; on Chalk White</div>
+        <div style="font:600 19px 'Inter', Arial, sans-serif; color:#F89010">From &#8377;800 &#183; <span class="mono" style="font-size:15px">#DRP-10428</span></div>
+      </div>
+      <div class="sandstrip">
+        <div class="sample-label">Tick divider &amp; timeline marks&nbsp;&#8212; on Warm Sand</div>
+        <div class="ticks" style="--tickcol:#F89010"></div>
+      </div>
+      <div class="note">Orange text on white: <b>2.34&nbsp;:&nbsp;1</b>; orange ticks on Warm Sand: <b>2.18&nbsp;:&nbsp;1</b>&nbsp;&#8212; below even the 3&nbsp;:&nbsp;1 non-text minimum. The Brand Book&#8217;s own rule (&#8220;don&#8217;t set <i>small</i> orange text on white&#8221;) understates it: it fails at any size.</div>
+    </div>
+
+    <div class="card pass">
+      <div class="cardhead"><span class="tag">Fix · Text</span><span class="name">Deep Tape <span class="mono" style="font-size:12px">#A85010</span> for orange text</span><span class="v v-pass">PASS · 5.14&#8211;5.50</span></div>
+      <div class="demobox" style="margin-bottom:12px">
+        <div class="sample-label">Same price&nbsp;&#8212; now compliant on white and sand</div>
+        <div style="font:600 19px 'Inter', Arial, sans-serif; color:#A85010">From &#8377;800 &#183; <span class="mono" style="font-size:15px">#DRP-10428</span></div>
+        <div style="font:600 19px 'Inter', Arial, sans-serif; color:#A85010; margin-top:8px; background:#FFF6EA; border-radius:8px; padding:8px 12px; display:inline-block">From &#8377;2,400&nbsp;&#8212; on Warm Sand &#183; 5.14 : 1</div>
+      </div>
+      <div class="note">Same hue family&nbsp;&#8212; it is literally the dark end of the existing gradient, promoted to a named role. <b>AAA option:</b> <span class="mono">#9A4A0E</span> at 6.25&nbsp;:&nbsp;1 (5.84 on sand), for long-form orange text.</div>
+    </div>
+
+    <div class="card pass">
+      <div class="cardhead"><span class="tag">Fix · Non-text</span><span class="name">Ember <span class="mono" style="font-size:12px">#D06010</span> for ticks, timelines &amp; focus</span><span class="v v-pass">PASS · 3.66&#8211;3.92</span></div>
+      <div class="sandstrip">
+        <div class="sample-label">Tape Timeline on Warm Sand&nbsp;&#8212; ticks, track &amp; done-steps in Ember</div>
+        <div class="tl">
+          <div class="dot" style="background:#D06010"></div><div class="seg" style="background:#D06010"></div>
+          <div class="dot" style="background:#D06010"></div><div class="seg" style="background:#D06010"></div>
+          <div class="dot" style="background:#FFFFFF; border:3px solid #D06010"></div><div class="seg" style="background:repeating-linear-gradient(90deg,#D06010 0 6px,transparent 6px 12px)"></div>
+          <div class="dot" style="background:#FFFFFF; border:2px solid #C9D4E4"></div><div class="seg" style="background:#D8E0EC"></div>
+          <div class="dot" style="background:#FFFFFF; border:2px solid #C9D4E4"></div>
+        </div>
+        <div class="tl-labels"><span>Booked</span><span>Home visit</span><span>Stitching</span><span>Trial</span><span>Delivered</span></div>
+        <div class="ticks" style="--tickcol:#D06010; margin-top:12px"></div>
+      </div>
+      <div class="note">Ember already exists in the palette as the hover/pressed shade&nbsp;&#8212; it just was never used for UI marks. At <b>3.92&nbsp;:&nbsp;1</b> on white and <b>3.66&nbsp;:&nbsp;1</b> on sand it clears the 3&nbsp;:&nbsp;1 non-text bar for tick dividers, the timeline, dashed in-progress borders and focus rings.</div>
+    </div>
+
+    <div class="callout"><b>New rule for &#167;04:</b> <span class="mono">#F89010</span> is a <b>surface and accent color</b>&nbsp;&#8212; fills, gradients, thread. It is never a text color and never a functional mark on white or Warm Sand.</div>
+    <div class="footer"><span>Draep Brand Book v1.0 · Accessibility Addendum</span><span>04 / 06</span></div>
+  </div>
+</div>
+
+<!-- ================= PAGE 5 · FIX 03 SEMANTIC ================= -->
+<div class="page">
+  <div class="inner">
+    <div class="kicker"><span>Fix 03 · Semantic colors</span><span>Draep · Accessibility Addendum</span></div>
+    <h2 class="pagetitle">Success &amp; warning states</h2>
+    <div class="accentbar"></div>
+
+    <div class="card fail">
+      <div class="cardhead"><span class="tag">Current</span><span class="name">Success <span class="mono" style="font-size:12px">#16A34A</span> as text &amp; badge</span><span class="v v-fail">FAIL · 3.30</span></div>
+      <div class="demobox">
+        <div class="sample-label">Delivered badge &amp; confirmation toast</div>
+        <span class="badge badge-outline" style="color:#16A34A">&#10003; Delivered</span>
+        <span style="font:400 13px 'Inter', Arial, sans-serif; color:#16A34A; margin-left:14px">Trial passed&nbsp;&#8212; order closed, tailor paid.</span>
+      </div>
+      <div class="note">3.30&nbsp;:&nbsp;1 passes only the large-text minimum; badges and toasts are 12&#8211;13&nbsp;px normal text, so they need 4.5&nbsp;:&nbsp;1.</div>
+    </div>
+
+    <div class="card pass">
+      <div class="cardhead"><span class="tag">Fix</span><span class="name">Success <span class="mono" style="font-size:12px">#15803D</span>&nbsp;&#8212; same green, darker</span><span class="v v-pass">PASS · 5.02</span></div>
+      <div class="demobox">
+        <div class="sample-label">Text on white 5.02 · on Warm Sand 4.69 · solid badge 5.02</div>
+        <span class="badge badge-outline" style="color:#15803D">&#10003; Delivered</span>
+        <span class="badge" style="background:#15803D; color:#FFFFFF">&#10003; Delivered</span>
+        <span style="font:400 13px 'Inter', Arial, sans-serif; color:#15803D; margin-left:14px">Trial passed&nbsp;&#8212; order closed, tailor paid.</span>
+      </div>
+      <div class="note">One shade darker in the same family fixes text, badges and toasts in a single swap. <b>AAA option:</b> <span class="mono">#166534</span> at 7.13&nbsp;:&nbsp;1.</div>
+    </div>
+
+    <div class="card fail">
+      <div class="cardhead"><span class="tag">Current</span><span class="name">Warning <span class="mono" style="font-size:12px">#EAB308</span> as text</span><span class="v v-fail">FAIL · 1.92</span></div>
+      <div class="demobox">
+        <div class="sample-label">Awaiting-slot message on white</div>
+        <span style="font:400 13px 'Inter', Arial, sans-serif; color:#EAB308">Order on hold&nbsp;&#8212; fabric delayed by two days.</span>
+      </div>
+      <div class="note">At 1.92&nbsp;:&nbsp;1, yellow text on white is effectively invisible to low-vision users and useless in bright sunlight. Yellow can still be the warning <i>signal</i>&nbsp;&#8212; it just can&#8217;t be the ink.</div>
+    </div>
+
+    <div class="card pass">
+      <div class="cardhead"><span class="tag">Fix</span><span class="name">Yellow as background · Deep Amber as text</span><span class="v v-pass">PASS · 4.92&#8211;6.71</span></div>
+      <div class="demobox">
+        <div class="sample-label">Chip: #EAB308 fill + Ink Navy text&nbsp;&#8212; 6.71 : 1</div>
+        <span class="badge" style="background:#EAB308; color:#083068">&#9679; Awaiting slot</span>
+        <span style="font:400 13px 'Inter', Arial, sans-serif; color:#A16207; margin-left:14px">Reschedule up to 2 hours before&nbsp;&#8212; standalone text in #A16207 &#183; 4.92 : 1</span>
+      </div>
+      <div class="note">Two compliant patterns: the yellow chip with navy text (6.71&nbsp;:&nbsp;1), or standalone warning text in <span class="mono">#A16207</span> (4.92&nbsp;:&nbsp;1 on white, 4.60 on sand). <b>AAA option:</b> <span class="mono">#854D0E</span> at 6.85&nbsp;:&nbsp;1.</div>
+    </div>
+
+    <div class="callout"><b>Unchanged:</b> Error <span class="mono">#DC2626</span> (4.83) and Info <span class="mono">#2563EB</span> (5.17) already pass AA&nbsp;&#8212; keep them exactly as specified.</div>
+    <div class="footer"><span>Draep Brand Book v1.0 · Accessibility Addendum</span><span>05 / 06</span></div>
+  </div>
+</div>
+
+<!-- ================= PAGE 6 · SUMMARY ================= -->
+<div class="page">
+  <div class="inner">
+    <div class="kicker"><span>Summary · Drop-in replacements</span><span>Draep · Accessibility Addendum</span></div>
+    <h2 class="pagetitle">The corrected palette at a glance</h2>
+    <div class="accentbar"></div>
+
+    <table class="summary">
+      <tr><th style="width:20%">Use</th><th style="width:19%">Was</th><th style="width:24%">Now</th><th style="width:13%">Contrast</th><th style="width:24%">Where it applies</th></tr>
+      <tr><td>Primary CTA · white label</td><td class="mono">#F89010&#8201;&#8594;&#8201;#A85010</td><td class="mono"><b>#B85A10&#8201;&#8594;&#8201;#A85010</b></td><td class="ratio r-ok">4.66&#8211;5.50</td><td>Gradient pills, primary buttons (Recipe A)</td></tr>
+      <tr><td>Primary CTA · bright variant</td><td class="mono"></td><td class="mono"><b>#F89010&#8201;&#8594;&#8201;#EE7E10</b> + navy label + navy ring</td><td class="ratio r-ok">4.67&#8211;5.50</td><td>When the bright tape must stay (Recipe B)</td></tr>
+      <tr><td>Orange as text</td><td class="mono">#F89010</td><td class="mono"><b>#A85010</b> &#183; AAA: #9A4A0E</td><td class="ratio r-ok">5.50 &#183; 6.25</td><td>Prices, links, highlights on white &amp; sand</td></tr>
+      <tr><td>Orange as non-text UI</td><td class="mono">#F89010</td><td class="mono"><b>#D06010</b> Ember</td><td class="ratio r-ok">3.66&#8211;3.92</td><td>Tick dividers, Tape Timeline, in-progress borders, focus rings</td></tr>
+      <tr><td>Success</td><td class="mono">#16A34A</td><td class="mono"><b>#15803D</b> &#183; AAA: #166534</td><td class="ratio r-ok">5.02 &#183; 7.13</td><td>Delivered badge, trial-passed toasts</td></tr>
+      <tr><td>Warning</td><td class="mono">#EAB308 text</td><td class="mono"><b>#EAB308 fill + navy text</b> &#183; text: #A16207</td><td class="ratio r-ok">6.71 &#183; 4.92</td><td>Awaiting-slot chips, alert messages</td></tr>
+    </table>
+
+    <h2 class="pagetitle" style="font-size:20px; margin-top:26px;">Write these six rules into the Brand Book</h2>
+    <div class="accentbar"></div>
+    <ol class="rules">
+      <li><b>Draep Orange <span class="mono">#F89010</span> is a surface &amp; accent color.</b> It is never a text color on white or Warm Sand&nbsp;&#8212; orange text is <span class="mono">#A85010</span>.</li>
+      <li><b>White label text only on stops of <span class="mono">#B85A10</span> or deeper</b> (4.5&nbsp;:&nbsp;1). Never solid <span class="mono">#F89010</span> with white text.</li>
+      <li><b>Ember <span class="mono">#D06010</span> is the non-text orange</b>&nbsp;&#8212; tick dividers, the Tape Timeline, dashed in-progress borders and focus rings (3.6&#8211;3.9&nbsp;:&nbsp;1).</li>
+      <li><b>Success is <span class="mono">#15803D</span>.</b> Warning yellow appears only as a background under Ink Navy text; standalone warning text is <span class="mono">#A16207</span>.</li>
+      <li><b>A 15&nbsp;px SemiBold label is normal text</b>&nbsp;&#8212; every button, chip and badge holds 4.5&nbsp;:&nbsp;1, not the 3&nbsp;:&nbsp;1 large-text bar.</li>
+      <li><b>Define Tape Silver in &#167;04.</b> &#167;06 uses it for in-progress borders but the palette never assigns it a hex&nbsp;&#8212; an unspecified color cannot be audited.</li>
+    </ol>
+
+    <div class="callout" style="margin-top:18px"><b>The brand survives intact:</b> every fix stays inside the existing hue families&nbsp;&#8212; most are shades the palette already contains, promoted to named roles. Nothing changes but lightness; everything changes for the 1 in 4 users who need it.</div>
+    <div class="footer"><span>Draep Brand Book v1.0 · Accessibility Addendum</span><span>06 / 06</span></div>
+  </div>
+</div>
+
+</body>
+</html>

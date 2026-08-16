@@ -626,8 +626,9 @@ function ItemRow({ item }: { item: ResolvedItemOut }) {
 /* ============================================================ */
 
 /**
- * MYOD (Make Your Own Draep) banner — entry point to /library/myod where the
- * user can design a blouse step by step.
+ * MYOD (Make Your Own Draep) banner — entry point to /myod/blouse where the
+ * user can design a blouse step by step (each garment has its own /myod/<id or
+ * slug> URL).
  *
  * On-brand per Brand Book §8: white card surface, hairline border, --shadow-card,
  * the tape-strip seam as the signature motif, mono eyebrow, navy heading, and
@@ -636,7 +637,7 @@ function ItemRow({ item }: { item: ResolvedItemOut }) {
 function MyodBanner() {
   return (
     <Link
-      href="/library/myod"
+      href="/myod/blouse"
       onClick={() => track({ event: "myod_opened", source: "library" })}
       className="group mb-4 flex w-full flex-col overflow-hidden rounded-card border border-hairline bg-chalk-white text-left shadow-card transition-all ease-brand hover:-translate-y-0.5 hover:shadow-brand active:scale-[0.99]"
     >

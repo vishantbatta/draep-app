@@ -39,6 +39,8 @@ import {
   getLabel,
   getDescription,
   updatePriorityOrder,
+  type MeasurableEntityType,
+  type AiEntityType,
 } from "@/lib/admin-api";
 import {
   Card,
@@ -48,7 +50,6 @@ import {
   Modal,
   Field,
   TextInput,
-  TextArea,
   Select,
   LoadingState,
   ErrorState,
@@ -56,6 +57,23 @@ import {
   ConfirmDelete,
   ReorderableCardGrid,
 } from "./_shared/catalogue-helpers";
+import { AddonMatrixModal } from "./AddonMatrixModal";
+import { EntityMetricsSection } from "./_shared/EntityMetricsSection";
+import {
+  BulkGenerateButton,
+  BulkGenerateModal,
+  type BulkEntity,
+} from "./_shared/BulkGenerateModal";
+import {
+  AiErrorNote,
+  AiImagePanel,
+  AiRowButton,
+  AddAssetUrlInput,
+  AssetImageGrid,
+  useAiDescription,
+  useAiImage,
+  type AiEntityContext,
+} from "../_shared/ai-content";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Language multi-row editor (same pattern as actions tab)
@@ -105,12 +123,17 @@ function LangRowEditor({
   label,
   multiline,
   placeholder,
+  aiAction,
+  aiBusyLang,
 }: {
   rows: LangRow[];
   onChange: (rows: LangRow[]) => void;
   label: string;
   multiline?: boolean;
   placeholder?: string;
+  /** When set, renders an AI button on each row (fills this language). */
+  aiAction?: (lang: string) => void;
+  aiBusyLang?: string | null;
 }) {
   const usedLangs = new Set(rows.map((r) => r.lang));
   const availableLangs = LANGUAGE_OPTIONS.filter((o) => !usedLangs.has(o.code));
@@ -187,6 +210,13 @@ function LangRowEditor({
                   onChange={(e) => updateRow(row.id, { value: e.target.value })}
                   placeholder={placeholder}
                   className="min-w-0 flex-1 rounded-card border border-hairline-strong bg-chalk-white px-3 py-2 text-[14px] text-ink outline-none focus:border-ink-navy"
+                />
+              )}
+
+              {aiAction && (
+                <AiRowButton
+                  busy={aiBusyLang === row.lang}
+                  onClick={() => aiAction(row.lang)}
                 />
               )}
 
@@ -283,6 +313,53 @@ interface EditTarget {
   data?: Record<string, unknown>;
 }
 
+// Entity kinds that can carry measurement links (components are containers
+// for variations, not measurable entities — see be measurement_constants).
+const MEASURABLE_KINDS: Partial<Record<EditKind, MeasurableEntityType>> = {
+  garment: "garment",
+  variation: "variation",
+  variationType: "variation_type",
+  addon: "addon",
+  addonVariation: "addon_variation",
+};
+
+// Catalogue kind → backend AI-content entity type (same naming as
+// MEASURABLE_KINDS — components ARE included here since they have names).
+const AI_ENTITY_KINDS: Record<EditKind, AiEntityType> = {
+  garment: "garment",
+  component: "component",
+  variation: "variation",
+  variationType: "variation_type",
+  addon: "addon",
+  addonVariation: "addon_variation",
+};
+
+// ─── Slug auto-generation ────────────────────────────────────────────────────
+// Child entities (variation, variation-type, add-on variation) follow the
+// {parent_slug}__{key} convention (border__lace, front_neck__round, …) that
+// generate_catalog_images.py relies on to link generated images back to rows.
+// Top-level entities (garment, component, add-on) slugify their label
+// ("Blouse" → "blouse"). Random suffix only when there is no label to use.
+
+function slugifyLabel(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/['’"]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+}
+
+function autoSlug(kind: EditKind, parentSlug: string | null, label: string): string {
+  const key = slugifyLabel(label);
+  const isChild = kind === "variation" || kind === "variationType" || kind === "addonVariation";
+  if (isChild && parentSlug && key) return `${parentSlug}__${key}`;
+  if (key) return key;
+  const prefix = kind === "addonVariation" ? "addonvar" : kind;
+  return `${prefix}_${crypto.randomUUID().split("-")[0]}`;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Generic data-fetcher component
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -294,6 +371,8 @@ interface FetcherProps<T> {
   emptyMessage: string;
   onAddToEmpty?: () => void;
   addLabel?: string;
+  /** Rendered above both the empty state and the item list. */
+  header?: React.ReactNode;
 }
 
 function useFetchedData<T>(reloadKey: number, fetcher: () => Promise<T[]>) {
@@ -334,13 +413,25 @@ function Fetcher<T>({
   emptyMessage,
   onAddToEmpty,
   addLabel,
+  header,
 }: FetcherProps<T>) {
   const { items, setItems, loading, error } = useFetchedData<T>(reloadKey, fetcher);
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} />;
-  if (items.length === 0) return <EmptyState message={emptyMessage} onAdd={onAddToEmpty} addLabel={addLabel} />;
-  return <>{render(items, setItems)}</>;
+  if (items.length === 0)
+    return (
+      <>
+        {header}
+        <EmptyState message={emptyMessage} onAdd={onAddToEmpty} addLabel={addLabel} />
+      </>
+    );
+  return (
+    <>
+      {header}
+      {render(items, setItems)}
+    </>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -404,7 +495,14 @@ function CataloguePageInner() {
   const view = useMemo(() => viewFromParams(new URLSearchParams(searchParams.toString())), [searchParams]);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [deleteItem, setDeleteItem] = useState<{ type: EditKind; id: string; label: string } | null>(null);
+  const [matrixAddonId, setMatrixAddonId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // Bulk AI generation target — the list currently being bulk-processed.
+  const [bulkTarget, setBulkTarget] = useState<{
+    kind: AiEntityType;
+    sectionTitle: string;
+    items: BulkEntity[];
+  } | null>(null);
 
   const triggerReload = useCallback(() => setReloadKey((k) => k + 1), []);
 
@@ -576,7 +674,13 @@ function CataloguePageInner() {
             addLabel="Add Garment"
             render={(items) => (
               <div className="space-y-4">
-                <SectionHeader title="All Garments" count={items.length} onAdd={() => setEditTarget({ kind: "garment", mode: "create" })} addLabel="Add Garment" />
+                <SectionHeader
+                  title="All Garments"
+                  count={items.length}
+                  onAdd={() => setEditTarget({ kind: "garment", mode: "create" })}
+                  addLabel="Add Garment"
+                  actions={<BulkGenerateButton onClick={() => setBulkTarget({ kind: "garment", sectionTitle: "Garments", items })} />}
+                />
                 <CardGrid
                   items={items}
                   onOpen={(g) => navigateToView(router, { level: "garment", garmentId: g.id, garmentLabel: getLabel(g.labels, g.slug, g.id) })}
@@ -611,6 +715,7 @@ function CataloguePageInner() {
                     count={items.length}
                     onAdd={() => setEditTarget({ kind: "component", mode: "create" })}
                     addLabel="Add Component"
+                    actions={<BulkGenerateButton onClick={() => setBulkTarget({ kind: "component", sectionTitle: "Style Components", items })} />}
                   />
                   <ReorderableCardGrid
                     items={items}
@@ -651,7 +756,13 @@ function CataloguePageInner() {
               addLabel="Add Add-on"
               render={(items, setItems) => (
                 <div className="space-y-4">
-                  <SectionHeader title="Add-ons" count={items.length} onAdd={() => setEditTarget({ kind: "addon", mode: "create" })} addLabel="Add Add-on" />
+                  <SectionHeader
+                    title="Add-ons"
+                    count={items.length}
+                    onAdd={() => setEditTarget({ kind: "addon", mode: "create" })}
+                    addLabel="Add Add-on"
+                    actions={<BulkGenerateButton onClick={() => setBulkTarget({ kind: "addon", sectionTitle: "Add-ons", items })} />}
+                  />
                   <ReorderableCardGrid
                     items={items}
                     onOpen={(a) =>
@@ -695,7 +806,13 @@ function CataloguePageInner() {
               addLabel="Add Variation"
               render={(items, setItems) => (
                 <div className="space-y-4">
-                  <SectionHeader title="Variations" count={items.length} onAdd={() => setEditTarget({ kind: "variation", mode: "create" })} addLabel="Add Variation" />
+                  <SectionHeader
+                    title="Variations"
+                    count={items.length}
+                    onAdd={() => setEditTarget({ kind: "variation", mode: "create" })}
+                    addLabel="Add Variation"
+                    actions={<BulkGenerateButton onClick={() => setBulkTarget({ kind: "variation", sectionTitle: "Variations", items })} />}
+                  />
                   <ReorderableCardGrid
                     items={items}
                     onOpen={(v) =>
@@ -773,7 +890,13 @@ function CataloguePageInner() {
             addLabel="Add Type"
             render={(items, setItems) => (
               <div className="space-y-4">
-                <SectionHeader title="Variation Types" count={items.length} onAdd={() => setEditTarget({ kind: "variationType", mode: "create" })} addLabel="Add Type" />
+                <SectionHeader
+                  title="Variation Types"
+                  count={items.length}
+                  onAdd={() => setEditTarget({ kind: "variationType", mode: "create" })}
+                  addLabel="Add Type"
+                  actions={<BulkGenerateButton onClick={() => setBulkTarget({ kind: "variation_type", sectionTitle: "Variation Types", items })} />}
+                />
                 <ReorderableCardGrid
                   items={items}
                   onOpen={() => { /* leaf — no drill-down */ }}
@@ -802,9 +925,34 @@ function CataloguePageInner() {
             emptyMessage="No add-on variations yet."
             onAddToEmpty={() => setEditTarget({ kind: "addonVariation", mode: "create" })}
             addLabel="Add Variation"
+            header={
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-card border border-hairline bg-mist-navy/40 px-4 py-3">
+                <div>
+                  <div className="text-[13px] font-semibold text-ink-navy">Price matrix</div>
+                  <div className="text-[12px] text-muted">
+                    Price each option combination (e.g. shape × size — one price per cell) instead of one row at a time.
+                  </div>
+                </div>
+                <button
+                  onClick={() => setMatrixAddonId(view.addonId)}
+                  className="tap inline-flex items-center gap-1.5 rounded-pill bg-ink-navy px-3.5 py-1.5 text-[13px] font-medium text-chalk-white transition hover:bg-ink-navy/90 active:scale-95"
+                >
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
+                    <path d="M2 13h12M4 10V6M8 10V3M12 10V8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                  Open matrix editor
+                </button>
+              </div>
+            }
             render={(items, setItems) => (
               <div className="space-y-4">
-                <SectionHeader title="Add-on Variations" count={items.length} onAdd={() => setEditTarget({ kind: "addonVariation", mode: "create" })} addLabel="Add Variation" />
+                <SectionHeader
+                  title="Add-on Variations"
+                  count={items.length}
+                  onAdd={() => setEditTarget({ kind: "addonVariation", mode: "create" })}
+                  addLabel="Add Variation"
+                  actions={<BulkGenerateButton onClick={() => setBulkTarget({ kind: "addon_variation", sectionTitle: "Add-on Variations", items })} />}
+                />
                 <ReorderableCardGrid
                   items={items}
                   onOpen={() => { /* leaf */ }}
@@ -812,9 +960,11 @@ function CataloguePageInner() {
                   onDelete={(v) => setDeleteItem({ type: "addonVariation", id: v.id, label: getLabel(v.labels, v.slug, v.id) })}
                   badges={(v) => {
                     const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
-                    if (v.style) b.push({ label: v.style, variant: "accent" });
+                    // Style/shape/type are part of the variation's name, not
+                    // badges — the tag row carries the non-name axes.
                     if (v.color) b.push({ label: v.color });
                     if (v.size) b.push({ label: v.size });
+                    if (v.placement) b.push({ label: `@ ${v.placement}`, variant: "accent" });
                     if (v.price != null) b.push({ label: `\u20B9${v.price}`, variant: "positive" });
                     return b;
                   }}
@@ -828,6 +978,32 @@ function CataloguePageInner() {
           />
         )}
       </div>
+
+      {/* Price-matrix editor */}
+      {view.level === "addon" && matrixAddonId && (
+        <AddonMatrixModal
+          addonId={matrixAddonId}
+          onClose={() => setMatrixAddonId(null)}
+          onSaved={() => {
+            setMatrixAddonId(null);
+            triggerReload();
+          }}
+        />
+      )}
+
+      {/* Bulk AI generation */}
+      {bulkTarget && (
+        <BulkGenerateModal
+          kind={bulkTarget.kind}
+          sectionTitle={bulkTarget.sectionTitle}
+          items={bulkTarget.items}
+          onClose={() => setBulkTarget(null)}
+          onSaved={() => {
+            setBulkTarget(null);
+            triggerReload();
+          }}
+        />
+      )}
 
       {/* Modal form */}
       {editTarget && (
@@ -898,8 +1074,8 @@ function CatalogueFormModal({
 
   // ── Common fields ──
   const [slug, setSlug] = useState<string>((d?.slug as string) ?? "");
-  const [urlsText, setUrlsText] = useState<string>(
-    Array.isArray(d?.asset_urls) ? (d!.asset_urls as string[]).join("\n") : ""
+  const [assetUrlsList, setAssetUrlsList] = useState<string[]>(
+    () => (Array.isArray(d?.asset_urls) ? (d!.asset_urls as string[]) : []),
   );
   const [price, setPrice] = useState<string>(
     d?.price != null ? String(d!.price) : (d?.base_price != null ? String(d!.base_price) : "")
@@ -913,9 +1089,10 @@ function CatalogueFormModal({
   const [importance, setImportance] = useState<string>((d?.importance as string) ?? "");
   const [type, setType] = useState<string>((d?.type as string) ?? "");
   const [isDefaultOn, setIsDefaultOn] = useState<boolean>((d?.is_default_on as boolean) ?? false);
-  const [placements, setPlacements] = useState<string>(
-    Array.isArray(d?.placements) ? (d!.placements as string[]).join(", ") : ""
+  const [placementsList, setPlacementsList] = useState<string[]>(
+    () => (Array.isArray(d?.placements) ? (d!.placements as string[]) : []),
   );
+  const [customPlacement, setCustomPlacement] = useState("");
   // Selected component IDs for addon form (replaces raw text input)
   const [selectedComponentIds, setSelectedComponentIds] = useState<Set<string>>(() => {
     const arr = Array.isArray(d?.garment_style_component_ids) ? (d!.garment_style_component_ids as string[]) : [];
@@ -944,25 +1121,153 @@ function CatalogueFormModal({
   const [shape, setShape] = useState<string>((d?.shape as string) ?? "");
   const [size, setSize] = useState<string>((d?.size as string) ?? "");
   const [color, setColor] = useState<string>((d?.color as string) ?? "");
+  // Addon-variation placement axis — vocabulary comes from the parent add-on.
+  const [placement, setPlacement] = useState<string>((d?.placement as string) ?? "");
+  const [parentAddonPlacements, setParentAddonPlacements] = useState<string[]>([]);
+  // Explicitly switched to free-text placement entry (via the "Custom…" option).
+  const [customPlacementMode, setCustomPlacementMode] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ── AI content (description + image) ──
+  const aiDesc = useAiDescription();
+  const aiImage = useAiImage();
+  // Saved rows resolve their full parent chain server-side via entity_id;
+  // unsaved rows need the parent the form is opened under (view carries it).
+  let aiParentId: string | null = null;
+  if (target.mode === "create") {
+    if (target.kind === "component" || target.kind === "addon") {
+      aiParentId = view.level !== "garments" ? view.garmentId : null;
+    } else if (target.kind === "variation") {
+      aiParentId = view.level === "component" || view.level === "variation" ? view.componentId : null;
+    } else if (target.kind === "variationType") {
+      aiParentId = view.level === "variation" ? view.variationId : null;
+    } else if (target.kind === "addonVariation") {
+      aiParentId = view.level === "addon" ? view.addonId : null;
+    }
+  }
+  const aiContext: AiEntityContext = {
+    entityType: AI_ENTITY_KINDS[target.kind],
+    entityId: target.mode === "edit" ? ((d?.id as string) ?? null) : null,
+    parentId: aiParentId,
+  };
+  const aiActionForLang = (lang: string) =>
+    aiDesc.generateForLang({
+      context: aiContext,
+      lang,
+      labelRows,
+      descRows,
+      setLabelRows,
+      setDescRows,
+    });
+  // Generate a new AI image. replaceUrl set → regenerate IN PLACE of that
+  // image; null → prepend a new one. Either way the list is local form
+  // state — nothing is written to the entity until Save is pressed.
+  const handleGenerateImage = async (replaceUrl: string | null) => {
+    const url = await aiImage.generate({ context: aiContext, labelRows, descRows });
+    if (!url) return;
+    setAssetUrlsList((prev) =>
+      replaceUrl != null ? prev.map((u) => (u === replaceUrl ? url : u)) : [url, ...prev],
+    );
+  };
+
   // ── Helpers ──
   const labels = langRowsToDict(labelRows);
   const descriptions = langRowsToDict(descRows);
-  const assetUrls = parseUrls(urlsText);
+  // Best label for slug derivation: English, else first non-empty.
+  const primaryLabel =
+    (labels?.en || Object.values(labels ?? {}).find((v) => v?.trim()) || "") as string;
+  const assetUrls = assetUrlsList.length > 0 ? assetUrlsList : null;
   const priceNum = price.trim() ? Number(price) : null;
   const priorityNum = priority.trim() ? Number(priority) : null;
-  const placementsArr = placements.split(",").map((s) => s.trim()).filter(Boolean);
+  // Placements vocabulary = exactly what the admin added (custom text, or a
+  // component picked in the matrix editor). Linked component labels are NOT
+  // auto-added — every chip is removable.
+  const customPlacements = placementsList;
+  const togglePlacement = (value: string) =>
+    setPlacementsList((prev) =>
+      prev.includes(value) ? prev.filter((p) => p !== value) : [...prev, value],
+    );
+  const addCustomPlacement = () => {
+    const value = customPlacement.trim();
+    if (!value) return;
+    setPlacementsList((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    setCustomPlacement("");
+  };
+
+  // Addon-variation placement vocabulary: parent add-on's placements ∪ the
+  // garment's component labels (kept so rows carrying a component-label
+  // placement from before the union removal stay pickable), deduped, parent
+  // placements first.
+  const placementOptions: string[] = [];
+  {
+    const seen = new Set<string>();
+    const componentLabels = availableComponents.map((c) =>
+      getLabel(c.labels, c.slug, c.id),
+    );
+    for (const p of [...parentAddonPlacements, ...componentLabels]) {
+      if (p && !seen.has(p)) {
+        seen.add(p);
+        placementOptions.push(p);
+      }
+    }
+  }
+  // Free-text entry when explicitly chosen, or when the current value isn't
+  // in the vocabulary (legacy/custom placements stay editable, not reset).
+  const showCustomPlacementInput =
+    customPlacementMode ||
+    (placement !== "" && !placementOptions.includes(placement));
 
   // ── For addon creation inside a component view, auto-link the component ──
   // If we're creating an addon while viewing a component, pre-fill the component id
   const isAddonInComponentView = target.kind === "addon" && view.level === "component";
 
-  // ── Fetch available style components when addon form is open ──
+  // ── Parent slug, for auto-generating child slugs as {parent_slug}__{key} ──
+  const [parentSlug, setParentSlug] = useState<string | null>(null);
+
   useEffect(() => {
-    if (target.kind !== "addon") return;
+    const isChildKind =
+      target.kind === "variation" || target.kind === "variationType" || target.kind === "addonVariation";
+    if (!isChildKind || target.mode !== "create") {
+      setParentSlug(null);
+      return;
+    }
+
+    let table: string | null = null;
+    let parentId: string | null = null;
+    if (target.kind === "variation" && (view.level === "component" || view.level === "variation")) {
+      table = "garment_style_component";
+      parentId = view.componentId;
+    } else if (target.kind === "variationType" && view.level === "variation") {
+      table = "garment_style_component_variations";
+      parentId = view.variationId;
+    } else if (target.kind === "addonVariation" && view.level === "addon") {
+      table = "garment_addons";
+      parentId = view.addonId;
+    }
+    if (!table || !parentId) {
+      setParentSlug(null);
+      return;
+    }
+
+    let cancelled = false;
+    fetchByParent<{ slug?: string }>(table, "id", parentId, 1)
+      .then((rows) => {
+        if (!cancelled) setParentSlug(rows[0]?.slug ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setParentSlug(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target.kind, target.mode, view]);
+
+  // ── Fetch available style components when addon / addon-variation form is open ──
+  useEffect(() => {
+    if (target.kind !== "addon" && target.kind !== "addonVariation") return;
     const garmentId = view.level !== "garments" ? view.garmentId : null;
     if (!garmentId) return;
     setComponentsLoading(true);
@@ -970,6 +1275,25 @@ function CatalogueFormModal({
       .then((components) => setAvailableComponents(components))
       .catch(() => setAvailableComponents([]))
       .finally(() => setComponentsLoading(false));
+  }, [target.kind, view]);
+
+  // ── Fetch the parent add-on's placements (addonVariation form vocabulary) ──
+  useEffect(() => {
+    if (target.kind !== "addonVariation" || view.level !== "addon") {
+      setParentAddonPlacements([]);
+      return;
+    }
+    let cancelled = false;
+    fetchByParent<{ placements?: string[] | null }>("garment_addons", "id", view.addonId, 1)
+      .then((rows) => {
+        if (!cancelled) setParentAddonPlacements((rows[0]?.placements as string[]) ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setParentAddonPlacements([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [target.kind, view]);
 
   // ── Fetch candidate children for the "default" pickers (edit mode only) ──
@@ -1035,7 +1359,7 @@ function CatalogueFormModal({
         case "garment": {
           if (target.mode === "create") {
             await createGarment({
-              slug: slug.trim() || `garment_${crypto.randomUUID().split("-")[0]}`,
+              slug: slug.trim() || autoSlug("garment", null, primaryLabel),
               labels,
               descriptions,
               asset_urls: assetUrls,
@@ -1060,7 +1384,7 @@ function CatalogueFormModal({
           const garmentId = view.level !== "garments" ? view.garmentId : null;
           if (target.mode === "create") {
             await createStyleComponent({
-              slug: slug.trim() || `component_${crypto.randomUUID().split("-")[0]}`,
+              slug: slug.trim() || autoSlug("component", null, primaryLabel),
               garment_id: garmentId,
               labels,
               descriptions,
@@ -1088,7 +1412,7 @@ function CatalogueFormModal({
           const componentId = view.level === "component" || view.level === "variation" ? view.componentId : null;
           if (target.mode === "create") {
             await createVariation({
-              slug: slug.trim() || `variation_${crypto.randomUUID().split("-")[0]}`,
+              slug: slug.trim() || autoSlug("variation", parentSlug, primaryLabel),
               component_id: componentId,
               labels,
               descriptions,
@@ -1116,7 +1440,7 @@ function CatalogueFormModal({
           const variationId = view.level === "variation" ? view.variationId : null;
           if (target.mode === "create") {
             await createVariationType({
-              slug: slug.trim() || `type_${crypto.randomUUID().split("-")[0]}`,
+              slug: slug.trim() || autoSlug("variationType", parentSlug, primaryLabel),
               variation_id: variationId,
               labels,
               descriptions,
@@ -1148,15 +1472,19 @@ function CatalogueFormModal({
           }
           const finalGscIds = Array.from(finalSelected);
 
+          // Placements are exactly what the admin entered — linking a style
+          // component no longer injects its label into the vocabulary.
+          const effectivePlacements = placementsList;
+
           const payload: AddonCreateInput = {
-            slug: slug.trim() || `addon_${crypto.randomUUID().split("-")[0]}`,
+            slug: slug.trim() || autoSlug("addon", null, primaryLabel),
             garment_id: garmentId,
             labels,
             descriptions,
             asset_urls: assetUrls,
             garment_style_component_ids: finalGscIds.length > 0 ? finalGscIds : null,
             type: type.trim() || null,
-            placements: placementsArr.length > 0 ? placementsArr : null,
+            placements: effectivePlacements.length > 0 ? effectivePlacements : null,
             price: priceNum,
             is_default_on: isDefaultOn,
             default_variation_id: defaultAddonVariationId || null,
@@ -1176,7 +1504,7 @@ function CatalogueFormModal({
           const addonId = view.level === "addon" ? view.addonId : null;
           if (target.mode === "create") {
             await createAddonVariation({
-              slug: slug.trim() || `addonvar_${crypto.randomUUID().split("-")[0]}`,
+              slug: slug.trim() || autoSlug("addonVariation", parentSlug, primaryLabel),
               addon_id: addonId,
               labels,
               descriptions,
@@ -1186,6 +1514,7 @@ function CatalogueFormModal({
               size: size.trim() || null,
               type: type.trim() || null,
               color: color.trim() || null,
+              placement: placement || null,
               price: priceNum,
               priority_order: priorityNum,
             });
@@ -1201,6 +1530,7 @@ function CatalogueFormModal({
               size: size.trim() || null,
               type: type.trim() || null,
               color: color.trim() || null,
+              placement: placement || null,
               price: priceNum,
               priority_order: priorityNum,
             } as AddonVariationUpdateInput);
@@ -1227,6 +1557,8 @@ function CatalogueFormModal({
           onChange={setLabelRows}
           label="Labels *"
           placeholder="e.g. Classic Shirt"
+          aiAction={aiActionForLang}
+          aiBusyLang={aiDesc.busyLang}
         />
 
         {/* Slug */}
@@ -1235,18 +1567,47 @@ function CatalogueFormModal({
         </Field>
 
         {/* Descriptions (multi-language) */}
-        <LangRowEditor
-          rows={descRows}
-          onChange={setDescRows}
-          label="Descriptions"
-          multiline
-          placeholder="Short description..."
-        />
+        <div>
+          <LangRowEditor
+            rows={descRows}
+            onChange={setDescRows}
+            label="Descriptions"
+            multiline
+            placeholder="Short description..."
+            aiAction={aiActionForLang}
+            aiBusyLang={aiDesc.busyLang}
+          />
+          <AiErrorNote error={aiDesc.error} />
+        </div>
 
-        {/* Asset URLs */}
-        <Field label="Asset URLs" hint="One URL per line">
-          <TextArea value={urlsText} onChange={setUrlsText} placeholder={"https://...\nhttps://..."} rows={3} />
-        </Field>
+        {/* Asset images — rendered, edited locally, saved only on Save */}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="block text-[12px] font-medium text-ink-navy">Asset Images</span>
+            <span className="text-[10px] text-muted">changes apply on save</span>
+          </div>
+          <AssetImageGrid
+            urls={assetUrlsList}
+            busy={aiImage.loading}
+            onRemove={(url) => setAssetUrlsList((prev) => prev.filter((u) => u !== url))}
+            onRegenerate={(url) => {
+              void handleGenerateImage(url);
+            }}
+          />
+          <AddAssetUrlInput
+            onAdd={(url) =>
+              setAssetUrlsList((prev) => (prev.includes(url) ? prev : [...prev, url]))
+            }
+          />
+          <AiImagePanel
+            loading={aiImage.loading}
+            error={aiImage.error}
+            lastPrompt={aiImage.lastPrompt}
+            onGenerate={() => {
+              void handleGenerateImage(null);
+            }}
+          />
+        </div>
 
         {/* Garment-specific */}
         {target.kind === "garment" && (
@@ -1390,8 +1751,51 @@ function CatalogueFormModal({
               </Field>
             </div>
 
-            <Field label="Placements" hint="Comma-separated, e.g. neck, sleeve">
-              <TextInput value={placements} onChange={setPlacements} placeholder="neck, sleeve" />
+            <Field label="Placements" hint="Where this add-on can be applied — every chip is removable">
+              <div className="flex flex-col gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  {customPlacements.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => togglePlacement(p)}
+                      className="tap inline-flex items-center gap-1.5 rounded-pill border border-ink-navy bg-ink-navy px-3 py-1.5 text-[12px] font-medium text-chalk-white transition hover:bg-ink-navy/85"
+                    >
+                      {p}
+                      <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none">
+                        <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  ))}
+                  {customPlacements.length === 0 && (
+                    <span className="text-[12px] text-muted">
+                      No placements yet — add one below.
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customPlacement}
+                    onChange={(e) => setCustomPlacement(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addCustomPlacement();
+                      }
+                    }}
+                    placeholder="Custom placement, e.g. Blouse bottom"
+                    className="w-full rounded-card border border-hairline-strong bg-chalk-white px-3 py-2 text-[14px] text-ink outline-none transition focus:border-ink-navy"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomPlacement}
+                    className="tap shrink-0 rounded-card border border-ink-navy px-4 text-[13px] font-semibold text-ink-navy transition hover:bg-mist-navy"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
             </Field>
 
             {/* Default Variation picker */}
@@ -1493,6 +1897,45 @@ function CatalogueFormModal({
             <Field label="Color">
               <TextInput value={color} onChange={setColor} placeholder="e.g. navy" />
             </Field>
+            <Field label="Placement" hint="Blank = price applies at every placement">
+              {showCustomPlacementInput ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={placement}
+                    onChange={(e) => setPlacement(e.target.value)}
+                    placeholder="Custom placement, e.g. Blouse bottom"
+                    className="w-full rounded-card border border-hairline-strong bg-chalk-white px-3 py-2 text-[14px] text-ink outline-none transition focus:border-ink-navy"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomPlacementMode(false);
+                      // Exiting custom with a non-vocabulary value resets to blank
+                      // (= every placement) — pick an option instead.
+                      if (placement && !placementOptions.includes(placement))
+                        setPlacement("");
+                    }}
+                    className="tap shrink-0 rounded-card border border-ink-navy px-4 text-[13px] font-semibold text-ink-navy transition hover:bg-mist-navy"
+                  >
+                    Dropdown
+                  </button>
+                </div>
+              ) : (
+                <Select
+                  value={placement}
+                  onChange={(v) => {
+                    if (v === "__custom__") setCustomPlacementMode(true);
+                    else setPlacement(v);
+                  }}
+                  placeholder="Every placement"
+                  options={[
+                    ...placementOptions.map((p) => ({ value: p, label: p })),
+                    { value: "__custom__", label: "Custom…" },
+                  ]}
+                />
+              )}
+            </Field>
             <Field label="Price (\u20B9)">
               <TextInput value={price} onChange={setPrice} type="number" placeholder="0" />
             </Field>
@@ -1501,6 +1944,16 @@ function CatalogueFormModal({
             </Field>
           </div>
         )}
+
+        {/* Measurements to take (entity → metric links) — edit mode + measurable kinds only */}
+        {target.mode === "edit" &&
+          MEASURABLE_KINDS[target.kind] &&
+          typeof d?.id === "string" && (
+            <EntityMetricsSection
+              entityType={MEASURABLE_KINDS[target.kind]!}
+              entityId={d.id}
+            />
+          )}
 
         {/* Error */}
         {error && <div className="flex items-center gap-2 rounded-card bg-red-50 px-3 py-2.5 text-[13px] text-red-700">
@@ -1541,8 +1994,3 @@ function CatalogueFormModal({
 // ═══════════════════════════════════════════════════════════════════════════════
 // Small form helpers
 // ═══════════════════════════════════════════════════════════════════════════════
-
-function parseUrls(text: string): string[] | null {
-  const trimmed = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  return trimmed.length > 0 ? trimmed : null;
-}

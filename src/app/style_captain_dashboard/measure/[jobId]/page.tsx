@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   scCompleteJob,
@@ -14,6 +14,7 @@ import {
   scUploadPhotos,
   scValidateJob,
   type MeasurementPayload,
+  type SCGarmentOrder,
   type SCGarmentOrderMaterial,
   type SCJob,
   type SCMaterialInput,
@@ -21,6 +22,8 @@ import {
   type SCChecklist,
   type SCChecklistGarment,
   type SCChecklistMetric,
+  type SCChecklistSection,
+  type SCSelection,
   type SCValidationError,
   type SCValidationResult,
 } from "@/lib/style-captain-api";
@@ -39,6 +42,8 @@ import { EditMetricSheet } from "@/components/style-captain/EditMetricSheet";
 import { ColorPickerCamera } from "@/components/style-captain/ColorPickerCamera";
 import { BottomSheet } from "@/components/style-captain/BottomSheet";
 import { VoiceNoteRecorder } from "@/components/style-captain/VoiceNoteRecorder";
+import { GarmentSummaryCard } from "@/components/style-captain/GarmentSummaryCard";
+import { SelectionSheet } from "@/components/style-captain/SelectionSheet";
 import {
   downloadMeasurementJobPdf,
   type PdfProgressFn,
@@ -56,18 +61,25 @@ import type {
 
 // ─── Phase state ────────────────────────────────────────────────────────────
 //
-// Two sections, each with a checkpoint — driven by the entity-derived
-// checklist (base metrics once per visit + per-garment sections):
+// Driven by the entity-derived checklist (base metrics once per visit +
+// per-garment sections), with start screens framing each section and one
+// validated overall checkpoint at the end:
+//   "start" (order overview: garment cards + body metrics needed)
 //   Section 1 = Base (body) measurements
-//     "capture" → step through base metrics → "checkpoint" (review + validate)
-//   Section 2 = Per-garment measurements + materials
-//     "garment-metrics" (per-garment tabs, sections grouped by source entity)
-//     → "garment" (cloth/addon materials) → "notes" (final + complete)
+//     "capture" → step through base metrics → "checkpoint" (review)
+//   Section 2 = Per-garment measurements
+//     "garment-start" (per-garment gist + editable selections)
+//     → "garment-metrics" (step-through + per-garment review)
+//     → "overall-review" (every garment stacked + THE validation run)
+//   → "garment" (cloth/addon materials) → "notes" (final + complete)
 
 type Phase =
+  | "start"
   | "capture"
   | "checkpoint"
+  | "garment-start"
   | "garment-metrics"
+  | "overall-review"
   | "garment"
   | "notes"
   | "success";
@@ -117,6 +129,13 @@ export default function MeasureJobPage() {
   const [savingStep, setSavingStep] = useState(false);
   const [editingMetricId, setEditingMetricId] = useState<string | null>(null);
   const [editingMaterial, setEditingMaterial] = useState<SCGarmentOrderMaterial | null>(null);
+  // Selection editing (start screens + step-through section pill) — the
+  // garment order whose style selections are being changed, plus the
+  // component to scroll the sheet to when entering from a section pill.
+  const [editingSelections, setEditingSelections] = useState<{
+    garmentOrderId: string;
+    focusComponentId?: string | null;
+  } | null>(null);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
 
@@ -229,26 +248,53 @@ export default function MeasureJobPage() {
           );
         const hasGarmentMetrics = allGarmentMetrics.length > 0;
 
-        if (hasMeasurements && allGarmentsHaveCloth && allGarmentMetricsFilled) {
+        if (
+          hasMeasurements &&
+          allGarmentsHaveCloth &&
+          (allGarmentMetricsFilled || !hasGarmentMetrics)
+        ) {
           // Everything done — final notes
           setPhase("notes");
-        } else if (hasMeasurements && allGarmentsHaveCloth && !hasGarmentMetrics) {
-          setPhase("notes");
-        } else if (
-          hasMeasurements &&
-          allBaseFilled &&
-          allGarmentMetricsFilled
-        ) {
-          // Base + garment metrics done — checkpoint (→ materials next)
-          setPhase("checkpoint");
-        } else if (hasMeasurements && allBaseFilled) {
-          // Base done — per-garment metrics next
-          setPhase("garment-metrics");
-          setActiveGarmentIdx(0);
-          setGarmentStep(0);
-        } else if (hasMeasurements && firstUnfilledIdx > 0) {
-          // Some base metrics filled — jump to first unfilled
-          setStep(firstUnfilledIdx);
+        } else if (!hasMeasurements) {
+          // Fresh visit — open on the order start screen
+          setPhase("start");
+        } else if (!allBaseFilled) {
+          // Base partially captured — resume at the first unfilled metric
+          setStep(Math.max(firstUnfilledIdx, 0));
+          setPhase("capture");
+        } else {
+          // Base done — find the first garment that isn't complete
+          const isGarmentFilled = (goid: string) =>
+            allGarmentMetrics
+              .filter((x) => x.goid === goid)
+              .every((x) => {
+                const d = initial[garmentDraftKey(x.goid, x.metric.id)];
+                return (
+                  d &&
+                  (d.valueNumeric !== null || (d.valueText ?? "").trim() !== "")
+                );
+              });
+          const firstIncompleteIdx = cl.garments.findIndex(
+            (g) => !isGarmentFilled(g.garment_order_id),
+          );
+          if (!hasGarmentMetrics || firstIncompleteIdx === -1) {
+            // All readings in — the validated overall review
+            setPhase("overall-review");
+          } else {
+            const goid = cl.garments[firstIncompleteIdx].garment_order_id;
+            const anyFilled = allGarmentMetrics
+              .filter((x) => x.goid === goid)
+              .some((x) => {
+                const d = initial[garmentDraftKey(x.goid, x.metric.id)];
+                return (
+                  d &&
+                  (d.valueNumeric !== null || (d.valueText ?? "").trim() !== "")
+                );
+              });
+            setActiveGarmentIdx(firstIncompleteIdx);
+            setGarmentStep(0);
+            setPhase(anyFilled ? "garment-metrics" : "garment-start");
+          }
         }
         setHasInitialized(true);
       }
@@ -288,6 +334,20 @@ export default function MeasureJobPage() {
     }
     return [...byId.values()];
   }, [checklist, metrics]);
+
+  // Display labels per garment instance ("Blouse 1 · Blouse 2" when repeated)
+  // + the per-garment selections payload for the edit flow.
+  const garmentLabels = useMemo(
+    () => garmentLabelMap(checklist?.garments ?? []),
+    [checklist],
+  );
+  const selectionsByGarment = useMemo(() => {
+    const out: Record<string, SCSelection[]> = {};
+    for (const go of job?.garment_orders ?? []) {
+      if (go.selections && go.selections.length > 0) out[go.id] = go.selections;
+    }
+    return out;
+  }, [job]);
 
   function updateDraft(next: MetricDraft) {
     if (!currentMetric) return;
@@ -354,10 +414,21 @@ export default function MeasureJobPage() {
     }
   }
 
-  /** Save all base measurement drafts and move on to per-garment metrics.
-   *  No validation here — the engine runs once at the garment checkpoint
-   *  (after the last garment's readings) so every finding, base- and
-   *  garment-scoped alike, surfaces in one go. */
+  /** Order start CTA — enter body capture (straight through to the garment
+   *  flow when the order asks for no base metrics). */
+  function beginBody() {
+    if (metrics.length === 0) {
+      void saveBodyAndAdvance();
+      return;
+    }
+    setStep(0);
+    setPhase("capture");
+  }
+
+  /** Save all base measurement drafts and move on to Section 2 — each
+   *  garment opens on its start screen. No validation here; the engine runs
+   *  once at the overall review so every finding, base- and garment-scoped
+   *  alike, surfaces in one go. */
   async function saveBodyAndAdvance() {
     if (!job) return;
     setSaving(true);
@@ -380,9 +451,15 @@ export default function MeasureJobPage() {
       if (payload.length > 0) {
         await scSaveMeasurements(job.id, payload);
       }
-      setPhase("garment-metrics");
-      setActiveGarmentIdx(0);
-      setGarmentStep(0);
+      // Section 2 opens on the first garment's start screen (skipped
+      // entirely when the order has no garment instances).
+      if ((checklist?.garments ?? []).length > 0) {
+        setActiveGarmentIdx(0);
+        setGarmentStep(0);
+        setPhase("garment-start");
+      } else {
+        setPhase("overall-review");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save readings");
     } finally {
@@ -401,9 +478,8 @@ export default function MeasureJobPage() {
       setValidationResult(result);
       if (result.status === "pass") {
         setShowValidationSheet(false);
-        // Completion-gate sheet: stay on notes so the captain re-taps
-        // complete; the garment checkpoint falls through to materials.
-        if (!completeAfterAck) setPhase("garment");
+        // Stay put — the completion-gate sheet keeps the captain on notes to
+        // re-tap complete, and the overall review unlocks its own Continue.
       }
     } catch {
       /* best-effort */
@@ -420,23 +496,24 @@ export default function MeasureJobPage() {
     // restarting garment capture (e.g. after a mid-visit page reload).
     if (completeAfterAck) {
       setCompleteAfterAck(false);
-      void handleComplete();
+      // Pass the ack explicitly: the handleComplete closure still sees the
+      // pre-setState value of warningsAcknowledged in this tick.
+      void handleComplete(true);
       return;
     }
     setPhase("garment");
   }
 
-  /** Save every filled per-garment draft, then run THE validation checkpoint
-   *  — the engine's only run in the wizard, fired after the last garment's
-   *  readings so base- and garment-scoped findings surface together, in one
-   *  sheet, before materials. */
+  /** Persist every filled per-garment draft, then hand off to the overall
+   *  review — validation runs there (once, across base + every instance)
+   *  rather than at the last garment's checkpoint. */
   async function saveGarmentsAndAdvance() {
     if (!job) return;
     setSaving(true);
     setError(null);
     try {
-      // 1. Bulk-save all filled garment-instance drafts (deduped per
-      //    garment+metric — a metric can surface in more than one section).
+      // Bulk-save all filled garment-instance drafts (deduped per
+      // garment+metric — a metric can surface in more than one section).
       const byKey = new Map<string, MeasurementPayload>();
       for (const g of checklist?.garments ?? []) {
         for (const s of g.sections) {
@@ -459,28 +536,15 @@ export default function MeasureJobPage() {
       if (byKey.size > 0) {
         await scSaveMeasurements(job.id, [...byKey.values()]);
       }
-
-      // 2. Validate every instance now that its readings are persisted
-      setValidating(true);
-      const result = await scValidateJob(job.id);
-      setValidationResult(result);
-      setValidating(false);
-
-      // 3. All clear → materials; otherwise the sheet blocks the way
-      if (result.status === "pass") {
-        setPhase("garment");
-        return;
-      }
-      setShowValidationSheet(true);
+      setPhase("overall-review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save readings");
-      setValidating(false);
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleComplete() {
+  async function handleComplete(ackWarnings?: boolean) {
     if (!job) return;
     setSaving(true);
     setError(null);
@@ -489,7 +553,7 @@ export default function MeasureJobPage() {
         job.id,
         notes,
         voiceNoteUrl ?? undefined,
-        warningsAcknowledged,
+        ackWarnings ?? warningsAcknowledged,
       );
       // Reload to pick up the completed status, then show success screen
       await load();
@@ -728,6 +792,12 @@ export default function MeasureJobPage() {
 
   const isClosed = job.status === "completed" || job.status === "cancelled";
 
+  // Active garment's checklist entry + job payload row (start screen phase).
+  const activeClGarment = checklist?.garments[activeGarmentIdx] ?? null;
+  const activeGarmentOrder =
+    job.garment_orders.find((g) => g.id === activeClGarment?.garment_order_id) ??
+    null;
+
   return (
     <div className="space-y-4">
       <JobSummaryStrip job={job} />
@@ -767,6 +837,13 @@ export default function MeasureJobPage() {
             setStep(0);
             setPhase("capture");
           }}
+        />
+      ) : phase === "start" ? (
+        <JobStartScreen
+          job={job}
+          metrics={metrics}
+          labels={garmentLabels}
+          onStart={beginBody}
         />
       ) : phase === "capture" && currentMetric && currentDraft ? (
         <>
@@ -832,6 +909,35 @@ export default function MeasureJobPage() {
           }}
           onContinue={() => saveBodyAndAdvance()}
         />
+      ) : phase === "garment-start" ? (
+        activeClGarment && activeGarmentOrder ? (
+          <GarmentStartScreen
+            label={garmentLabels[activeClGarment.garment_order_id] ?? activeClGarment.label}
+            garmentOrder={activeGarmentOrder}
+            sections={activeClGarment.sections}
+            garmentPosition={activeGarmentIdx + 1}
+            garmentCount={checklist?.garments.length ?? 1}
+            onEditSelections={() =>
+              setEditingSelections({
+                garmentOrderId: activeClGarment.garment_order_id,
+              })
+            }
+            onStart={() => {
+              setGarmentStep(0);
+              setPhase("garment-metrics");
+            }}
+            onBack={() => {
+              // Walk back through the previous garment's start screen, or
+              // the body checkpoint when this is the first garment.
+              if (activeGarmentIdx > 0) setActiveGarmentIdx(activeGarmentIdx - 1);
+              else setPhase("checkpoint");
+            }}
+          />
+        ) : (
+          <div className="py-8 text-center text-caption text-muted">
+            Garment not found.
+          </div>
+        )
       ) : phase === "garment-metrics" ? (
         <GarmentMetricsStage
           checklist={checklist}
@@ -840,25 +946,54 @@ export default function MeasureJobPage() {
           garmentStep={garmentStep}
           savingStep={savingStep}
           submitting={saving || validating}
+          selectionsByGarment={selectionsByGarment}
           onActiveGarmentChange={(idx) => {
             setGarmentStep(0);
             setActiveGarmentIdx(idx);
+          }}
+          onEnterGarment={(idx) => {
+            setGarmentStep(0);
+            setActiveGarmentIdx(idx);
+            setPhase("garment-start");
           }}
           onGarmentStepChange={setGarmentStep}
           onUpdateDraft={updateDraftById}
           onSaveSilently={saveStepSilently}
           onEditMetric={(draftKey) => setEditingMetricId(draftKey)}
-          onBack={() => {
-            setStep(0);
-            setPhase("checkpoint");
-          }}
+          onEditSelections={(garmentOrderId, focusComponentId) =>
+            setEditingSelections({ garmentOrderId, focusComponentId })
+          }
+          onBack={() => setPhase("garment-start")}
           onContinue={saveGarmentsAndAdvance}
+        />
+      ) : phase === "overall-review" ? (
+        <OverallReviewScreen
+          garments={checklist?.garments ?? []}
+          drafts={drafts}
+          labels={garmentLabels}
+          result={validationResult}
+          validating={validating}
+          warningsAcknowledged={warningsAcknowledged}
+          onValidate={revalidate}
+          onOpenValidation={() => setShowValidationSheet(true)}
+          onEditMetric={(draftKey) => setEditingMetricId(draftKey)}
+          onJumpToGarment={(idx, stepIdx) => {
+            setActiveGarmentIdx(idx);
+            setGarmentStep(stepIdx);
+            setPhase("garment-metrics");
+          }}
+          onBack={() => {
+            const lastIdx = Math.max((checklist?.garments.length ?? 1) - 1, 0);
+            setActiveGarmentIdx(lastIdx);
+            setPhase("garment-metrics");
+          }}
+          onContinue={() => setPhase("garment")}
         />
       ) : phase === "garment" ? (
         <GarmentPhase
           job={job}
           onReload={load}
-          onBack={() => setPhase("garment-metrics")}
+          onBack={() => setPhase("overall-review")}
           onContinue={() => setPhase("notes")}
         />
       ) : (
@@ -870,7 +1005,7 @@ export default function MeasureJobPage() {
           onVoiceNoteChange={setVoiceNoteUrl}
           saving={saving}
           onBack={() => setPhase("garment")}
-          onComplete={handleComplete}
+          onComplete={() => void handleComplete()}
           job={job}
           metrics={metrics}
           drafts={drafts}
@@ -922,6 +1057,38 @@ export default function MeasureJobPage() {
         />
       )}
 
+      {/* ─── Selection edit bottom sheet (start screens + section pill) ── */}
+      {editingSelections && job && (() => {
+        const go = job.garment_orders.find(
+          (g) => g.id === editingSelections.garmentOrderId,
+        );
+        const sels = go?.selections ?? [];
+        if (sels.length === 0) return null;
+        const clGarment = checklist?.garments.find(
+          (g) => g.garment_order_id === editingSelections.garmentOrderId,
+        );
+        const baseline = clGarment
+          ? flattenGarmentSections(clGarment).map((s) => s.metric.id)
+          : [];
+        return (
+          <SelectionSheet
+            jobId={job.id}
+            garmentOrderId={editingSelections.garmentOrderId}
+            selections={sels}
+            availableAddons={go?.available_addons ?? []}
+            baselineMetricIds={baseline}
+            focusComponentId={editingSelections.focusComponentId}
+            onClose={() => setEditingSelections(null)}
+            onDone={async () => {
+              setEditingSelections(null);
+              // Re-derive the checklist + drafts; phase/step state survives
+              // the reload (smart jump only runs on the first load).
+              await load();
+            }}
+          />
+        );
+      })()}
+
       {/* ─── Inline edit bottom sheet (checkpoint + notes phase) ──────────
           Rendered LAST so it stacks above the ValidationSheet when opened
           from within it (both are fixed inset-0; DOM order wins).
@@ -953,8 +1120,9 @@ export default function MeasureJobPage() {
               }}
               onClose={() => {
                 setEditingMetricId(null);
-                // If the validation sheet is open, re-run validation after edit
-                if (showValidationSheet) {
+                // Re-run validation after an edit when its verdict is on
+                // screen (the sheet, or the overall review beneath it).
+                if (showValidationSheet || phase === "overall-review") {
                   revalidate();
                 }
               }}
@@ -989,11 +1157,19 @@ function findChecklistMetric(
 /** Flatten a garment's sections into an ordered step list with section context. */
 function flattenGarmentSections(
   garment: SCChecklistGarment,
-): { metric: SCChecklistMetric; sectionLabel: string }[] {
-  const out: { metric: SCChecklistMetric; sectionLabel: string }[] = [];
+): {
+  metric: SCChecklistMetric;
+  sectionLabel: string;
+  entity: SCChecklistSection["entity"];
+}[] {
+  const out: {
+    metric: SCChecklistMetric;
+    sectionLabel: string;
+    entity: SCChecklistSection["entity"];
+  }[] = [];
   for (const s of garment.sections) {
     for (const m of s.metrics) {
-      out.push({ metric: m, sectionLabel: s.entity.label });
+      out.push({ metric: m, sectionLabel: s.entity.label, entity: s.entity });
     }
   }
   return out;
@@ -1027,11 +1203,14 @@ function GarmentMetricsStage({
   garmentStep,
   savingStep,
   submitting,
+  selectionsByGarment,
   onActiveGarmentChange,
+  onEnterGarment,
   onGarmentStepChange,
   onUpdateDraft,
   onSaveSilently,
   onEditMetric,
+  onEditSelections,
   onBack,
   onContinue,
 }: {
@@ -1041,11 +1220,16 @@ function GarmentMetricsStage({
   garmentStep: number;
   savingStep: boolean;
   submitting: boolean;
+  selectionsByGarment: Record<string, SCSelection[]>;
   onActiveGarmentChange: (idx: number) => void;
+  /** Review "Next garment" — opens the next garment's start screen (spec:
+   *  every garment gets its own gist + edit entry before measuring). */
+  onEnterGarment: (idx: number) => void;
   onGarmentStepChange: (idx: number) => void;
   onUpdateDraft: (draftKey: string, next: MetricDraft) => void;
   onSaveSilently: (draft: MetricDraft | undefined, garmentOrderId?: string) => void;
   onEditMetric: (draftKey: string) => void;
+  onEditSelections: (garmentOrderId: string, focusComponentId?: string | null) => void;
   onBack: () => void;
   onContinue: () => void;
 }) {
@@ -1113,7 +1297,7 @@ function GarmentMetricsStage({
             {submitting ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-chalk-white border-t-transparent" />
-                Checking…
+                Saving…
               </span>
             ) : (
               "Continue →"
@@ -1172,7 +1356,7 @@ function GarmentMetricsStage({
             activeGarmentIdx < garments.length - 1
               ? () => {
                   setReviewing(false);
-                  onActiveGarmentChange(activeGarmentIdx + 1);
+                  onEnterGarment(activeGarmentIdx + 1);
                 }
               : onContinue
           }
@@ -1198,10 +1382,50 @@ function GarmentMetricsStage({
             </button>
           </div>
 
-          {/* Section context — which entity asked for this metric */}
-          <div className="rounded-pill bg-mist-navy px-3 py-1 text-[11px] font-medium text-muted inline-block w-fit">
-            {current.sectionLabel}
-          </div>
+          {/* Section context — which entity asked for this metric.
+              Variation sections double as the inline edit affordance:
+              tapping opens the selection sheet focused on that component. */}
+          {(() => {
+            const editable = (
+              selectionsByGarment[active.garment_order_id] ?? []
+            ).find(
+              (sel) =>
+                sel.type === "variation" &&
+                (sel.variation?.id === current.entity.id ||
+                  sel.variation_type?.id === current.entity.id),
+            );
+            if (editable) {
+              return (
+                <button
+                  onClick={() =>
+                    onEditSelections(
+                      active.garment_order_id,
+                      editable.component?.id ?? null,
+                    )
+                  }
+                  className="tap inline-flex w-fit items-center gap-1.5 rounded-pill bg-mist-navy px-3 py-1 text-[11px] font-medium text-ink-navy"
+                >
+                  {current.sectionLabel}
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-3 w-3"
+                  >
+                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                  </svg>
+                </button>
+              );
+            }
+            return (
+              <div className="rounded-pill bg-mist-navy px-3 py-1 text-[11px] font-medium text-muted inline-block w-fit">
+                {current.sectionLabel}
+              </div>
+            );
+          })()}
 
           <StepJumpBar
             metrics={steps.map((s) => s.metric)}
@@ -1454,12 +1678,12 @@ function GarmentMetricsReview({
             {checking ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-chalk-white border-t-transparent" />
-                Checking…
+                Saving…
               </span>
             ) : missingRequired.length > 0 ? (
               "Fill required metrics"
             ) : isLastGarment ? (
-              "Continue → materials"
+              "Continue → final review"
             ) : (
               "Next garment →"
             )}
@@ -1512,6 +1736,556 @@ function StepJumpBar({
 }
 
 // ─── Checkpoint screen (Section 1 review) ───────────────────────────────────
+
+// ─── Order start screen (phase "start") ─────────────────────────────────────
+
+/** The visit's opening screen: one summary card per garment (images, gist,
+ *  language chips, speak button) + the list of body measurements the visit
+ *  will need, so the captain knows the full scope before measuring. */
+function JobStartScreen({
+  job,
+  metrics,
+  labels,
+  onStart,
+}: {
+  job: SCJob;
+  metrics: SCMetric[];
+  labels: Record<string, string>;
+  onStart: () => void;
+}) {
+  const [activeLang, setActiveLang] = useState("en");
+
+  const availableLangs = LANG_ORDER.filter((lang) =>
+    metrics.some((m) => m.labels?.[lang] ?? m.descriptions?.[lang]),
+  );
+  useEffect(() => {
+    if (availableLangs.length > 0 && !availableLangs.includes(activeLang)) {
+      setActiveLang(availableLangs[0]);
+    }
+  }, [availableLangs, activeLang]);
+
+  function labelFor(metric: SCMetric): string {
+    const l = metric.labels ?? {};
+    return (
+      l[activeLang] ?? l.en ?? l.hi ?? l.kn ?? l.ta ?? l.te ?? metric.code ?? "Metric"
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* ─── Header ─────────────────────────────────────────────────────── */}
+      <div>
+        <p className="text-eyebrow uppercase tracking-wider text-accent-text">
+          Order overview
+        </p>
+        <h1 className="font-heading text-h4 font-semibold text-ink-navy">
+          {job.customer_name ?? "Walk-in customer"}
+        </h1>
+        <p className="mt-1 text-body text-muted">
+          {job.garment_orders.length}{" "}
+          {job.garment_orders.length === 1 ? "garment" : "garments"} ·{" "}
+          {metrics.length} body{" "}
+          {metrics.length === 1 ? "measurement" : "measurements"} needed
+        </p>
+      </div>
+
+      {/* ─── One card per garment instance ──────────────────────────────── */}
+      {job.garment_orders.map((go) => (
+        <GarmentSummaryCard
+          key={go.id}
+          label={labels[go.id] ?? pickLabel(go.garment_labels, go.garment_slug ?? "Garment")}
+          garmentOrder={go}
+        />
+      ))}
+
+      {/* ─── Body measurements needed ───────────────────────────────────── */}
+      {metrics.length > 0 && (
+        <section className="overflow-hidden rounded-card border border-hairline bg-chalk-white shadow-card">
+          <div className="border-b border-hairline px-4 py-3">
+            <p className="text-eyebrow uppercase tracking-wider text-accent-text">
+              Body measurements needed
+            </p>
+          </div>
+          {availableLangs.length > 1 && (
+            <div className="px-4 pt-3">
+              <div className="flex gap-1 rounded-pill bg-mist-navy p-0.5">
+                {availableLangs.map((lang) => {
+                  const isActive = lang === activeLang;
+                  return (
+                    <button
+                      key={lang}
+                      onClick={() => setActiveLang(lang)}
+                      className={`tap flex-1 rounded-pill px-3 py-1.5 text-caption font-semibold uppercase tracking-wide transition ${
+                        isActive
+                          ? "bg-chalk-white text-ink-navy shadow-card"
+                          : "text-muted"
+                      }`}
+                    >
+                      {LANG_TAGS[lang] ?? lang}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <ul className="divide-y divide-hairline">
+            {metrics.map((m, idx) => (
+              <li
+                key={m.id}
+                className="flex items-center justify-between gap-3 px-4 py-2.5"
+              >
+                <span className="flex min-w-0 flex-1 items-center gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-mist-navy text-[10px] font-bold text-ink-navy">
+                    {idx + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-body font-medium text-ink-navy">
+                      {labelFor(m)}
+                    </span>
+                    <span className="block truncate text-caption text-muted">
+                      {m.code}
+                    </span>
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* ─── Nav ───────────────────────────────────────────────────────── */}
+      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+        <div className="mx-auto max-w-[480px]">
+          <button
+            onClick={onStart}
+            className="tap w-full rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary"
+          >
+            {metrics.length === 0 ? "Continue →" : "Start body measurements →"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Per-garment start screen (phase "garment-start") ───────────────────────
+
+/** The gist card for ONE garment + its editable selections + the grouped
+ *  list of measurements this instance will need. */
+function GarmentStartScreen({
+  label,
+  garmentOrder,
+  sections,
+  garmentPosition,
+  garmentCount,
+  onEditSelections,
+  onStart,
+  onBack,
+}: {
+  label: string;
+  garmentOrder: SCGarmentOrder;
+  sections: SCChecklistSection[];
+  garmentPosition: number;
+  garmentCount: number;
+  onEditSelections: () => void;
+  onStart: () => void;
+  onBack: () => void;
+}) {
+  const metricCount = sections.reduce((n, s) => n + s.metrics.length, 0);
+
+  return (
+    <div className="space-y-4">
+      {/* ─── Header ─────────────────────────────────────────────────────── */}
+      <div>
+        <p className="text-eyebrow uppercase tracking-wider text-accent-text">
+          {garmentCount > 1
+            ? `Garment ${garmentPosition} of ${garmentCount}`
+            : "Garment"}
+        </p>
+        <h1 className="font-heading text-h4 font-semibold text-ink-navy">
+          {label}
+        </h1>
+        <p className="mt-1 text-body text-muted">
+          {metricCount > 0
+            ? `${metricCount} ${metricCount === 1 ? "measurement" : "measurements"} to take`
+            : "No garment-specific measurements"}
+        </p>
+      </div>
+
+      {/* ─── Gist card + edit entry ────────────────────────────────────── */}
+      <GarmentSummaryCard label={label} garmentOrder={garmentOrder} />
+
+      {(garmentOrder.selections?.length ?? 0) > 0 && (
+        <button
+          onClick={onEditSelections}
+          className="tap inline-flex items-center gap-2 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-2 text-caption font-medium text-ink-navy"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-3.5 w-3.5"
+          >
+            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+          </svg>
+          Edit selections
+        </button>
+      )}
+
+      {/* ─── Measurements we'll take, grouped by source section ────────── */}
+      {sections.length > 0 ? (
+        sections.map((s) => (
+          <section
+            key={`${s.entity.type}-${s.entity.id}`}
+            className="overflow-hidden rounded-card border border-hairline bg-chalk-white shadow-card"
+          >
+            <p className="bg-mist-navy/60 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
+              {s.entity.label}
+            </p>
+            <ul className="divide-y divide-hairline">
+              {s.metrics.map((m, idx) => (
+                <li
+                  key={m.id}
+                  className="flex items-center justify-between gap-3 px-4 py-2.5"
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-mist-navy text-[10px] font-bold text-ink-navy">
+                      {idx + 1}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-body font-medium text-ink-navy">
+                        {pickLabel(m.labels, m.code ?? "")}
+                      </span>
+                      <span className="block truncate text-caption text-muted">
+                        {m.code}
+                      </span>
+                    </span>
+                  </span>
+                  {m.is_required && (
+                    <span className="shrink-0 rounded-pill bg-mist-navy px-2 py-0.5 text-[10px] font-bold tracking-wide text-ink-navy">
+                      REQ
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
+      ) : (
+        <div className="rounded-card border border-dashed border-hairline-strong bg-chalk-white/50 px-6 py-8 text-center">
+          <p className="text-body font-medium text-ink-navy">
+            No measurements for this garment
+          </p>
+          <p className="mt-1 text-caption text-muted">
+            Continue to the overall review.
+          </p>
+        </div>
+      )}
+
+      {/* ─── Nav ───────────────────────────────────────────────────────── */}
+      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+        <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
+          <button
+            onClick={onBack}
+            className="tap flex-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy"
+          >
+            Back
+          </button>
+          <button
+            onClick={onStart}
+            className="tap flex-[2] rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary"
+          >
+            {metricCount > 0 ? "Start measuring →" : "Continue →"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Overall review (phase "overall-review") ────────────────────────────────
+
+/** Every garment's readings stacked in one place, with THE validation run:
+ *  the engine fires on mount (and after edits) — pass unlocks Continue,
+ *  advisories are acknowledged in the existing ValidationSheet, criticals
+ *  must be fixed before materials. */
+function OverallReviewScreen({
+  garments,
+  drafts,
+  labels,
+  result,
+  validating,
+  warningsAcknowledged,
+  onValidate,
+  onOpenValidation,
+  onEditMetric,
+  onJumpToGarment,
+  onBack,
+  onContinue,
+}: {
+  garments: SCChecklistGarment[];
+  drafts: Record<string, MetricDraft>;
+  labels: Record<string, string>;
+  result: SCValidationResult | null;
+  validating: boolean;
+  warningsAcknowledged: boolean;
+  onValidate: () => void;
+  onOpenValidation: () => void;
+  onEditMetric: (draftKey: string) => void;
+  onJumpToGarment: (garmentIdx: number, stepIdx: number) => void;
+  onBack: () => void;
+  onContinue: () => void;
+}) {
+  const validatedOnce = useRef(false);
+
+  const isFilled = (d: MetricDraft | undefined) =>
+    !!d && (d.valueNumeric !== null || (d.valueText ?? "").trim() !== "");
+
+  // The engine's single wizard run — once per mount into this screen.
+  useEffect(() => {
+    if (validatedOnce.current) return;
+    validatedOnce.current = true;
+    onValidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const totalMetrics = garments.reduce(
+    (n, g) => n + flattenGarmentSections(g).length,
+    0,
+  );
+  const totalFilled = garments.reduce(
+    (n, g) =>
+      n +
+      flattenGarmentSections(g).filter((s) =>
+        isFilled(drafts[garmentDraftKey(g.garment_order_id, s.metric.id)]),
+      ).length,
+    0,
+  );
+
+  const status = result?.status ?? null;
+  const canContinue =
+    !validating &&
+    (status === "pass" || (status === "warn" && warningsAcknowledged));
+
+  const verdict = validating && !result ? (
+    <div className="flex items-center gap-3 rounded-card border border-hairline bg-chalk-white px-4 py-3 shadow-card">
+      <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent-text border-t-transparent" />
+      <p className="text-caption font-medium text-muted">
+        Checking measurements…
+      </p>
+    </div>
+  ) : status === "pass" ? (
+    <div className="flex items-center gap-3 rounded-card border border-success-border bg-success-bg px-4 py-3">
+      <span className="flex h-6 w-6 items-center justify-center rounded-pill bg-success text-[12px] font-bold text-chalk-white">
+        ✓
+      </span>
+      <p className="text-caption font-medium text-success-text">
+        All measurements pass validation
+      </p>
+    </div>
+  ) : status === "warn" ? (
+    <div className="flex items-center gap-3 rounded-card border border-warning-border bg-warning-bg px-4 py-3">
+      <span className="flex h-6 w-6 items-center justify-center rounded-pill bg-warning text-[12px] font-bold text-chalk-white">
+        ?
+      </span>
+      <p className="min-w-0 flex-1 text-caption font-medium text-warning-text">
+        {result!.non_critical_errors.length}{" "}
+        {result!.non_critical_errors.length === 1 ? "advisory" : "advisories"}{" "}
+        to review
+        {warningsAcknowledged ? " · acknowledged" : ""}
+      </p>
+      <button
+        onClick={onOpenValidation}
+        className="tap shrink-0 rounded-pill bg-tape px-3 py-1.5 text-[12px] font-semibold text-chalk-white shadow-primary"
+      >
+        {warningsAcknowledged ? "View advisories" : "Review advisories →"}
+      </button>
+    </div>
+  ) : status === "block" ? (
+    <div className="flex items-center gap-3 rounded-card border border-error-border bg-error-bg px-4 py-3">
+      <span className="flex h-6 w-6 items-center justify-center rounded-pill bg-error text-[12px] font-bold text-chalk-white">
+        !
+      </span>
+      <p className="min-w-0 flex-1 text-caption font-medium text-error-text">
+        {result!.critical_errors.length} critical{" "}
+        {result!.critical_errors.length === 1 ? "issue" : "issues"} — fix
+        before continuing
+      </p>
+      <button
+        onClick={onOpenValidation}
+        className="tap shrink-0 rounded-pill bg-ink-navy px-3 py-1.5 text-[12px] font-semibold text-chalk-white"
+      >
+        View issues →
+      </button>
+    </div>
+  ) : null;
+
+  return (
+    <div className="space-y-4">
+      {/* ─── Header ─────────────────────────────────────────────────────── */}
+      <div>
+        <p className="text-eyebrow uppercase tracking-wider text-accent-text">
+          Final checkpoint
+        </p>
+        <h1 className="font-heading text-h4 font-semibold text-ink-navy">
+          All garments — review
+        </h1>
+        <p className="mt-1 text-body text-muted">
+          {totalFilled} of {totalMetrics} garment readings captured
+        </p>
+      </div>
+
+      {/* ─── Validation verdict ────────────────────────────────────────── */}
+      {verdict}
+
+      {/* ─── Per-garment reading lists ─────────────────────────────────── */}
+      {garments.length === 0 ? (
+        <div className="rounded-card border border-dashed border-hairline-strong bg-chalk-white/50 px-6 py-8 text-center">
+          <p className="text-body font-medium text-ink-navy">
+            No garment measurements for this order
+          </p>
+        </div>
+      ) : (
+        garments.map((g, gi) => {
+          const steps = flattenGarmentSections(g);
+          const filled = steps
+            .map((step, idx) => ({
+              step,
+              idx,
+              draft: drafts[garmentDraftKey(g.garment_order_id, step.metric.id)],
+            }))
+            .filter((x) => isFilled(x.draft));
+          const missingRequired = steps.filter(
+            (s) =>
+              s.metric.is_required &&
+              !isFilled(drafts[garmentDraftKey(g.garment_order_id, s.metric.id)]),
+          );
+          return (
+            <section
+              key={g.garment_order_id}
+              className="overflow-hidden rounded-card border border-hairline bg-chalk-white shadow-card"
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-hairline px-4 py-3">
+                <p className="text-eyebrow uppercase tracking-wider text-accent-text">
+                  {labels[g.garment_order_id] ?? g.label}
+                </p>
+                <span className="text-caption text-muted">
+                  {filled.length}/{steps.length}
+                </span>
+              </div>
+              {filled.length === 0 ? (
+                <p className="px-4 py-3 text-caption text-muted">
+                  No readings captured yet.
+                </p>
+              ) : (
+                <ul className="divide-y divide-hairline">
+                  {filled.map(({ step, draft, idx }) => {
+                    const key = garmentDraftKey(
+                      g.garment_order_id,
+                      step.metric.id,
+                    );
+                    return (
+                      <li
+                        key={key}
+                        className="flex items-center justify-between gap-3 px-4 py-3"
+                      >
+                        <button
+                          onClick={() => onJumpToGarment(gi, idx)}
+                          className="tap flex min-w-0 flex-1 items-center gap-3 text-left"
+                        >
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-mist-navy text-[10px] font-bold text-ink-navy">
+                            {idx + 1}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-body font-medium text-ink-navy">
+                              {pickLabel(step.metric.labels, step.metric.code ?? "")}
+                            </span>
+                            <span className="block truncate text-caption text-muted">
+                              {step.sectionLabel}
+                            </span>
+                          </span>
+                        </button>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <span className="font-mono text-body font-semibold text-ink">
+                            {draft!.valueNumeric !== null
+                              ? `${draft!.valueNumeric}${draft!.unit ? ` ${draft!.unit}` : ""}`
+                              : draft!.valueText}
+                          </span>
+                          <button
+                            onClick={() => onEditMetric(key)}
+                            className="tap rounded-pill bg-mist-navy px-2.5 py-1 text-[11px] font-medium text-ink-navy"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {missingRequired.length > 0 && (
+                <div className="border-t border-hairline bg-error-bg/50 px-4 py-3">
+                  <p className="text-caption font-medium text-error-text">
+                    ⚠ {missingRequired.length} required{" "}
+                    {missingRequired.length === 1 ? "metric is" : "metrics are"}{" "}
+                    missing
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {missingRequired.map((s) => (
+                      <button
+                        key={s.metric.id}
+                        onClick={() => onJumpToGarment(gi, steps.indexOf(s))}
+                        className="tap rounded-pill border border-error-border bg-chalk-white px-2.5 py-1 text-[11px] font-medium text-ink-navy"
+                      >
+                        + {pickLabel(s.metric.labels, s.metric.code ?? "")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          );
+        })
+      )}
+
+      {/* ─── Nav ───────────────────────────────────────────────────────── */}
+      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+        <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
+          <button
+            onClick={onBack}
+            disabled={validating}
+            className="tap flex-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy disabled:opacity-50"
+          >
+            Back
+          </button>
+          {status === "warn" && !warningsAcknowledged ? (
+            <button
+              onClick={onOpenValidation}
+              className="tap flex-[2] rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary"
+            >
+              Review advisories →
+            </button>
+          ) : (
+            <button
+              onClick={onContinue}
+              disabled={!canContinue}
+              className="tap flex-[2] rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary disabled:opacity-50"
+            >
+              {validating && status !== "pass"
+                ? "Checking…"
+                : status === "block"
+                  ? "Fix critical issues"
+                  : "Continue → materials"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function CheckpointScreen({
   metrics,

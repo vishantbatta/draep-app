@@ -1070,6 +1070,8 @@ function getCloseCodeExplanation(code: number): string {
       return "No response from the server (heartbeat timeout)";
     case 4001:
       return "Server closed an idle connection";
+    case 4500:
+      return "The stylist agent failed to start on the server — try again in a moment";
     default:
       return "Unknown WebSocket close code";
   }
