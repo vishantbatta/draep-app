@@ -17,8 +17,10 @@
  *
  * Layout (multi-page via CSS `page-break` rules):
  *   Page 1 — Cover: order, customer, job notes
- *   Pages 2..N — Body measurements, 4 per page
- *   Final page(s) — Garment details: materials, colors, photos, comments
+ *   Then, interleaved per garment order: its materials page (cloth, colors,
+ *   photos, garment measurements) followed by its style selections page
+ *   Then — the embedded tax invoice (reuses the invoice-pdf.ts template;
+ *   see `JobPdfInput.invoice`), then the body-measurement guide pages
  */
 
 import type {
@@ -28,11 +30,15 @@ import type {
   GarmentOrderItemRow,
   GarmentOrderRow,
   MeasurementJobRow,
-  OrderAdjustmentRow,
   OrderRow,
   UserRow,
 } from "./admin-api";
 import { publicAssetAbsoluteUrl, resolveAssetUrl } from "./admin-api";
+import {
+  buildInvoiceDocumentHtml,
+  invoiceUpiUrl,
+  type InvoiceInput,
+} from "./invoice-pdf";
 
 // Lazily imported inside downloadMeasurementJobPdf so the QR encoder never
 // bloats the main bundle for callers that never build a PDF.
@@ -67,14 +73,16 @@ export interface StyleSelectionGroup {
  *   measurementDetails → the Body Measurements pages
  *   designDetails      → the Style Selections pages
  *   fabricDetails      → the Garment Details pages
- *   costBreakdown      → the new Cost Breakdown page
+ *   invoice            → the embedded one-page tax invoice (invoice-pdf.ts
+ *                        template — the same invoice the "Download Invoice
+ *                        PDF" button produces)
  */
 export interface PdfSectionOptions {
   customerDetails: boolean;
   measurementDetails: boolean;
   designDetails: boolean;
   fabricDetails: boolean;
-  costBreakdown: boolean;
+  invoice: boolean;
 }
 
 /** All sections enabled — the default, matching pre-customization output. */
@@ -83,40 +91,8 @@ const ALL_SECTIONS: PdfSectionOptions = {
   measurementDetails: true,
   designDetails: true,
   fabricDetails: true,
-  costBreakdown: true,
+  invoice: true,
 };
-
-// ─── Cost breakdown (optional Cost Breakdown page) ────────────────────────
-
-/**
- * One garment order's priced selections, for the Cost Breakdown page.
- * Mirrors the on-screen "Price Breakdown" card: a base price, one line per
- * priced item, and the garment-scoped adjustments. The caller pre-filters
- * adjustments to this garment (garment_order_id === go.id).
- */
-export interface CostBreakdownGroup {
-  garmentOrder: GarmentOrderRow;
-  garmentLabel: string;
-  basePrice: number | null;
-  items: GarmentOrderItemRow[];
-  /** Garment-scoped adjustments (garment_order_id === this go.id). */
-  adjustments: OrderAdjustmentRow[];
-}
-
-/**
- * Everything the Cost Breakdown page needs: per-garment priced groups, the
- * order-level adjustments (garment_order_id IS NULL), and the two order
- * totals (source of truth from orders.total_price / advance_amount).
- */
-export interface CostBreakdownInput {
-  groups: CostBreakdownGroup[];
-  /** Order-level adjustments (garment_order_id IS NULL). */
-  orderAdjustments: OrderAdjustmentRow[];
-  /** orders.total_price — backend-resynced grand total (source of truth). */
-  orderTotal: number | null;
-  /** orders.advance_amount — checkout snapshot. */
-  advanceAmount: number | null;
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -361,41 +337,6 @@ function formatAddressInline(addr: AddressRow | null | undefined): string {
 }
 
 /**
- * Format a rupee amount for the Cost Breakdown page. Mirrors the page's
- * `formatPrice` exactly: en-IN currency, no fraction digits. Null/undefined
- * → "—". Negative amounts render as "-₹500" (Intl gives the minus prefix
- * automatically).
- */
-function formatRupees(v: number | null | undefined): string {
-  if (v === null || v === undefined) return "—";
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(v);
-}
-
-/**
- * Parse an OrderAdjustmentRow.label. The backend stores it as a JSON string
- * like '{"en":"Festive discount"}'; fall back to the raw string if it isn't
- * JSON. Mirrors the page's `adjustmentLabel` helper.
- *
- * NOTE on units: OrderAdjustmentRow.amount has a stale "signed paise" comment
- * in admin-api.ts, but per PRICING.md the operational unit across the whole
- * stack is RUPEES (signed: negative = discount, positive = fee). We treat it
- * as rupees here — never multiply or divide by 100.
- */
-function adjustmentLabelText(raw: string | null | undefined): string {
-  if (!raw) return "Adjustment";
-  try {
-    const parsed = JSON.parse(raw) as Record<string, string>;
-    return parsed.en ?? parsed[Object.keys(parsed)[0] ?? ""] ?? "Adjustment";
-  } catch {
-    return raw;
-  }
-}
-
-/**
  * `garment_orders_items.placement` is a JSONB array on rows written by the
  * customer flow and the admin editor (["Sleeves"]), but a scalar string on
  * rows written by older admin flows. Normalize to a display string.
@@ -491,15 +432,10 @@ function garmentDetailsPages(
   startPageNum: number,
   totalPageCount: number,
 ): string {
-  if (groups.length === 0) {
-    return `
-      <section class="page garment-page">
-        <header class="page-header"><h2>${upper("Garment Details")}</h2></header>
-        <p class="muted">No garment measurements captured for this job.</p>
-        <footer class="report-footer">DRAEP Measurement Report</footer>
-      </section>
-    `;
-  }
+  // Empty (or fully deselected) garment list → no pages at all, matching the
+  // pagination math in downloadMeasurementJobPdf (one page per group, 0 when
+  // empty). The caller's page-count/footer numbers rely on this exact contract.
+  if (groups.length === 0) return "";
 
   let pageNum = startPageNum;
   return groups
@@ -770,191 +706,6 @@ function styleSelectionsPages(
     .join("");
 }
 
-// ─── Cost breakdown (per-garment priced lines → order grand total) ──────────
-
-/**
- * Build the Cost Breakdown page. Renders one card per garment order (base
- * price, priced item lines, garment-scoped adjustments, garment total) and an
- * order-level rollup (subtotal of garment totals, order-level adjustments,
- * grand total band, advance paid + balance).
- *
- * The math mirrors be/app/core/pricing.py and the on-screen "Price Breakdown"
- * card: garment total = base + Σ item lines + Σ garment adjustments; grand
- * total = Σ garment totals + Σ order-level adjustments.
- *
- * IMPORTANT — grand total source: the grand total is ALWAYS the additive
- * client-side sum (Σ garment totals + Σ order-level adjustments), exactly like
- * the on-screen "Order total" card. We deliberately do NOT trust the backend
- * `orders.total_price` for the displayed grand total: that column is only
- * resynced for placed orders, so for drafts/pending it can be stale (this was
- * the root cause of the ₹10,549 bug — a stale backend total overriding a
- * correct line-sum of ₹3,708). The backend total is kept only as a quiet
- * reference footnote when it disagrees, so discrepancies stay auditable
- * without ever producing a wrong headline number.
- *
- * Reuses the existing `.style-table` / `.style-base-row` / `.style-total-row`
- * CSS so the page looks native alongside the Style Selections pages.
- */
-function costBreakdownPage(
-  input: CostBreakdownInput,
-  pageNum: number,
-  totalPageCount: number,
-): string {
-  // Per-garment cards.
-  let garmentsSum = 0;
-  const hasAnyGarment = input.groups.length > 0;
-
-  const garmentCards = input.groups
-    .map((g) => {
-      // Base price line (only when present and non-zero, matching the page).
-      const baseLines: string[] = [];
-      if (g.basePrice != null && g.basePrice !== 0) {
-        baseLines.push(
-          `<tr class="style-base-row"><td>Base price</td><td class="style-cell-price">${formatRupees(g.basePrice)}</td></tr>`,
-        );
-      }
-
-      // One line per priced item (null/0 hidden, matching the page gate).
-      const itemLines = (g.items ?? [])
-        .filter((it) => it.price != null && it.price !== 0)
-        .map(
-          (it) =>
-            `<tr><td>${esc(itemLabelText(it))}</td><td class="style-cell-price">${formatRupees(it.price)}</td></tr>`,
-        );
-
-      // Garment-scoped adjustments (signed rupees).
-      const adjLines = g.adjustments
-        .filter((a) => a.amount != null && a.amount !== 0)
-        .map((a) => {
-          const lbl = adjustmentLabelText(a.label);
-          const tag =
-            a.type === "discount"
-              ? "Discount"
-              : a.type === "fee"
-                ? "Fee"
-                : "Adjustment";
-          return `<tr><td><span class="meta-pill addon-pill">${upper(tag)}</span>${esc(lbl)}</td><td class="style-cell-price">${formatRupees(a.amount)}</td></tr>`;
-        });
-
-      // Garment total — additive from the visible lines so the card's rows
-      // always sum exactly to the displayed total (same invariant as the page).
-      const baseSum = g.basePrice ?? 0;
-      const itemsSum = (g.items ?? [])
-        .filter((it) => it.price != null)
-        .reduce((s, it) => s + (it.price ?? 0), 0);
-      const adjSum = g.adjustments.reduce((s, a) => s + (a.amount ?? 0), 0);
-      const garmentTotal = baseSum + itemsSum + adjSum;
-      garmentsSum += garmentTotal;
-
-      const bodyRows = [...baseLines, ...itemLines, ...adjLines].join("");
-      const rowsHtml = bodyRows
-        ? `<table class="style-table">
-             <thead><tr><th>${upper("Line item")}</th><th class="style-th-price">${upper("Amount")}</th></tr></thead>
-             <tbody>${bodyRows}</tbody>
-             <tfoot><tr><td>${upper("Garment total")}</td><td class="style-cell-price">${formatRupees(garmentTotal)}</td></tr></tfoot>
-           </table>`
-        : `<p class="muted">No priced lines for this garment.</p>`;
-
-      return `
-        <div class="cost-garment-card">
-          <div class="cost-card-head">
-            <span class="meta-pill">${upper("Garment")}</span>
-            <span class="meta-name">${esc(g.garmentLabel)}</span>
-            <span class="meta-dim">GO ${esc(g.garmentOrder.id.slice(0, 8))}</span>
-          </div>
-          ${rowsHtml}
-        </div>
-      `;
-    })
-    .join("");
-
-  // Order-level rollup.
-  const orderAdj = (input.orderAdjustments ?? []).filter(
-    (a) => a.amount != null && a.amount !== 0,
-  );
-  const orderAdjSum = orderAdj.reduce((s, a) => s + (a.amount ?? 0), 0);
-
-  // Grand total = additive client-side sum, ALWAYS. Never trust the backend
-  // orders.total_price for the headline (see the doc comment above).
-  const grandTotal = garmentsSum + orderAdjSum;
-
-  const orderAdjRows = orderAdj
-    .map((a) => {
-      const lbl = adjustmentLabelText(a.label);
-      const tag =
-        a.type === "discount"
-          ? "Discount"
-          : a.type === "fee"
-            ? "Fee"
-            : "Adjustment";
-      return `<tr><td><span class="meta-pill addon-pill">${upper(tag)}</span>${esc(lbl)}</td><td class="style-cell-price">${formatRupees(a.amount)}</td></tr>`;
-    })
-    .join("");
-
-  const advance = input.advanceAmount ?? 0;
-  const balance = grandTotal - advance;
-
-  const garmentRollupRows = input.groups
-    .map((g) => {
-      const baseSum = g.basePrice ?? 0;
-      const itemsSum = (g.items ?? [])
-        .filter((it) => it.price != null)
-        .reduce((s, it) => s + (it.price ?? 0), 0);
-      const adjSum = g.adjustments.reduce((s, a) => s + (a.amount ?? 0), 0);
-      const total = baseSum + itemsSum + adjSum;
-      return `<tr><td>${esc(g.garmentLabel)}</td><td class="style-cell-price">${formatRupees(total)}</td></tr>`;
-    })
-    .join("");
-
-  return `
-    <section class="page garment-page cost-page">
-      <header class="page-header">
-        <h2>${upper("Cost Breakdown")}</h2>
-        <div class="page-num">Page ${pageNum} of ${totalPageCount}</div>
-      </header>
-
-      ${
-        hasAnyGarment
-          ? `<div class="cost-garments">${garmentCards}</div>`
-          : `<p class="muted">No garment orders for this order.</p>`
-      }
-
-      <div class="cost-rollup">
-        <h3 class="cost-rollup-title">${upper("Order Total")}</h3>
-        <table class="style-table cost-rollup-table">
-          <tbody>
-            ${garmentRollupRows}
-            <tr class="style-base-row"><td>${upper("Garment subtotal")}</td><td class="style-cell-price">${formatRupees(garmentsSum)}</td></tr>
-            ${orderAdjRows}
-          </tbody>
-          <tfoot>
-            <tr class="style-total-row"><td>${upper("Grand total")}</td><td class="style-cell-price">${formatRupees(grandTotal)}</td></tr>
-          </tfoot>
-        </table>
-
-        <div class="cost-totals-row">
-          <div class="cost-total-cell">
-            <div class="value-label">${upper("Advance paid")}</div>
-            <div class="value-text">${formatRupees(advance)}</div>
-          </div>
-          <div class="cost-total-cell">
-            <div class="value-label">${upper("Balance due")}</div>
-            <div class="value-text">${formatRupees(balance)}</div>
-          </div>
-        </div>
-
-        ${
-          input.orderTotal != null && input.orderTotal !== grandTotal
-            ? `<p class="cost-source-note">Recorded order total on file: ${formatRupees(input.orderTotal)} (line items above sum to ${formatRupees(grandTotal)}).</p>`
-            : ""
-        }
-      </div>
-
-      <footer class="report-footer">DRAEP Measurement Report • Page ${pageNum} of ${totalPageCount}</footer>
-    </section>
-  `;
-}
-
 // ─── Public entry point ──────────────────────────────────────────────────
 
 export interface JobPdfInput {
@@ -977,10 +728,13 @@ export interface JobPdfInput {
    */
   sections?: PdfSectionOptions;
   /**
-   * Optional Cost Breakdown page data. Rendered only when
-   * `sections.costBreakdown` is true (default) AND this field is provided.
+   * Optional embedded tax-invoice page (the same one-page invoice the
+   * "Download Invoice PDF" button produces — built by invoice-pdf.ts).
+   * Rasterized separately and inserted after the per-garment pages,
+   * only when `sections.invoice` is true (default) AND this field is
+   * provided.
    */
-  costBreakdown?: CostBreakdownInput;
+  invoice?: InvoiceInput;
 }
 
 /**
@@ -1013,7 +767,7 @@ export async function downloadMeasurementJobPdf(
     garmentMeasurements,
     styleSelections,
     sections,
-    costBreakdown,
+    invoice,
   } = input;
 
   // Resolve section toggles. Default = all on, so omitting `sections` (or any
@@ -1055,50 +809,70 @@ export async function downloadMeasurementJobPdf(
   }
 
   // Compute pagination. The cover page ALWAYS renders (title page). Each
-  // content section is gated by its toggle in `opts`. Page order is:
-  //   1 cover  →  fabric (garment details)  →  design (style selections)
-  //            →  cost breakdown  →  body measurements
+  // content section is gated by its toggle in `opts`. Page order interleaves
+  // per garment — everything about one garment before the next:
+  //   1 cover  →  [garment N materials → garment N style selections]…
+  //            →  invoice  →  body measurements
   // (Body measurements come LAST: a tailor reads the spec pages first, then
   //  the per-measurement guide pages.)
   const bodyPerPage = 1;
   const styleGroups = styleSelections ?? [];
 
   // A disabled section contributes 0 pages; an enabled one contributes its
-  // natural page count. Garment/style sections emit one page per group when
-  // enabled (and at least the placeholder page the builder renders when the
-  // group list is empty — so an enabled-but-empty section still gets a page).
-  const garmentPages = opts.fabricDetails ? Math.max(1, garmentMeasurements.length) : 0;
+  // natural page count. Garment/style sections emit one page per group and
+  // NOTHING when the group list is empty — an order with no garments, or one
+  // whose garments were all deselected by the caller, gets no garment/style
+  // pages (the builders return "" for an empty list to match this math).
+  const garmentPages = opts.fabricDetails ? garmentMeasurements.length : 0;
   const stylePages = opts.designDetails ? styleGroups.length : 0;
   const bodyPages = opts.measurementDetails
     ? Math.max(1, Math.ceil(bodyMeasurements.length / bodyPerPage))
     : 0;
-  const costPages =
-    opts.costBreakdown && costBreakdown ? 1 : 0;
+  const invoicePages = opts.invoice && invoice ? 1 : 0;
 
   const totalPages =
-    1 /* cover */ + garmentPages + stylePages + costPages + bodyPages;
+    1 /* cover */ + garmentPages + stylePages + invoicePages + bodyPages;
 
-  // Page-number offsets for each section (cover is page 1). Each start offset
-  // is only meaningful when its section is enabled; we still compute them
-  // unconditionally so the page-footers stay sequential regardless of which
-  // sections are toggled on/off.
-  const garmentStart = 2;
-  const styleStart = garmentStart + garmentPages;
-  const costStart = styleStart + stylePages;
-  const bodyStart = costStart + costPages;
+  // Page-number offsets (cover is page 1). The garment/style middle pages
+  // interleave, but their combined count is still garmentPages + stylePages,
+  // so the invoice and body sections start right after them either way.
+  const invoiceStart = 2 + garmentPages + stylePages;
+  const bodyStart = invoiceStart + invoicePages;
 
-  const garmentSections = opts.fabricDetails
-    ? garmentDetailsPages(garmentMeasurements, garmentStart, totalPages)
-    : "";
-
-  const styleSections = opts.designDetails
-    ? styleSelectionsPages(styleGroups, styleStart, totalPages)
-    : "";
-
-  const costSection =
-    opts.costBreakdown && costBreakdown
-      ? costBreakdownPage(costBreakdown, costStart, totalPages)
-      : "";
+  // Interleave the middle pages per garment: the garment's material page,
+  // then that same garment's style page. Style groups pair with measurement
+  // groups by garment order id — both arrays come from the same filtered
+  // rows on the admin page, so they always match 1:1; any unmatched style
+  // group (defensive) appends after the interleaved run. Each builder gets
+  // a single-group array so IT stamps that page's number; the pageNum
+  // counter stays sequential across the interleaved order.
+  const styleByGoId = new Map(styleGroups.map((sg) => [sg.garmentOrder.id, sg]));
+  const middleSections: string[] = [];
+  const middleLabels: string[] = [];
+  let pageNum = 2;
+  for (const g of garmentMeasurements) {
+    if (opts.fabricDetails) {
+      middleSections.push(garmentDetailsPages([g], pageNum, totalPages));
+      middleLabels.push(
+        `Garment details — ${g.garmentLabels?.en ?? g.garmentSlug ?? "Garment"}`,
+      );
+      pageNum++;
+    }
+    const sg = styleByGoId.get(g.garmentOrderId);
+    if (sg && opts.designDetails) {
+      styleByGoId.delete(g.garmentOrderId);
+      middleSections.push(styleSelectionsPages([sg], pageNum, totalPages));
+      middleLabels.push(`Style selections — ${sg.garmentLabel}`);
+      pageNum++;
+    }
+  }
+  if (opts.designDetails) {
+    for (const sg of styleByGoId.values()) {
+      middleSections.push(styleSelectionsPages([sg], pageNum, totalPages));
+      middleLabels.push(`Style selections — ${sg.garmentLabel}`);
+      pageNum++;
+    }
+  }
 
   // Slice body measurements into pages of 1 (large guide photo per page).
   const bodySections: string[] = [];
@@ -1120,12 +894,86 @@ export async function downloadMeasurementJobPdf(
 </head>
 <body>
   ${coverPage(job, customer, order, voiceNote, opts.customerDetails, address)}
-  ${garmentSections}
-  ${styleSections}
-  ${costSection}
+  ${middleSections.join("")}
   ${bodySections.join("")}
 </body>
 </html>`;
+
+  // ── Embedded invoice page ────────────────────────────────────────────────
+  // The invoice fragment (invoice-pdf.ts) ships its OWN <style> block that
+  // also styles `.page` — the same class PRINT_CSS styles below. Two
+  // `.page` rule sets must never be live in the document at once: with equal
+  // specificity, whichever <style> came later in the DOM wins and corrupts
+  // the other holder's page geometry. So the invoice is rasterized BEFORE
+  // the job holder is attached (and its holder removed right after), keeping
+  // each render self-consistent. The result is spliced into the jsPDF
+  // document at the invoice's slot during the assembly loop below.
+  let invoiceRaster: {
+    imgData: string;
+    /** canvas height / width — maps the raster onto the A4 mm page. */
+    aspect: number;
+    pageWidthPx: number;
+    upiUrl: string | null;
+    /** Rects in px, relative to the invoice .page (converted to mm later). */
+    pill: { x: number; y: number; w: number; h: number } | null;
+    qr: { x: number; y: number; w: number; h: number } | null;
+  } | null = null;
+  if (opts.invoice && invoice) {
+    onProgress?.(invoiceStart - 1, totalPages, "Rendering invoice page…");
+    await nextPaint();
+    const invoiceHtml = await buildInvoiceDocumentHtml(invoice);
+    const invHolder = document.createElement("div");
+    invHolder.setAttribute("data-invoice-holder", "");
+    invHolder.style.position = "fixed";
+    invHolder.style.zIndex = "-9999";
+    invHolder.style.left = "-99999px";
+    invHolder.style.top = "0";
+    invHolder.style.width = "794px";
+    invHolder.style.background = "#ffffff";
+    invHolder.style.pointerEvents = "none";
+    invHolder.innerHTML = invoiceHtml;
+    document.body.appendChild(invHolder);
+    try {
+      const invPage = invHolder.querySelector<HTMLElement>(".page");
+      if (!invPage) throw new Error("No invoice page element found");
+      await nextPaint();
+      const invCanvas = await html2canvas(invPage, {
+        scale: 3, // 3x for crisp output (~216 DPI)
+        backgroundColor: "#ffffff",
+        logging: false,
+        useCORS: true,
+        width: invPage.offsetWidth,
+        height: invPage.offsetHeight,
+        windowWidth: 794,
+      });
+      // Geometry (px, page-relative) for the vector overlays added at
+      // assembly time — the empty UPI pill gets real PDF text + a link
+      // annotation, and the QR gets a clickable link. Same treatment
+      // generateInvoicePdf() gives the standalone invoice.
+      const invRect = invPage.getBoundingClientRect();
+      const rectOf = (selector: string) => {
+        const el = invHolder.querySelector<HTMLElement>(selector);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {
+          x: r.left - invRect.left,
+          y: r.top - invRect.top,
+          w: r.width,
+          h: r.height,
+        };
+      };
+      invoiceRaster = {
+        imgData: invCanvas.toDataURL("image/jpeg", 0.92),
+        aspect: invCanvas.height / invCanvas.width,
+        pageWidthPx: invPage.offsetWidth,
+        upiUrl: invoiceUpiUrl(invoice),
+        pill: rectOf(".upi-pill"),
+        qr: rectOf(".qr-img"),
+      };
+    } finally {
+      if (invHolder.parentNode) invHolder.parentNode.removeChild(invHolder);
+    }
+  }
 
   // Render into an off-screen container attached to the live DOM (NOT an
   // iframe — html2canvas needs to walk the rendered tree and iframe blobs
@@ -1155,8 +1003,9 @@ export async function downloadMeasurementJobPdf(
     }
 
     // Wait for all images on all pages to load (or fail) before rasterizing,
-    // so we don't capture empty <img> boxes.
-    onProgress?.(0, pageEls.length, "Loading images…");
+    // so we don't capture empty <img> boxes. (totalPages counts the final
+    // PDF pages, invoice included — pageEls alone misses the invoice.)
+    onProgress?.(0, totalPages, "Loading images…");
     // Replace every [data-pdf-src] <img> with a pre-rasterized <canvas>. This
     // sidesteps html2canvas's cross-origin image loader entirely (its loader
     // cache was silently dropping the material photo due to a cross-origin
@@ -1187,26 +1036,90 @@ export async function downloadMeasurementJobPdf(
     const pageWidthMm = pdf.internal.pageSize.getWidth();
     const pageHeightMm = pdf.internal.pageSize.getHeight();
 
+    // Final page count includes the embedded invoice (pageEls holds only the
+    // job-report pages), and the invoice's 0-based slot in the final PDF —
+    // always ≥ 1 because the cover is page 1.
+    const finalPageCount = pageEls.length + (invoiceRaster ? 1 : 0);
+    const invoiceIndex = invoiceStart - 1;
+
+    // Add the pre-rasterized invoice page + its vector overlays as the next
+    // PDF page.
+    const addInvoicePage = () => {
+      if (!invoiceRaster) return;
+      pdf.addPage();
+      const imgW = pageWidthMm;
+      const imgH = invoiceRaster.aspect * imgW;
+      pdf.addImage(
+        invoiceRaster.imgData,
+        "JPEG",
+        0,
+        0,
+        imgW,
+        Math.min(imgH, pageHeightMm),
+      );
+      const mmPerPx = pageWidthMm / invoiceRaster.pageWidthPx;
+
+      // Vector "Pay via UPI" label on the pill the raster left empty — real
+      // PDF text, not raster, so no html2canvas quirk or JPEG compression
+      // can touch it (same approach as generateInvoicePdf).
+      if (invoiceRaster.pill && invoiceRaster.upiUrl) {
+        const bx = invoiceRaster.pill.x * mmPerPx;
+        const by = invoiceRaster.pill.y * mmPerPx;
+        const bw = invoiceRaster.pill.w * mmPerPx;
+        const bh = invoiceRaster.pill.h * mmPerPx;
+        const label = "Pay via UPI \u00BB";
+        const fontSizePt = 12;
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(fontSizePt);
+        pdf.setTextColor(255, 255, 255);
+        const tw = pdf.getTextWidth(label);
+        // jsPDF's text y is the BASELINE — nudge down by ~cap-height/2 to
+        // vertically center inside the pill (same constant as invoice-pdf).
+        pdf.text(
+          label,
+          bx + (bw - tw) / 2,
+          by + bh / 2 + fontSizePt * 0.35 * 0.352778,
+        );
+        pdf.link(bx, by, bw, bh, { url: invoiceRaster.upiUrl });
+      }
+
+      // Clickable payment link annotation over the QR — viewers that hand
+      // custom URI schemes to the OS open the customer's UPI app.
+      if (invoiceRaster.qr && invoiceRaster.upiUrl) {
+        pdf.link(
+          invoiceRaster.qr.x * mmPerPx,
+          invoiceRaster.qr.y * mmPerPx,
+          invoiceRaster.qr.w * mmPerPx,
+          invoiceRaster.qr.h * mmPerPx,
+          { url: invoiceRaster.upiUrl },
+        );
+      }
+    };
+
     // Rasterize each .page element to a canvas, add to PDF as one page each.
     for (let i = 0; i < pageEls.length; i++) {
       const el = pageEls[i];
-      // Label each page for the progress indicator. Boundaries use the
-      // section start offsets computed above; when a section is toggled off
-      // its start offset collapses into the next section's, so the ranges
-      // stay correct regardless of which sections are included.
+      // Splice the pre-rasterized invoice page in at its slot, just before
+      // the job page that follows it (also appended after the loop when the
+      // invoice is the final page).
+      if (invoiceRaster && i === invoiceIndex) {
+        onProgress?.(i, finalPageCount, "Rendering invoice page…");
+        await nextPaint();
+        addInvoicePage();
+      }
+      // Label each page for the progress indicator. Cover is index 0; the
+      // interleaved middle pages (material + style per garment) each have a
+      // precomputed label; every page from `invoiceStart` on is a body
+      // measurements page. `finalIndex` accounts for the invoice page
+      // shifting later pages by one (pageEls omits the invoice element).
+      const finalIndex = invoiceRaster && i >= invoiceIndex ? i + 1 : i;
       const label =
         i === 0
           ? "Cover page"
-          : i < garmentStart
-            ? "Cover page"
-            : i < styleStart
-              ? `Garment details page ${i - garmentStart + 1}`
-              : i < costStart
-                ? `Style selections page ${i - styleStart + 1}`
-                : i < bodyStart
-                  ? `Cost breakdown page ${i - costStart + 1}`
-                  : `Body measurements page ${i - bodyStart + 1}`;
-      onProgress?.(i, pageEls.length, `Rendering ${label}…`);
+          : i <= middleLabels.length
+            ? middleLabels[i - 1] ?? "page"
+            : `Body measurements page ${finalIndex - bodyStart + 2}`;
+      onProgress?.(finalIndex, finalPageCount, `Rendering ${label}…`);
 
       // Allow the browser to paint the progress update before the
       // (synchronous, heavy) html2canvas call blocks the main thread.
@@ -1263,7 +1176,10 @@ export async function downloadMeasurementJobPdf(
       }
     }
 
-    onProgress?.(pageEls.length, pageEls.length, "Saving file…");
+    // Invoice as the FINAL page (body measurements disabled) — append it now.
+    if (invoiceRaster && invoiceIndex >= pageEls.length) addInvoicePage();
+
+    onProgress?.(finalPageCount, finalPageCount, "Saving file…");
     await nextPaint();
 
     const custSlug = nameSlug(customer?.name);
@@ -2133,90 +2049,5 @@ const PRINT_CSS = `
     color: #ffffff !important;
     font-size: 12pt;
     font-weight: 700;
-  }
-
-  /* ─── Cost breakdown page ────────────────────────────────────────────── */
-
-  .cost-garments {
-    display: flex;
-    flex-direction: column;
-    gap: 12pt;
-    margin-bottom: 16pt;
-  }
-  .cost-garment-card {
-    border: 1px solid #e2e8f0;
-    border-radius: 8pt;
-    padding: 12pt;
-    background: #ffffff;
-    break-inside: avoid;
-  }
-  .cost-card-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 8pt;
-    margin-bottom: 8pt;
-    font-size: 10.5pt;
-  }
-  .cost-garment-card .style-table { margin-top: 4pt; }
-  /* Rollup table: no per-row borders between the garment rollup lines so it
-     reads as a clean summary, not an itemized ledger. */
-  .cost-rollup-table tbody td {
-    border-bottom: 1px solid #f1f5f9;
-  }
-
-  .cost-rollup {
-    border: 1px solid #cbd5e1;
-    border-radius: 8pt;
-    padding: 14pt 16pt;
-    background: #f8fafc;
-    break-inside: avoid;
-  }
-  .cost-rollup-title {
-    margin: 0 0 10pt 0;
-    font-size: 13pt;
-    font-weight: 700;
-    /* text-transform removed: html2canvas ignores it and mis-measures
-       uppercased glyphs, clipping them. Text is uppercased at the source
-       via upper() instead, so measurement and rendering match. */
-    letter-spacing: 1pt;
-    color: #0f172a;
-    border-bottom: 1px solid #cbd5e1;
-    padding-bottom: 4pt;
-  }
-  .cost-rollup .style-table { margin-bottom: 12pt; }
-
-  .cost-totals-row {
-    display: flex;
-    gap: 14pt;
-    margin-top: 8pt;
-  }
-  .cost-total-cell {
-    flex: 1 1 0;
-    text-align: center;
-    border: 1px solid #e2e8f0;
-    border-radius: 6pt;
-    padding: 10pt 8pt;
-    background: #ffffff;
-  }
-  .cost-total-cell .value-label {
-    font-size: 9pt;
-    /* text-transform removed: html2canvas ignores it and mis-measures
-       uppercased glyphs, clipping them. Text is uppercased at the source
-       via upper() instead, so measurement and rendering match. */
-    color: #94a3b8;
-    letter-spacing: 1pt;
-    margin-bottom: 4pt;
-  }
-  .cost-total-cell .value-text {
-    font-size: 18pt;
-    font-weight: 700;
-    color: #0f172a;
-  }
-  .cost-source-note {
-    margin: 10pt 0 0 0;
-    font-size: 8.5pt;
-    color: #94a3b8;
-    font-style: italic;
   }
 `;

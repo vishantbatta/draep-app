@@ -57,11 +57,10 @@ import { Chip } from "@/components/ui/Chip";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import {
   downloadMeasurementJobPdf,
-  type CostBreakdownInput,
   type PdfSectionOptions,
   type StyleSelectionGroup,
 } from "@/lib/job-pdf";
-import { generateInvoicePdf } from "@/lib/invoice-pdf";
+import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
 import { buildUpiPayUrl, UPI_VPA } from "@/lib/upi";
 import { GarmentOrderEditor } from "./GarmentOrderEditor";
 import { GarmentOrderAssets } from "./GarmentOrderAssets";
@@ -533,8 +532,14 @@ export default function OrderDetailPage() {
     measurementDetails: true,
     designDetails: true,
     fabricDetails: true,
-    costBreakdown: true,
+    invoice: true,
   });
+  // Garment orders the user DESELECTED in the PDF sheet. Empty = include
+  // every garment order (the default). Kept as an exclusion set so newly
+  // added garment orders are included without any sync logic.
+  const [pdfExcludedGoIds, setPdfExcludedGoIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   // ── Manage-Measurements override state ─────────────────────────────────────
   // Per-job editable measurement map: keyed by jobId → metricId → draft value
@@ -1244,43 +1249,66 @@ export default function OrderDetailPage() {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // PDF DOWNLOAD — assembles cover + (optional) body + garment + style +
-  // cost-breakdown pages, gated by the user's section toggles.
+  // PDF DOWNLOAD — assembles cover + (optional) body + garment + style pages
+  // + the embedded tax-invoice page, gated by the user's section toggles and
+  // garment-order deselection.
   // ──────────────────────────────────────────────────────────────────────────
 
-  /** Build the Cost Breakdown input from loaded order data. Mirrors the
-   *  on-screen "Price Breakdown" card: per-garment base + items + garment
-   *  adjustments, plus order-level adjustments and the order totals. */
-  function buildCostBreakdownInput(
-    goList: Awaited<ReturnType<typeof fetchOrderGarmentOrders>>,
-    itemsByGOId: Map<string, GarmentOrderItemRow[]>,
-  ): CostBreakdownInput {
-    const groups = goList.map((go) => {
-      const liveGO = garmentOrders.find((g) => g.id === go.id);
-      const garmentId = liveGO?.garment_id ?? "";
-      return {
-        garmentOrder: {
-          id: go.id,
-          order_id: go.order_id ?? order?.id ?? "",
-          garment_id: garmentId,
-          total_price: liveGO?.total_price ?? null,
-          status: (go.status as GarmentOrderStatus | null) ?? null,
-          user_note: go.user_note,
-          assets_shared: liveGO?.assets_shared ?? null,
-        },
-        garmentLabel: garmentDisplayLabel(garmentId),
-        basePrice: (garmentId ? garmentMap.get(garmentId)?.base_price : null) ?? null,
-        items: itemsByGOId.get(go.id) ?? [],
-        // Garment-scoped adjustments only (order-level ones are passed separately).
-        adjustments: adjustments.filter((a) => a.garment_order_id === go.id),
-      };
-    });
+  /** Build the tax-invoice input from loaded order data — the same
+   *  InvoiceInput the standalone "Download Invoice PDF" button uses, so the
+   *  report's embedded invoice page and the standalone invoice always
+   *  reconcile. `garmentRows` are the (already deselection-filtered) garment
+   *  orders to bill; `getItems` resolves each one's item rows. */
+  function buildInvoiceInput(
+    garmentRows: GarmentOrderRow[],
+    getItems: (goId: string) => GarmentOrderItemRow[] | undefined,
+  ): InvoiceInput {
+    // One line per garment order — effective (adjustment-inclusive) total,
+    // the same number the "Order total" card shows for each garment.
+    const garmentLines = garmentRows.map((go) => ({
+      label: garmentDisplayLabel(go.garment_id),
+      total: effectiveGarmentTotal(
+        go,
+        getItems(go.id),
+        garmentMap.get(go.garment_id)?.base_price ?? null,
+        adjustments,
+      ),
+    }));
+
+    // Order-level adjustments (garment_order_id IS NULL) so the subtotal
+    // reconciles to the grand total. Discounts are already negative.
+    const adjustmentLines = adjustments
+      .filter((a) => a.garment_order_id === null)
+      .map((a) => ({
+        label: `${a.type === "discount" ? "Discount" : "Fee"}: ${adjustmentLabel(a.label)}`,
+        total: a.amount ?? 0,
+      }));
+
+    // One "Payment Made" row per captured payment, carrying the note that
+    // was recorded with it (transactions.metadata.note).
+    const payments = transactions
+      .filter((t) => t.type === "payment" && t.status === "captured")
+      .map((t) => ({
+        amount: t.amount ?? 0,
+        note:
+          t.metadata &&
+          typeof t.metadata === "object" &&
+          "note" in t.metadata &&
+          t.metadata.note != null
+            ? String(t.metadata.note)
+            : null,
+      }));
+
     return {
-      groups,
-      // Order-level adjustments: garment_order_id IS NULL.
-      orderAdjustments: adjustments.filter((a) => a.garment_order_id == null),
-      orderTotal: order?.total_price ?? null,
-      advanceAmount: order?.advance_amount ?? null,
+      invoiceNumber: order?.order_number
+        ? `INV-${order.order_number}`
+        : `INV-${truncateId(order?.id ?? "")}`,
+      orderNumber: order?.order_number ?? (order ? truncateId(order.id) : null),
+      customer,
+      address,
+      garmentLines,
+      adjustmentLines,
+      payments,
     };
   }
 
@@ -1329,11 +1357,17 @@ export default function OrderDetailPage() {
         ]);
       } catch { /* proceed with empty */ }
 
-      // Items per garment order (for style pages) — wrapped per-GO so one failure doesn't block others
+      // Apply the user's garment deselection (PDF sheet). Everything below —
+      // garment pages, style pages, and the invoice lines — reflects only the
+      // selected garment orders.
+      const selectedGoList = goList.filter((go) => !pdfExcludedGoIds.has(go.id));
+
+      // Items per garment order (for style pages + invoice lines) — wrapped
+      // per-GO so one failure doesn't block others
       setPdfProgress("Loading style selections…");
       const itemsByGOId = new Map<string, GarmentOrderItemRow[]>();
       await Promise.all(
-        goList.map(async (go) => {
+        selectedGoList.map(async (go) => {
           const cached = itemsByGO.get(go.id);
           if (cached) {
             itemsByGOId.set(go.id, cached);
@@ -1359,43 +1393,51 @@ export default function OrderDetailPage() {
         }));
       })();
 
-      // Garment measurement groups (materials) — match the PDF shape
-      const garments: GarmentMeasurementGroup[] = goList.map((go) => ({
-        garmentOrderId: go.id,
-        garmentId: go.garment_id,
-        garmentSlug: null,
-        garmentLabels: null,
-        status: go.status,
-        userNote: go.user_note,
-        materials: materialsList.filter((m) => m.garment_order_id === go.id),
-      }));
-
-      // Style selections per garment order
-      const styleGroups: StyleSelectionGroup[] = goList.map((go) => {
+      // Map the fetched instances to the GarmentOrderRow shape the PDF
+      // builders expect (garment_id / assets from the live page state, which
+      // stays fresher than the fetched instance rows). One mapping reused by
+      // the garment pages, style pages, and the invoice lines below.
+      const pdfGoRows: GarmentOrderRow[] = selectedGoList.map((go) => {
         const liveGO = garmentOrders.find((g) => g.id === go.id);
         return {
-          garmentOrder: {
-            // Map GarmentOrderInstanceRow → GarmentOrderRow shape expected by PDF
-            id: go.id,
-            order_id: go.order_id ?? order.id,
-            garment_id: liveGO?.garment_id ?? "",
-            total_price: liveGO?.total_price ?? null,
-            status: (go.status as GarmentOrderStatus | null) ?? null,
-            user_note: go.user_note,
-            assets_shared: liveGO?.assets_shared ?? null,
-          },
-          garmentLabel: garmentDisplayLabel(liveGO?.garment_id ?? go.garment_id),
-          basePrice: (liveGO?.garment_id
-            ? garmentMap.get(liveGO.garment_id)?.base_price
-            : null) ?? null,
-          items: itemsByGOId.get(go.id) ?? [],
-          assetsShared: liveGO?.assets_shared ?? null,
+          id: go.id,
+          order_id: go.order_id ?? order.id,
+          garment_id: liveGO?.garment_id ?? go.garment_id ?? "",
+          total_price: liveGO?.total_price ?? null,
+          status: (go.status as GarmentOrderStatus | null) ?? null,
+          user_note: go.user_note,
+          assets_shared: liveGO?.assets_shared ?? null,
         };
       });
 
-      // Cost breakdown input — always built (cheap; reuses already-loaded
-      // adjustments + garmentMap). The page itself is gated by the toggle.
-      const costBreakdown = buildCostBreakdownInput(goList, itemsByGOId);
+      // Garment measurement groups (materials) — match the PDF shape. The
+      // resolved display label feeds the material page's "GARMENT: …" header
+      // (garmentLabels.en is that builder's preferred name source).
+      const garments: GarmentMeasurementGroup[] = pdfGoRows.map((row) => ({
+        garmentOrderId: row.id,
+        garmentId: row.garment_id,
+        garmentSlug: null,
+        garmentLabels: { en: garmentDisplayLabel(row.garment_id) },
+        status: row.status,
+        userNote: row.user_note,
+        materials: materialsList.filter((m) => m.garment_order_id === row.id),
+      }));
+
+      // Style selections per garment order
+      const styleGroups: StyleSelectionGroup[] = pdfGoRows.map((row) => ({
+        garmentOrder: row,
+        garmentLabel: garmentDisplayLabel(row.garment_id),
+        basePrice:
+          (row.garment_id ? garmentMap.get(row.garment_id)?.base_price : null) ??
+          null,
+        items: itemsByGOId.get(row.id) ?? [],
+        assetsShared: row.assets_shared,
+      }));
+
+      // Invoice input for the embedded invoice page — always built (cheap;
+      // reuses already-loaded adjustments + transactions). The page itself is
+      // gated by the toggle.
+      const invoice = buildInvoiceInput(pdfGoRows, (id) => itemsByGOId.get(id));
 
       await downloadMeasurementJobPdf(
         {
@@ -1407,7 +1449,7 @@ export default function OrderDetailPage() {
           garmentMeasurements: garments,
           styleSelections: styleGroups,
           sections: opts,
-          costBreakdown,
+          invoice,
         },
         (current, total, label) => {
           if (total > 1) {
@@ -1437,53 +1479,12 @@ export default function OrderDetailPage() {
     if (!order) return;
     setInvoiceLoading(true);
     try {
-      // One line per garment order — effective (adjustment-inclusive) total,
-      // the same number the "Order total" card shows for each garment.
-      const garmentLines = garmentOrders.map((go) => ({
-        label: garmentDisplayLabel(go.garment_id),
-        total: effectiveGarmentTotal(
-          go,
-          itemsByGO.get(go.id),
-          garmentMap.get(go.garment_id)?.base_price ?? null,
-          adjustments,
-        ),
-      }));
-
-      // Order-level adjustments (garment_order_id IS NULL) so the subtotal
-      // reconciles to the grand total. Discounts are already negative.
-      const adjustmentLines = adjustments
-        .filter((a) => a.garment_order_id === null)
-        .map((a) => ({
-          label: `${a.type === "discount" ? "Discount" : "Fee"}: ${adjustmentLabel(a.label)}`,
-          total: a.amount ?? 0,
-        }));
-
-      // One "Payment Made" row per captured payment, carrying the note that
-      // was recorded with it (transactions.metadata.note).
-      const payments = transactions
-        .filter((t) => t.type === "payment" && t.status === "captured")
-        .map((t) => ({
-          amount: t.amount ?? 0,
-          note:
-            t.metadata &&
-            typeof t.metadata === "object" &&
-            "note" in t.metadata &&
-            t.metadata.note != null
-              ? String(t.metadata.note)
-              : null,
-        }));
-
-      await generateInvoicePdf({
-        invoiceNumber: order.order_number
-          ? `INV-${order.order_number}`
-          : `INV-${truncateId(order.id)}`,
-        orderNumber: order.order_number ?? truncateId(order.id),
-        customer,
-        address,
-        garmentLines,
-        adjustmentLines,
-        payments,
-      });
+      // Same builder the PDF's embedded invoice page uses, over the full
+      // (unfiltered) garment list — the standalone invoice and the report's
+      // invoice page can never drift apart.
+      await generateInvoicePdf(
+        buildInvoiceInput(garmentOrders, (id) => itemsByGO.get(id)),
+      );
       flash("Invoice downloaded");
     } catch (e) {
       alert(e instanceof Error ? e.message : "Invoice generation failed");
@@ -3562,9 +3563,9 @@ export default function OrderDetailPage() {
                 desc: "Cloth/material details, colors, and photos",
               },
               {
-                key: "costBreakdown" as const,
-                title: "Cost breakdown",
-                desc: "Itemized prices, adjustments, and totals",
+                key: "invoice" as const,
+                title: "Invoice",
+                desc: "Tax invoice with line items, totals, and UPI payment QR",
               },
             ]
           ).map(({ key, title, desc }) => (
@@ -3589,6 +3590,72 @@ export default function OrderDetailPage() {
               </span>
             </label>
           ))}
+
+          {/* Garment-order deselection: every garment order is included by
+              default; unchecking one drops its fabric/design pages and its
+              line from the invoice. Effective totals are shown next to each
+              garment because an order can hold several of the same garment
+              type, and the price is what tells them apart. */}
+          <div className="mt-4">
+            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
+              Garment orders
+            </p>
+            <p className="mb-2 text-xs text-muted">
+              Uncheck any garment to leave it out of the PDF (price = its
+              effective total).
+            </p>
+            <div className="space-y-1">
+              {garmentOrders.map((go) => {
+                const included = !pdfExcludedGoIds.has(go.id);
+                const price = effectiveGarmentTotal(
+                  go,
+                  itemsByGO.get(go.id),
+                  garmentMap.get(go.garment_id)?.base_price ?? null,
+                  adjustments,
+                );
+                return (
+                  <label
+                    key={go.id}
+                    className={`flex cursor-pointer items-center gap-3 rounded-lg border border-hairline bg-chalk-white px-3 py-2.5 transition hover:bg-mist-navy/30 ${
+                      included ? "" : "opacity-60"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={included}
+                      onChange={(e) =>
+                        setPdfExcludedGoIds((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.delete(go.id);
+                          else next.add(go.id);
+                          return next;
+                        })
+                      }
+                      disabled={pdfLoading}
+                      className="h-4 w-4 shrink-0 cursor-pointer accent-ink-navy"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-ink-navy">
+                        {garmentDisplayLabel(go.garment_id)}
+                      </span>
+                      <span className="block text-xs text-muted">
+                        #{truncateId(go.id)}
+                        {go.status ? ` · ${go.status.replace(/_/g, " ")}` : ""}
+                      </span>
+                    </span>
+                    <span className="ml-auto shrink-0 text-sm font-semibold text-ink-navy">
+                      {formatPrice(price)}
+                    </span>
+                  </label>
+                );
+              })}
+              {garmentOrders.length === 0 && (
+                <p className="rounded-lg border border-dashed border-hairline px-3 py-2.5 text-xs text-muted">
+                  No garment orders on this order yet.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       </BottomSheet>
     </div>
