@@ -64,6 +64,7 @@ import {
 import { generateInvoicePdf } from "@/lib/invoice-pdf";
 import { buildUpiPayUrl, UPI_VPA } from "@/lib/upi";
 import { GarmentOrderEditor } from "./GarmentOrderEditor";
+import { GarmentOrderAssets } from "./GarmentOrderAssets";
 import {
   DesignFromImage,
   aiResultToGarmentOrderItems,
@@ -769,17 +770,18 @@ export default function OrderDetailPage() {
   }
 
   /**
-   * A reference image was uploaded at selection time for an existing garment
-   * order (apply mode). Persist it to garment_orders.assets_shared right away
-   * so it shows up on the order page + PDF without waiting for "Apply to
-   * Order". Deduped against any photos already recorded.
+   * Append image URLs to garment_orders.assets_shared (deduped) and persist
+   * right away, so uploads from the assets gallery and reference images
+   * picked during AI selection both land on the order page + PDF without a
+   * separate save step.
    */
-  async function applyGOImageUrl(goId: string, imageUrl: string) {
-    if (!imageUrl) return;
+  async function attachGOImageUrls(goId: string, urls: string[]) {
+    const add = urls.filter(Boolean);
+    if (add.length === 0) return;
     const go = garmentOrders.find((g) => g.id === goId);
     const existing = Array.isArray(go?.assets_shared) ? go!.assets_shared : [];
-    const next = Array.from(new Set([...existing, imageUrl].filter(Boolean)));
-    if (next.length === existing.length) return; // already present
+    const next = Array.from(new Set([...existing, ...add].filter(Boolean)));
+    if (next.length === existing.length) return; // nothing new
     // Optimistically update UI.
     setGarmentOrders((prev) =>
       prev.map((g) => (g.id === goId ? { ...g, assets_shared: next } : g)),
@@ -794,6 +796,33 @@ export default function OrderDetailPage() {
         prev.map((g) => (g.id === goId ? { ...g, assets_shared: existing } : g)),
       );
       flash(e instanceof Error ? e.message : "Failed to save reference image");
+    }
+  }
+
+  /** A reference image was uploaded at selection time for an existing garment
+   * order (apply mode) — see attachGOImageUrls. */
+  async function applyGOImageUrl(goId: string, imageUrl: string) {
+    await attachGOImageUrls(goId, [imageUrl]);
+  }
+
+  /** Remove one image URL from garment_orders.assets_shared (persist immediately). */
+  async function detachGOImageUrl(goId: string, url: string) {
+    const go = garmentOrders.find((g) => g.id === goId);
+    const existing = Array.isArray(go?.assets_shared) ? go!.assets_shared : [];
+    if (!existing.includes(url)) return;
+    const next = existing.filter((u) => u !== url);
+    setGarmentOrders((prev) =>
+      prev.map((g) => (g.id === goId ? { ...g, assets_shared: next } : g)),
+    );
+    try {
+      await updateTableRow("garment_orders", goId, {
+        assets_shared: next.length > 0 ? next : null,
+      });
+    } catch (e) {
+      setGarmentOrders((prev) =>
+        prev.map((g) => (g.id === goId ? { ...g, assets_shared: existing } : g)),
+      );
+      flash(e instanceof Error ? e.message : "Failed to remove image");
     }
   }
 
@@ -2362,47 +2391,12 @@ export default function OrderDetailPage() {
                         </div>
                       </div>
 
-                      {/* Design inspiration images shared by the customer */}
-                      {(() => {
-                        const shared = Array.isArray(go.assets_shared)
-                          ? go.assets_shared
-                              .map((u) => (typeof u === "string" ? u : null))
-                              .filter((u): u is string => Boolean(u))
-                              .map(resolveAssetUrl)
-                              .filter((u): u is string => Boolean(u))
-                          : [];
-                        if (shared.length === 0) return null;
-                        return (
-                          <div className="mb-3">
-                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                              Design Inspiration ({shared.length})
-                            </div>
-                            <div className="mt-1 flex flex-wrap gap-2">
-                              {shared.map((src, i) => (
-                                <a
-                                  key={`${src}-${i}`}
-                                  href={src}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title={`Open image ${i + 1} in new tab`}
-                                  className="group relative block overflow-hidden rounded-md border border-hairline-strong bg-mist-navy/20"
-                                >
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img
-                                    src={src}
-                                    alt={`Design inspiration ${i + 1}`}
-                                    className="h-20 w-20 object-cover transition group-hover:opacity-90"
-                                    loading="lazy"
-                                  />
-                                </a>
-                              ))}
-                            </div>
-                            <div className="mt-0.5 text-[10px] text-muted">
-                              Click a thumbnail to open full-size.
-                            </div>
-                          </div>
-                        );
-                      })()}
+                      {/* Design inspiration images — upload / remove per GO */}
+                      <GarmentOrderAssets
+                        go={go}
+                        onAttach={attachGOImageUrls}
+                        onDetach={detachGOImageUrl}
+                      />
 
                       {/* Design editor: "Upload Reference" (AI) vs "Manual Select" */}
                       {editingGOId === go.id && (
