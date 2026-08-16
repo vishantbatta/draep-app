@@ -376,16 +376,16 @@ export function GarmentOrderEditor({
       }
     }
 
-    // Add-ons: sum each placement slot (variation price, else flat price)
+    // Add-ons: additive — base price + selected variation price per
+    // placement slot (Lining ₹100 + Full ₹30 = ₹130), matching the backend.
     for (const addon of tree.addons) {
       const sel = addonSelections[addon.id];
       if (!sel?.enabled) continue;
       for (const slot of sel.slots) {
+        total += addon.price ?? 0;
         if (slot.variationId) {
           const av = addon.variations.find((x) => x.id === slot.variationId);
           if (av?.price) total += av.price;
-        } else if (addon.price) {
-          total += addon.price;
         }
       }
     }
@@ -443,7 +443,7 @@ export function GarmentOrderEditor({
           addon_id: addon.id,
           addon_variation_id: av?.id ?? null,
           placement: slot.placement ? [slot.placement] : null,
-          price: av?.price ?? addon.price ?? null,
+          price: (addon.price ?? 0) + (av?.price ?? 0) || null,
           label_snapshot: buildAddonLabel(addonLabel, avLabel, slot.placement),
         });
       }
@@ -638,7 +638,7 @@ export function GarmentOrderEditor({
             addonVariationId: av?.id ?? null,
             type: "add_on",
             placement: slot.placement,
-            price: av?.price ?? addon.price ?? null,
+            price: (addon.price ?? 0) + (av?.price ?? 0) || null,
             labelSnapshot: buildAddonLabel(addonLabel, avLabel, slot.placement),
           });
         }
@@ -1182,21 +1182,22 @@ function AddonEditor({
   );
   const isMatrix = matrix.axes.length >= 2;
 
-  // Resolved price total across slots (for the header)
+  // Resolved price total across slots (for the header) — additive:
+  // base price + selected variation price per slot, matching the backend.
   let slotTotal = 0;
   for (const slot of slots) {
     const av = slot.variationId
       ? addon.variations.find((x) => x.id === slot.variationId)
       : null;
-    slotTotal += av?.price ?? addon.price ?? 0;
+    slotTotal += (addon.price ?? 0) + (av?.price ?? 0);
   }
 
-  // Resolve the price of one slot for its sub-block header.
+  // Resolve the price of one slot for its sub-block header — additive.
   function slotPrice(slot: AddonSlot): number | null {
     const av = slot.variationId
       ? addon.variations.find((x) => x.id === slot.variationId)
       : null;
-    return av?.price ?? addon.price ?? null;
+    return (addon.price ?? 0) + (av?.price ?? 0) || null;
   }
 
   return (
