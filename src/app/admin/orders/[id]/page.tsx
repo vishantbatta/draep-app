@@ -297,6 +297,16 @@ function captainNameById(
   return c?.name ?? c?.phone ?? truncateId(c!.id) ?? null;
 }
 
+/** Parse an address's jsonb `coordinates` ({"lat": number, "lng": number}). */
+function parseCoords(
+  raw: unknown,
+): { lat: number; lng: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { lat, lng } = raw as Record<string, unknown>;
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  return { lat, lng };
+}
+
 // ─── Small inline-editable field ──────────────────────────────────────────────
 
 function EditableNumber({
@@ -1962,6 +1972,37 @@ export default function OrderDetailPage() {
                       .filter(Boolean)
                       .join(", ") || "—"}
                   </div>
+                  {(() => {
+                    // Pin dropped by the customer at order creation —
+                    // clickable through to Google Maps.
+                    const coords = parseCoords(address.coordinates);
+                    if (!coords) return null;
+                    return (
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`Open pin ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)} in Google Maps`}
+                        className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-ink-navy underline decoration-hairline-strong underline-offset-2 transition hover:text-tape"
+                      >
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+                          <circle cx="12" cy="10" r="3" />
+                        </svg>
+                        {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+                      </a>
+                    );
+                  })()}
                 </div>
               ) : order.address_id ? (
                 <div className="text-xs text-muted">
