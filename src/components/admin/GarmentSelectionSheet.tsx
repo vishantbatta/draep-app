@@ -463,17 +463,17 @@ export function GarmentSelectionSheet({
     let total = basePrice ?? 0;
     if (!tree) return total;
 
-    // Components: add the variation_type price (if any) else variation price
+    // Components: ADDITIVE — variation price + selected type price (B2 + C),
+    // matching the backend (pricing._resolve_variation_price).
     for (const comp of tree.components) {
       const sel = componentSelections[comp.id];
       if (!sel) continue;
       const v = comp.variations.find((x) => x.id === sel.variationId);
       if (!v) continue;
+      total += v.price ?? 0;
       if (sel.variationTypeId) {
         const vt = v.variation_types.find((x) => x.id === sel.variationTypeId);
-        if (vt?.price) total += vt.price;
-      } else if (v.price) {
-        total += v.price;
+        if (vt) total += vt.price ?? 0;
       }
     }
 
@@ -519,7 +519,12 @@ export function GarmentSelectionSheet({
         addon_id: null,
         addon_variation_id: null,
         placement: null,
-        price: vt?.price ?? v.price ?? null,
+        // ADDITIVE: variation price + selected type price (B2 + C), matching
+        // the backend stamper; null only when both levels are unpriced.
+        price:
+          v.price == null && vt?.price == null
+            ? null
+            : (v.price ?? 0) + (vt?.price ?? 0),
         label_snapshot: buildLabelSnapshot(compLabel, varLabel, vtLabel),
       });
     }
