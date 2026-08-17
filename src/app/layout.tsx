@@ -59,7 +59,10 @@ export const viewport: Viewport = {
   minimumScale: 1,
   maximumScale: 1,
   userScalable: false,
-  viewportFit: "cover",
+  // No viewportFit "cover": on iOS 26 standalone PWAs, cover can extend the
+  // layout under the notch even with the "default" status bar style. Without
+  // cover the viewport stops below the status bar / above the home indicator,
+  // so overlap is impossible. Safe-area paddings (pb-safe) become no-ops.
   themeColor: "#083068",
 };
 
