@@ -19,6 +19,7 @@ const ACTION_TABS = [
   { key: "urls", label: "URLs", href: "/admin/actions/urls" },
   { key: "measurements", label: "Measurements", href: "/admin/measurements" },
   { key: "validation-rules", label: "Validation Rules", href: "/admin/catalogue/validation-rules" },
+  { key: "sop-video", label: "SOP Video Generator", href: "/admin/actions/sop-video" },
 ] as const;
 
 type ActionTabKey = (typeof ACTION_TABS)[number]["key"];

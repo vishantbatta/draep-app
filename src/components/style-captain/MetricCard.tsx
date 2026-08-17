@@ -23,10 +23,14 @@ export interface MetricDraft {
 
 export function MetricCard({
   metric,
+  requiredBy,
 }: {
   metric: SCMetric;
   draft: MetricDraft;
   onChange: (next: MetricDraft) => void;
+  /** Body metrics only — which garments (and their selections) require this
+   *  reading, e.g. "Blouse 1 — Blouse length: Long waist". */
+  requiredBy?: { garment: string; entities: string[] }[];
 }) {
   const labels = metric.labels ?? {};
   const descriptions = metric.descriptions ?? {};
@@ -53,6 +57,20 @@ export function MetricCard({
             </span>
           )}
         </div>
+
+        {/* ─── Why this is asked (body metrics driven by a garment) ──────── */}
+        {requiredBy && requiredBy.length > 0 && (
+          <p className="rounded-lg bg-mist-navy/60 px-3 py-2 text-[11px] leading-snug text-ink">
+            <span className="font-semibold text-accent-text">Needed for </span>
+            {requiredBy
+              .map((r) =>
+                r.entities.length > 0
+                  ? `${r.garment} — ${r.entities.join(", ")}`
+                  : r.garment,
+              )
+              .join("  ·  ")}
+          </p>
+        )}
 
         {/* ─── Reference image (tap to expand) ────────────────────────────── */}
         {image && (

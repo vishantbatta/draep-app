@@ -30,6 +30,12 @@ import { briefLabel } from "./GarmentSummaryCard";
  * values (e.g. "Special Latkan") stay reachable as extra chips. Only
  * parameter-less add-ons fall back to flat option pills.
  *
+ * Where-priced grids (a leading Where parameter, like Key Hole) are
+ * multi-spot: the Where chips toggle spots on/off and every active spot gets
+ * its own indented parameter pick set — the same add-on can sit on several
+ * spots at once (a key hole on each sleeve, each with its own shape/size),
+ * one order row per spot on save.
+ *
  * Saves sequentially (DELETE removed add-ons → POST new ones → PUT changed
  * variations/add-on variations), then reports how the measurement checklist
  * shifted ("+2 added, −1 removed") against the baseline metric ids passed in.
@@ -43,11 +49,19 @@ interface PendingChoice {
 /** One add-on card's pending state. `placements` maps placement key → active;
  *  non-placement add-ons use the "" key. Matrix add-ons keep per-axis picks
  *  in `axisSel` (resolved to a variation on save); flat ones use
- *  `variationId` directly. */
+ *  `variationId` directly.
+ *
+ *  Matrix add-ons whose first axis is "Where" (placement-priced grids like
+ *  Key Hole) instead keep one pick set per active spot in `whereSel` — the
+ *  where key's presence means the spot is on, and its value holds that spot's
+ *  picks on the remaining axes. The same add-on can therefore sit on several
+ *  spots at once, each with its own combination (left sleeve small + right
+ *  sleeve large). */
 interface AddonPending {
   selected: boolean;
   variationId: string | null;
   axisSel: Record<string, string>;
+  whereSel: Record<string, Record<string, string>>;
   placements: Record<string, boolean>;
 }
 
@@ -209,10 +223,12 @@ export function SelectionSheet({
   }
 
   // Per add-on: the variations the card offers + their parameter decomposition.
-  // With existing rows the set is filtered to the row's placement (a row's
-  // placement can't move — placement-priced picks re-add it instead); legacy
-  // rows can sit at a placement no variation is priced for (e.g. a Key Hole
-  // row with NULL placement), which filters to nothing — fall back to all
+  // Where-priced grids (matrix with a leading "Where" axis) always model the
+  // FULL variation pool — every spot must stay offerable, one pick set each.
+  // Otherwise, with existing rows the set is filtered to the row's placement
+  // (a row's placement can't move — placement-priced picks re-add it instead);
+  // legacy rows can sit at a placement no variation is priced for (e.g. a Key
+  // Hole row with NULL placement), which filters to nothing — fall back to all
   // variations so the parameters stay pickable, and saving re-adds the row at
   // the chosen variation's own placement. New adds follow the active placement
   // chips (or all variations).
@@ -225,12 +241,18 @@ export function SelectionSheet({
         matrix: boolean;
         oddments: SCAddonVariationOption[];
         axisValuesOf: (v: SCAddonVariationOption) => Record<string, string>;
+        /** Placement-priced grid — one pick set per spot (whereSel). */
+        whereMatrix: boolean;
       }
     > = {};
     for (const a of availableAddons) {
       const rows = rowsByAddon[a.addon.id] ?? [];
+      const full = addonAxisModel(a.variations);
+      const whereMatrix = full.matrix && full.axes[0]?.key === "where";
       let source: SCAddonVariationOption[];
-      if (rows.length > 0) {
+      if (whereMatrix) {
+        source = a.variations;
+      } else if (rows.length > 0) {
         const filtered = eligibleVariations(
           a,
           rows[0].placement?.[0] ?? null,
@@ -245,8 +267,17 @@ export function SelectionSheet({
             ? eligibleVariations(a, firstActive)
             : a.variations;
       }
-      const { axes, matrix, oddments, axisValuesOf } = addonAxisModel(source);
-      out[a.addon.id] = { source, axes, matrix, oddments, axisValuesOf };
+      const { axes, matrix, oddments, axisValuesOf } = whereMatrix
+        ? full
+        : addonAxisModel(source);
+      out[a.addon.id] = {
+        source,
+        axes,
+        matrix,
+        oddments,
+        axisValuesOf,
+        whereMatrix,
+      };
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -266,10 +297,27 @@ export function SelectionSheet({
         a.default_variation_id ??
         null;
       const seed = model.source.find((v) => v.id === seedVar) ?? null;
+      // Where-priced grids seed one pick set per existing row's spot (the
+      // row's variation is looked up in the add-on's own list — the row
+      // payload only carries a brief).
+      let whereSel: Record<string, Record<string, string>> = {};
+      if (model.whereMatrix) {
+        for (const row of rows) {
+          const av = a.variations.find(
+            (v) => v.id === row.addon_variation?.id,
+          );
+          if (!av) continue;
+          const vals = model.axisValuesOf(av);
+          const { where, ...rest } = vals;
+          if (!where) continue;
+          whereSel[where] = rest;
+        }
+      }
       out[a.addon.id] = {
         selected: rows.length > 0,
         variationId: seed?.id ?? null,
         axisSel: seed ? model.axisValuesOf(seed) : {},
+        whereSel,
         placements: initialAddonPlacements(a, rows),
       };
     }
@@ -313,7 +361,8 @@ export function SelectionSheet({
 
   /** The variation a card's current picks resolve to (parameter picks for
    *  matrix add-ons, the chosen pill otherwise). Null until a full
-   *  combination exists. */
+   *  combination exists. Where-priced grids resolve per spot instead — see
+   *  resolvedVariationAt. */
   function resolvedVariation(a: SCAvailableAddon): SCAddonVariationOption | null {
     const p = addonPending[a.addon.id];
     const model = addonModels[a.addon.id];
@@ -330,6 +379,26 @@ export function SelectionSheet({
     return model.source.find((v) => v.id === p.variationId) ?? null;
   }
 
+  /** The variation one active spot's picks resolve to on a where-priced grid
+   *  (the spot's key came from whereSel; its picks exclude "where"). */
+  function resolvedVariationAt(
+    a: SCAvailableAddon,
+    where: string,
+  ): SCAddonVariationOption | null {
+    const p = addonPending[a.addon.id];
+    const model = addonModels[a.addon.id];
+    if (!p || !model) return null;
+    const sel = p.whereSel[where];
+    if (!sel) return null;
+    return (
+      model.source.find((v) => {
+        const vals = model.axisValuesOf(v);
+        if (vals.where !== where) return false;
+        return model.axes.every((ax) => ax.key === "where" || vals[ax.key] === sel[ax.key]);
+      }) ?? null
+    );
+  }
+
   /** Did the captain actually change this add-on card since opening? */
   function addonDirty(a: SCAvailableAddon): boolean {
     const p = addonPending[a.addon.id];
@@ -341,7 +410,8 @@ export function SelectionSheet({
       Object.keys(p.placements).some(
         (k) => p.placements[k] !== p0.placements[k],
       ) ||
-      Object.keys(p.axisSel).some((k) => p.axisSel[k] !== p0.axisSel[k])
+      Object.keys(p.axisSel).some((k) => p.axisSel[k] !== p0.axisSel[k]) ||
+      JSON.stringify(p.whereSel) !== JSON.stringify(p0.whereSel)
     );
   }
 
@@ -362,6 +432,79 @@ export function SelectionSheet({
     }[] = [];
     if (!p || !model) return ops;
     if (!addonDirty(a)) return ops;
+
+    // Where-priced grid (Key Hole): one row per active spot. Rows are matched
+    // to spots by their variation's where segment (case-insensitively against
+    // the row's placement for legacy rows), re-stamped or re-added when the
+    // spot's picks changed, deleted when the spot went off.
+    if (model.whereMatrix) {
+      const activeWheres = Object.keys(p.whereSel);
+      const rowSpot = (row: SCSelection): string | null => {
+        // The row payload only carries a brief — resolve it against the
+        // add-on's full variations before reading its where segment.
+        const av = a.variations.find(
+          (v) => v.id === row.addon_variation?.id,
+        );
+        if (av) {
+          const w = model.axisValuesOf(av).where;
+          if (w) return w;
+        }
+        const pl = row.placement?.[0];
+        // Legacy row without a variation: fall back to its placement column.
+        return (
+          model.axes[0].values.find(
+            (w) => w.toLowerCase() === (pl ?? "").toLowerCase(),
+          ) ?? null
+        );
+      };
+      for (const row of rows) {
+        const spot = rowSpot(row);
+        const stillActive =
+          spot !== null && activeWheres.includes(spot);
+        if (!stillActive) {
+          ops.push({ kind: "delete", itemId: row.item_id });
+          continue;
+        }
+        const resolved = spot !== null ? resolvedVariationAt(a, spot) : null;
+        if (!resolved) continue; // spot incomplete — flagged by missingAddonChoice
+        if (resolved.id === row.addon_variation?.id) continue;
+        // A variation priced for the row's placement swaps in place; one priced
+        // for another placement must move the row — delete + re-add there.
+        const rowPl = row.placement?.[0] ?? null;
+        if (eligibleVariations(a, rowPl).some((v) => v.id === resolved.id)) {
+          ops.push({
+            kind: "put",
+            itemId: row.item_id,
+            input2: { addon_variation_id: resolved.id },
+          });
+        } else {
+          ops.push({ kind: "delete", itemId: row.item_id });
+          ops.push({
+            kind: "post",
+            input: {
+              addon_id: a.addon.id,
+              addon_variation_id: resolved.id,
+              placement: resolved.placement ?? rowPl,
+            },
+          });
+        }
+      }
+      for (const where of activeWheres) {
+        const taken = rows.some((r) => rowSpot(r) === where);
+        if (taken) continue;
+        const resolved = resolvedVariationAt(a, where);
+        ops.push({
+          kind: "post",
+          input: {
+            addon_id: a.addon.id,
+            addon_variation_id: resolved?.id ?? null,
+            placement: resolved?.placement ?? where,
+          },
+        });
+      }
+      return ops;
+    }
+
     const resolved = resolvedVariation(a);
 
     const activePlacements = Object.entries(p.placements)
@@ -502,23 +645,103 @@ export function SelectionSheet({
           a.default_variation_id ??
           null;
         const seed = model.source.find((v) => v.id === seedVar) ?? null;
+        // Where-priced grid: activate the first spot seeded from the catalog
+        // default (or the first variation), picks on the remaining axes.
+        let whereSel = cur.whereSel;
+        if (model.whereMatrix) {
+          const firstSpot =
+            model.axes[0].values.find((w) => cur.whereSel[w]) ??
+            (seed ? model.axisValuesOf(seed).where : undefined) ??
+            model.axes[0].values[0];
+          const seedVals = model.axisValuesOf(
+            seed && model.axisValuesOf(seed).where === firstSpot
+              ? seed
+              : (model.source.find(
+                  (v) => model.axisValuesOf(v).where === firstSpot,
+                ) ?? model.source[0]),
+          );
+          const rest = { ...seedVals };
+          delete rest.where;
+          whereSel =
+            firstSpot ? { ...cur.whereSel, [firstSpot]: rest } : cur.whereSel;
+        }
         return {
           ...prev,
           [a.addon.id]: {
             selected: true,
             variationId: seed?.id ?? null,
             axisSel: seed ? model.axisValuesOf(seed) : {},
+            whereSel,
             placements,
           },
         };
       }
-      // Deselect: every placement off.
+      // Deselect: every placement (and every spot of a where-priced grid) off.
       const placements = Object.fromEntries(
         Object.keys(cur.placements).map((k) => [k, false]),
       );
       return {
         ...prev,
-        [a.addon.id]: { ...cur, selected: false, placements },
+        [a.addon.id]: {
+          ...cur,
+          selected: false,
+          placements,
+          ...(model.whereMatrix ? { whereSel: {} } : {}),
+        },
+      };
+    });
+  }
+
+  /** Turn one spot of a where-priced grid on/off. On: seed its picks from the
+   *  catalog default when that variation lives at this spot, else the spot's
+   *  first variation. Off: drop the spot's pick set. */
+  function toggleWhere(a: SCAvailableAddon, where: string) {
+    setAddonPending((prev) => {
+      const cur = prev[a.addon.id];
+      const model = addonModels[a.addon.id];
+      if (!cur || !model) return prev;
+      const whereSel = { ...cur.whereSel };
+      if (whereSel[where]) {
+        delete whereSel[where];
+      } else {
+        const atSpot = model.source.filter(
+          (v) => model.axisValuesOf(v).where === where,
+        );
+        const def = atSpot.find((v) => v.id === a.default_variation_id);
+        const seedVals = model.axisValuesOf(def ?? atSpot[0] ?? model.source[0]);
+        const rest = { ...seedVals };
+        delete rest.where;
+        whereSel[where] = rest;
+      }
+      const selected =
+        Object.values(cur.placements).some(Boolean) ||
+        Object.keys(whereSel).length > 0;
+      return {
+        ...prev,
+        [a.addon.id]: { ...cur, selected, whereSel },
+      };
+    });
+  }
+
+  /** Pick one axis value for one spot of a where-priced grid. */
+  function pickWhereAxis(
+    addonId: string,
+    where: string,
+    axisKey: string,
+    value: string,
+  ) {
+    setAddonPending((prev) => {
+      const cur = prev[addonId];
+      if (!cur?.whereSel[where]) return prev;
+      return {
+        ...prev,
+        [addonId]: {
+          ...cur,
+          whereSel: {
+            ...cur.whereSel,
+            [where]: { ...cur.whereSel[where], [axisKey]: value },
+          },
+        },
       };
     });
   }
@@ -701,6 +924,9 @@ export function SelectionSheet({
                 a.placements && a.placements.length > 0,
               );
               const isMatrix = model.matrix;
+              const whereMatrix = model.whereMatrix;
+              const activeWheres = Object.keys(p.whereSel);
+              const nonWhereAxes = model.axes.filter((ax) => ax.key !== "where");
               const singleAxis =
                 !isMatrix && model.axes.length === 1 ? model.axes[0] : null;
               const resolved = resolvedVariation(a);
@@ -709,11 +935,10 @@ export function SelectionSheet({
                 hasPlacements && model.axes[0]?.key !== "where";
               const hint =
                 a.price ?? resolved?.price ?? a.variations[0]?.price ?? null;
-              // Conditional showing: only values that can complete a real
-              // combination with the picks on every other parameter render
-              // (an unpicked parameter constrains nothing). E.g. with
-              // Front neck cut + Triangle picked and "Front neck cut ·
-              // Triangle · Large" not in the catalog, Large disappears.
+              // Conditional showing (per spot on where-priced grids): only
+              // values that can complete a real combination with that spot's
+              // picks on every other parameter render (an unpicked parameter
+              // constrains nothing).
               const comboExists = (key: string, value: string) =>
                 model.source.some(
                   (v) =>
@@ -723,6 +948,20 @@ export function SelectionSheet({
                         ax.key === key ||
                         p.axisSel[ax.key] === undefined ||
                         model.axisValuesOf(v)[ax.key] === p.axisSel[ax.key],
+                    ),
+                );
+              const comboExistsAt = (where: string, key: string, value: string) =>
+                model.source.some(
+                  (v) =>
+                    model.axisValuesOf(v).where === where &&
+                    model.axisValuesOf(v)[key] === value &&
+                    model.axes.every(
+                      (ax) =>
+                        ax.key === "where" ||
+                        ax.key === key ||
+                        p.whereSel[where]?.[ax.key] === undefined ||
+                        model.axisValuesOf(v)[ax.key] ===
+                          p.whereSel[where]?.[ax.key],
                     ),
                 );
               return (
@@ -757,7 +996,100 @@ export function SelectionSheet({
                     </button>
                   </div>
 
-                  {p.selected && isMatrix && (
+                  {p.selected && whereMatrix && model.axes[0] && (
+                    <>
+                      {/* Where — multi-select: every active spot gets its own
+                          pick set below (e.g. key holes on both sleeves). */}
+                      <div className="space-y-1">
+                        <p className="text-eyebrow uppercase tracking-wider text-accent-text">
+                          {model.axes[0].label}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {model.axes[0].values.map((val) => {
+                            const isActive = !!p.whereSel[val];
+                            return (
+                              <button
+                                key={val}
+                                onClick={() => toggleWhere(a, val)}
+                                className={`tap rounded-pill px-3 py-1 text-[12px] font-medium capitalize transition ${
+                                  isActive
+                                    ? "bg-ink-navy text-chalk-white shadow-card"
+                                    : "border border-hairline-strong bg-chalk-white text-ink-navy"
+                                }`}
+                              >
+                                {val}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {activeWheres.map((where) => {
+                        const spotSel = p.whereSel[where];
+                        const spotResolved = resolvedVariationAt(a, where);
+                        return (
+                          <div
+                            key={where}
+                            className="space-y-1.5 rounded-card border border-hairline bg-mist-navy/40 px-2.5 py-2"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-caption font-semibold capitalize text-ink-navy">
+                                {where}
+                              </p>
+                              {spotResolved && (
+                                <p className="text-[11px] text-muted">
+                                  +{" "}
+                                  {formatPrice(
+                                    (a.price ?? 0) + (spotResolved.price ?? 0),
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                            {nonWhereAxes.map((ax) => (
+                              <div key={ax.key} className="space-y-1">
+                                <p className="text-[11px] font-medium text-muted">
+                                  {ax.label}
+                                </p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {ax.values.map((val) => {
+                                    if (!comboExistsAt(where, ax.key, val))
+                                      return null;
+                                    const isActive = spotSel[ax.key] === val;
+                                    return (
+                                      <button
+                                        key={val}
+                                        onClick={() =>
+                                          pickWhereAxis(
+                                            a.addon.id,
+                                            where,
+                                            ax.key,
+                                            val,
+                                          )
+                                        }
+                                        className={`tap rounded-pill px-3 py-1 text-[12px] font-medium capitalize transition ${
+                                          isActive
+                                            ? "bg-ink-navy text-chalk-white shadow-card"
+                                            : "border border-hairline-strong bg-chalk-white text-ink-navy"
+                                        }`}
+                                      >
+                                        {val}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                            {!spotResolved && (
+                              <p className="text-[11px] text-muted">
+                                Pick an option in each row.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+
+                  {p.selected && isMatrix && !whereMatrix && (
                     <>
                       {model.axes.map((ax) => (
                         <div key={ax.key} className="space-y-1">

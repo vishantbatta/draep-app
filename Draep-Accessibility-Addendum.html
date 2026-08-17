@@ -98,8 +98,9 @@
     font: 600 15px 'Inter', Arial, sans-serif; white-space: nowrap;
   }
   .btn-before { background: linear-gradient(135deg, #F89010 0%, #E87810 35%, #D06010 68%, #A85010 100%); color: #FFFFFF; }
-  .btn-recipeA { background: linear-gradient(135deg, #B85A10 0%, #B0560F 50%, #A85010 100%); color: #FFFFFF; }
-  .btn-recipeB { background: linear-gradient(135deg, #F89010 0%, #EE7E10 100%); color: var(--navy); border: 1.5px solid var(--navy); }
+  .btn-deep { background: #A85010; color: #FFFFFF; }
+  .btn-mid { background: #B85A10; color: #FFFFFF; }
+  .btn-ember { background: #D06010; color: #FFFFFF; font-size: 19px; font-weight: 700; }
 
   .demorow { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
 
@@ -220,11 +221,11 @@
     <h1>Accessibility<br>Addendum</h1>
     <div class="sub">A WCAG 2.2 AA contrast audit of the Draep Brand Book, v1.0&nbsp;&#8212; every failing pairing, and a verified fix for each, shown before and after.</div>
     <div class="summarycard">
-      <div class="big">14 color pairings tested · 5 fail AA · every proposed replacement verified at <span class="mono">4.5 : 1</span> or better, computed to WCAG relative luminance.</div>
+      <div class="big">14 color pairings tested · 5 fail AA · every replacement verified against its WCAG 2.2 AA threshold, computed to relative luminance.</div>
       <div class="metarow">
         <div class="m"><div class="k">Standard</div><div class="w">WCAG 2.2 AA</div></div>
         <div class="m"><div class="k">Scope</div><div class="w">§04–06 · palette &amp; components</div></div>
-        <div class="m"><div class="k">Fixes</div><div class="w">2 CTA recipes · 4 color swaps</div></div>
+        <div class="m"><div class="k">Fixes</div><div class="w">Solid white-on-orange CTA · 3 swaps</div></div>
       </div>
     </div>
     <div class="footer"><span>Measured for everyone.</span><span>01 / 06</span></div>
@@ -283,27 +284,32 @@
     </div>
 
     <div class="card pass">
-      <div class="cardhead"><span class="tag">Recipe A · Drop-in</span><span class="name">Deep Tape&nbsp;&#8212; keep the white label</span><span class="v v-pass">PASS · 4.66&#8211;5.50</span></div>
-      <div class="demorow"><span class="btn btn-recipeA">Book a free visit</span><span class="note" style="margin-top:0">Same pill, same 135&#176; flow, same white label &#8212;<br>only the stops deepen.</span></div>
+      <div class="cardhead"><span class="tag">The pick · Solid CTA</span><span class="name">Deep Tape <span class="mono" style="font-size:12px">#A85010</span> · white label, gradient retired</span><span class="v v-pass">PASS · 5.50</span></div>
+      <div class="demorow"><span class="btn btn-deep">Book a free visit</span><span class="note" style="margin-top:0">The tape&#8217;s own dark end, promoted to the whole button.<br>White 15&nbsp;px SemiBold label&nbsp;&#8212; exactly as the book specs it.</span></div>
       <div class="stops">
-        <div class="stop"><div class="sw" style="background:#B85A10"></div><div class="hx">#B85A10</div><div class="rt rt-ok">4.66</div></div>
-        <div class="stop"><div class="sw" style="background:#B0560F"></div><div class="hx">#B0560F</div><div class="rt rt-ok">5.02</div></div>
-        <div class="stop"><div class="sw" style="background:#A85010"></div><div class="hx">#A85010</div><div class="rt rt-ok">5.50</div></div>
+        <div class="stop"><div class="sw" style="background:#A85010"></div><div class="hx">#A85010 + white</div><div class="rt rt-ok">5.50</div></div>
+        <div class="stop"><div class="sw" style="background:#FFF6EA"></div><div class="hx">#A85010 vs sand</div><div class="rt rt-ok">5.14</div></div>
       </div>
-      <div class="note">Every stop clears 4.5&nbsp;:&nbsp;1 with white text, and the button edge sits at <b>4.35&nbsp;:&nbsp;1</b> against Warm Sand (non-text AA needs 3&nbsp;:&nbsp;1). A richer, jam-toned tape&nbsp;&#8212; the closest one-line change to the current spec.</div>
+      <div class="note">No new color, no label resize, comfortable margin. Hover and pressed darken to <span class="mono">#9A4A0E</span> at 6.25&nbsp;:&nbsp;1; an Ember focus ring clears 3&nbsp;:&nbsp;1 at 3.92.</div>
     </div>
 
     <div class="card pass">
-      <div class="cardhead"><span class="tag">Recipe B · Alternative</span><span class="name">Bright Tape&nbsp;&#8212; Ink Navy label</span><span class="v v-pass">PASS · 4.67&#8211;5.50</span></div>
-      <div class="demorow"><span class="btn btn-recipeB">Book a free visit</span><span class="note" style="margin-top:0">Keeps the brand&#8217;s bright orange and makes the label<br>navy&nbsp;&#8212; the navy + orange handshake, on the button itself.</span></div>
+      <div class="cardhead"><span class="tag">Brighter · more pop</span><span class="name">Solid <span class="mono" style="font-size:12px">#B85A10</span> · the passing ceiling</span><span class="v v-pass">PASS · 4.66</span></div>
+      <div class="demorow"><span class="btn btn-mid">Book a free visit</span><span class="note" style="margin-top:0">The brightest orange that still carries white text&nbsp;&#8212;<br>about one shade brighter than the pick.</span></div>
       <div class="stops">
-        <div class="stop"><div class="sw" style="background:#F89010"></div><div class="hx">#F89010 + navy</div><div class="rt rt-ok">5.50</div></div>
-        <div class="stop"><div class="sw" style="background:#EE7E10"></div><div class="hx">#EE7E10 + navy</div><div class="rt rt-ok">4.67</div></div>
+        <div class="stop"><div class="sw" style="background:#B85A10"></div><div class="hx">#B85A10 + white</div><div class="rt rt-ok">4.66</div></div>
+        <div class="stop"><div class="sw" style="background:#FFF6EA"></div><div class="hx">#B85A10 vs sand</div><div class="rt rt-ok">4.35</div></div>
       </div>
-      <div class="note">Navy text passes on both stops. Keep the 1.5&nbsp;px navy ring shown above: the bright fill&#8217;s edge against Warm Sand is 2.18&nbsp;:&nbsp;1, so the ring carries the non-text 3&nbsp;:&nbsp;1 duty for the component boundary.</div>
+      <div class="note">Valid AA, but the margin is thin: <span class="mono">#C05A10</span>, one shade brighter, already fails at 4.46. A new hex for the palette, in exchange for one shade of pop.</div>
     </div>
 
-    <div class="callout"><b>Either recipe is compliant.</b> What is never compliant: flattening the gradient to solid <span class="mono">#F89010</span> and keeping the white label&nbsp;&#8212; that is still 2.34&nbsp;:&nbsp;1.</div>
+    <div class="card pass">
+      <div class="cardhead"><span class="tag">Escape hatch · brightest orange</span><span class="name">Ember <span class="mono" style="font-size:12px">#D06010</span> · white at 19&nbsp;px bold</span><span class="v v-pass">PASS · 3.92 large</span></div>
+      <div class="demorow"><span class="btn btn-ember">Book a free visit</span><span class="note" style="margin-top:0">Ember is already a primary color, and a 19&nbsp;px bold label<br>is normal for a hero CTA.</span></div>
+      <div class="note">Large text (&#8805;19&nbsp;px at weight 700, or &#8805;24&nbsp;px) needs only 3&nbsp;:&nbsp;1, which Ember clears at 3.92&nbsp;&#8212; but at the book&#8217;s 15&nbsp;px SemiBold this same button fails (3.92&nbsp;&lt;&nbsp;4.5), so this recipe locks the label at 19&nbsp;px&nbsp;+.</div>
+    </div>
+
+    <div class="callout"><b>The one forbidden move:</b> solid <span class="mono">#F89010</span> with a white label is 2.34&nbsp;:&nbsp;1&nbsp;&#8212; the gradient&#8217;s failure minus the gradient. White ink on this orange becomes legal at <span class="mono">#B85A10</span>; the pick is <span class="mono">#A85010</span>.</div>
     <div class="footer"><span>Draep Brand Book v1.0 · Accessibility Addendum</span><span>03 / 06</span></div>
   </div>
 </div>
@@ -329,13 +335,14 @@
     </div>
 
     <div class="card pass">
-      <div class="cardhead"><span class="tag">Fix · Text</span><span class="name">Deep Tape <span class="mono" style="font-size:12px">#A85010</span> for orange text</span><span class="v v-pass">PASS · 5.14&#8211;5.50</span></div>
+      <div class="cardhead"><span class="tag">Fix · Text</span><span class="name">Display text stays orange&nbsp;&#8212; Ember <span class="mono" style="font-size:12px">#D06010</span></span><span class="v v-pass">PASS · 3.66&#8211;3.92</span></div>
       <div class="demobox" style="margin-bottom:12px">
-        <div class="sample-label">Same price&nbsp;&#8212; now compliant on white and sand</div>
-        <div style="font:600 19px 'Inter', Arial, sans-serif; color:#A85010">From &#8377;800 &#183; <span class="mono" style="font-size:15px">#DRP-10428</span></div>
-        <div style="font:600 19px 'Inter', Arial, sans-serif; color:#A85010; margin-top:8px; background:#FFF6EA; border-radius:8px; padding:8px 12px; display:inline-block">From &#8377;2,400&nbsp;&#8212; on Warm Sand &#183; 5.14 : 1</div>
+        <div class="sample-label">Prices at 24&nbsp;px&nbsp;&#8212; Ember on white and Warm Sand (large-text AA)</div>
+        <div style="font:700 24px 'Inter', Arial, sans-serif; color:#D06010">From &#8377;800 &#183; <span class="mono" style="font-size:18px; color:#083068">#DRP-10428</span></div>
+        <div style="font:700 24px 'Inter', Arial, sans-serif; color:#D06010; margin-top:8px; background:#FFF6EA; border-radius:8px; padding:8px 12px; display:inline-block">From &#8377;2,400 &#183; 3.66 : 1 on sand</div>
+        <div style="font:400 15px 'Inter', Arial, sans-serif; color:#083068; margin-top:10px">Blouse stitching&nbsp;&#8212; from &#8377;800 <span style="color:rgba(8,48,104,.55)">&#183; body-size prices in Ink Navy, 12.86 : 1</span></div>
       </div>
-      <div class="note">Same hue family&nbsp;&#8212; it is literally the dark end of the existing gradient, promoted to a named role. <b>AAA option:</b> <span class="mono">#9A4A0E</span> at 6.25&nbsp;:&nbsp;1 (5.84 on sand), for long-form orange text.</div>
+      <div class="note">Large text (&#8805;24&nbsp;px, or &#8805;19&nbsp;px at weight 700) needs only 3&nbsp;:&nbsp;1, and Ember clears it on white <b>3.92</b> and sand <b>3.66</b>, so display prices keep their warmth. Smaller orange text becomes Ink Navy&nbsp;&#8212; and when the accent is truly essential, <span class="mono">#A85010</span> holds 5.50&nbsp;:&nbsp;1 at any size.</div>
     </div>
 
     <div class="card pass">
@@ -355,7 +362,7 @@
       <div class="note">Ember already exists in the palette as the hover/pressed shade&nbsp;&#8212; it just was never used for UI marks. At <b>3.92&nbsp;:&nbsp;1</b> on white and <b>3.66&nbsp;:&nbsp;1</b> on sand it clears the 3&nbsp;:&nbsp;1 non-text bar for tick dividers, the timeline, dashed in-progress borders and focus rings.</div>
     </div>
 
-    <div class="callout"><b>New rule for &#167;04:</b> <span class="mono">#F89010</span> is a <b>surface and accent color</b>&nbsp;&#8212; fills, gradients, thread. It is never a text color and never a functional mark on white or Warm Sand.</div>
+    <div class="callout"><b>New rule for &#167;04:</b> <span class="mono">#F89010</span> is a <b>surface and accent color</b>&nbsp;&#8212; fills, gradients, thread. Text goes Ember at display size and Ink Navy at body size; marks and dividers go Ember.</div>
     <div class="footer"><span>Draep Brand Book v1.0 · Accessibility Addendum</span><span>04 / 06</span></div>
   </div>
 </div>
@@ -421,9 +428,9 @@
 
     <table class="summary">
       <tr><th style="width:20%">Use</th><th style="width:19%">Was</th><th style="width:24%">Now</th><th style="width:13%">Contrast</th><th style="width:24%">Where it applies</th></tr>
-      <tr><td>Primary CTA · white label</td><td class="mono">#F89010&#8201;&#8594;&#8201;#A85010</td><td class="mono"><b>#B85A10&#8201;&#8594;&#8201;#A85010</b></td><td class="ratio r-ok">4.66&#8211;5.50</td><td>Gradient pills, primary buttons (Recipe A)</td></tr>
-      <tr><td>Primary CTA · bright variant</td><td class="mono"></td><td class="mono"><b>#F89010&#8201;&#8594;&#8201;#EE7E10</b> + navy label + navy ring</td><td class="ratio r-ok">4.67&#8211;5.50</td><td>When the bright tape must stay (Recipe B)</td></tr>
-      <tr><td>Orange as text</td><td class="mono">#F89010</td><td class="mono"><b>#A85010</b> &#183; AAA: #9A4A0E</td><td class="ratio r-ok">5.50 &#183; 6.25</td><td>Prices, links, highlights on white &amp; sand</td></tr>
+      <tr><td>Primary CTA · solid, white label</td><td class="mono">#F89010&#8201;&#8594;&#8201;#A85010 + white</td><td class="mono"><b>solid #A85010</b> &#183; hover #9A4A0E</td><td class="ratio r-ok">5.50 &#183; 6.25</td><td>All primary buttons; label stays 15&nbsp;px SemiBold</td></tr>
+      <tr><td>Primary CTA · brighter options</td><td class="mono"></td><td class="mono"><b>#B85A10</b> any size &#183; #D06010 at &#8805;19&nbsp;px bold</td><td class="ratio r-ok">4.66 &#183; 3.92</td><td>If more pop outranks margin</td></tr>
+      <tr><td>Orange as text</td><td class="mono">#F89010</td><td class="mono"><b>&#8805;24&nbsp;px: #D06010</b> &#183; smaller: navy &#183; opt #A85010</td><td class="ratio r-ok">3.92 &#183; 12.86 &#183; 5.50</td><td>Display prices stay orange; body size inks navy</td></tr>
       <tr><td>Orange as non-text UI</td><td class="mono">#F89010</td><td class="mono"><b>#D06010</b> Ember</td><td class="ratio r-ok">3.66&#8211;3.92</td><td>Tick dividers, Tape Timeline, in-progress borders, focus rings</td></tr>
       <tr><td>Success</td><td class="mono">#16A34A</td><td class="mono"><b>#15803D</b> &#183; AAA: #166534</td><td class="ratio r-ok">5.02 &#183; 7.13</td><td>Delivered badge, trial-passed toasts</td></tr>
       <tr><td>Warning</td><td class="mono">#EAB308 text</td><td class="mono"><b>#EAB308 fill + navy text</b> &#183; text: #A16207</td><td class="ratio r-ok">6.71 &#183; 4.92</td><td>Awaiting-slot chips, alert messages</td></tr>
@@ -432,8 +439,8 @@
     <h2 class="pagetitle" style="font-size:20px; margin-top:26px;">Write these six rules into the Brand Book</h2>
     <div class="accentbar"></div>
     <ol class="rules">
-      <li><b>Draep Orange <span class="mono">#F89010</span> is a surface &amp; accent color.</b> It is never a text color on white or Warm Sand&nbsp;&#8212; orange text is <span class="mono">#A85010</span>.</li>
-      <li><b>White label text only on stops of <span class="mono">#B85A10</span> or deeper</b> (4.5&nbsp;:&nbsp;1). Never solid <span class="mono">#F89010</span> with white text.</li>
+      <li><b>The primary CTA is solid <span class="mono">#A85010</span> with its white 15&nbsp;px SemiBold label</b> (5.50&nbsp;:&nbsp;1; hover <span class="mono">#9A4A0E</span> at 6.25). White on any brighter orange fails&nbsp;&#8212; <span class="mono">#B85A10</span> (4.66) is the ceiling, Ember only at &#8805;19&nbsp;px bold.</li>
+      <li><b>Orange text only at display size</b>&nbsp;&#8212; &#8805;24&nbsp;px, or &#8805;19&nbsp;px at weight 700, in Ember <span class="mono">#D06010</span>. Body-size accents: Ink Navy, or <span class="mono">#A85010</span> at 5.50&nbsp;:&nbsp;1.</li>
       <li><b>Ember <span class="mono">#D06010</span> is the non-text orange</b>&nbsp;&#8212; tick dividers, the Tape Timeline, dashed in-progress borders and focus rings (3.6&#8211;3.9&nbsp;:&nbsp;1).</li>
       <li><b>Success is <span class="mono">#15803D</span>.</b> Warning yellow appears only as a background under Ink Navy text; standalone warning text is <span class="mono">#A16207</span>.</li>
       <li><b>A 15&nbsp;px SemiBold label is normal text</b>&nbsp;&#8212; every button, chip and badge holds 4.5&nbsp;:&nbsp;1, not the 3&nbsp;:&nbsp;1 large-text bar.</li>

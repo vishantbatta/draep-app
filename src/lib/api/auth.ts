@@ -17,6 +17,12 @@ export function createAnonymousSession(): Promise<AnonymousSessionOut> {
   });
 }
 
+export function exchangeLoginLink(token: string): Promise<OtpVerifyOut> {
+  return apiPost<OtpVerifyOut>("/auth/login-link/exchange", { token }, {
+    skipAuth: true,
+  });
+}
+
 export function sendOtp(
   phone: string,
   countryCode = "+91",

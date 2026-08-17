@@ -11,7 +11,7 @@
  *
  * The admin can keep iterating until satisfied, then clicks "Confirm Design"
  * to hand the selections off to the parent (NewOrderSheet) which loads them
- * into GarmentOrderEditor.
+ * into GarmentSelectionSheet.
  *
  * Supports two modes:
  * 1. Draft mode (draftMode=true): passes DraftItem[] + imageUrl to parent
@@ -34,7 +34,7 @@ import {
   type GarmentOrderItemRow,
   type GarmentTree,
 } from "@/lib/admin-api";
-import type { DraftItem } from "./GarmentOrderEditor";
+import type { DraftItem } from "@/components/admin/GarmentSelectionSheet";
 
 // ─── Props ─────────────────────────────────────────────────────────────
 
@@ -56,8 +56,8 @@ interface DesignFromImageProps {
   /**
    * Apply mode (composerOnly): fired with the raw AI selections + add-ons +
    * reference image URL on every AI response, so the parent can prefill a
-   * GarmentOrderEditor (apply mode) without writing to the DB itself. The
-   * admin then saves explicitly via the editor's "Save Design" button.
+   * GarmentSelectionSheet (apply mode) without writing to the DB itself. The
+   * admin then saves explicitly via the sheet's "Save changes" button.
    */
   onApplyDraft?: (
     selections: AISelection[],
@@ -75,7 +75,7 @@ interface DesignFromImageProps {
    * Render ONLY the composer (upload/mic/send) and fire the appropriate
    * draft callback (onDraftChange in draft mode, onApplyDraft in apply mode)
    * on every AI response. The parent owns the reference image +
-   * GarmentOrderEditor and renders this beneath them.
+   * GarmentSelectionSheet and renders this beneath them.
    */
   composerOnly?: boolean;
   /**
@@ -186,7 +186,7 @@ function aiResultToDraftItems(
 
 /**
  * Convert the latest AI result into GarmentOrderItemRow[] (apply-mode shape)
- * so a real GarmentOrderEditor can be prefilled from it. Mirrors
+ * so a real GarmentSelectionSheet can be prefilled from it. Mirrors
  * aiResultToDraftItems but stamps the garment_order_id and row id.
  */
 export function aiResultToGarmentOrderItems(
@@ -370,7 +370,7 @@ export function DesignFromImage({
 
   // ── Push the current design up to the parent (live editor update) ────
   /**
-   * Fire the appropriate live callback so the parent's GarmentOrderEditor
+   * Fire the appropriate live callback so the parent's GarmentSelectionSheet
    * remounts with the given selections + add-ons. Shared by sendMessage
    * (on every AI response) and handleAddUnknownToCatalog (after a row is
    * created and auto-selected).
@@ -445,25 +445,35 @@ export function DesignFromImage({
    * before textDraft state is set (e.g. from the initialMessage effect).
    */
   const sendMessage = async (overrideText?: string) => {
-    const rawText = overrideText ?? textDraft;
-    const hasText = rawText.trim().length > 0;
-    const hasImage = !!pendingImage;
+    await sendDesign(
+      (overrideText ?? textDraft).trim(),
+      pendingImage,
+      pendingImagePreview,
+      pendingImageUrl,
+    );
+  };
+
+  /**
+   * Send one design message with explicit values (state snapshots may be
+   * stale in the same tick they were set — e.g. the auto-analyze right
+   * after an image upload). Empty text + no image is a no-op.
+   */
+  const sendDesign = async (
+    sendText: string,
+    sendImage: File | null,
+    sendImagePreview: string | null,
+    sendImageUrl: string | null,
+  ) => {
+    const hasText = sendText.length > 0;
+    const hasImage = !!sendImage;
     if (!hasText && !hasImage) return;
     if (loading) return;
 
     setError(null);
 
-    // Capture values before clearing composer state. We do NOT revoke the
-    // blob URL yet — it stays valid for the upload-zone preview and is only
-    // revoked once we have the hosted image_url back from the server.
-    const sendText = rawText.trim();
-    const sendImage = pendingImage;
-    const sendImagePreview = pendingImagePreview;
-    // Prefer the hosted URL produced by the upload-on-select step. Only fall
-    // back to re-sending the raw File if that upload failed (in which case
-    // the /chat endpoint will accept the multipart file and save it itself).
-    const sendImageUrl = pendingImageUrl;
-
+    // We do NOT revoke the blob URL yet — it stays valid for the
+    // upload-zone preview and is only revoked once we have the hosted
+    // image_url back from the server.
     setTextDraft("");
     setPendingImage(null);
     setPendingImagePreview(null);
@@ -574,8 +584,9 @@ export function DesignFromImage({
     // (and the draft order can save it as assets_shared) the moment it's
     // picked — before any analysis. The hosted URL is reused at analyze time
     // so we never upload the same bytes twice.
+    const preview = URL.createObjectURL(file);
     setPendingImage(file);
-    setPendingImagePreview(URL.createObjectURL(file));
+    setPendingImagePreview(preview);
     setPendingImageUrl(null);
     setUploadingImage(true);
     try {
@@ -583,6 +594,11 @@ export function DesignFromImage({
       setPendingImageUrl(url);
       setLastImageUrl(url);
       pushImageUrlUp(url);
+      // A picked photo analyzes right away — no "Analyze" press. The AI's
+      // selections prefill + flip the parent's sheet to the manual tab. (On
+      // upload failure we skip this; the Analyze button stays the fallback
+      // via the raw-File multipart path.)
+      await sendDesign("", file, preview, url);
     } catch (e) {
       setError(
         e instanceof Error

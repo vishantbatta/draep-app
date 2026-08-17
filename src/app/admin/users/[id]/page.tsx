@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  createUserLoginLink,
   fetchTableRows,
   updateTableRow,
   createTableRow,
@@ -75,6 +76,26 @@ function formatDate(v: string | null | undefined): string {
 
 function truncateId(id: string): string {
   return id.slice(0, 8);
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Non-secure context or permission denied — execCommand fallback.
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      return document.execCommand("copy");
+    } finally {
+      document.body.removeChild(ta);
+    }
+  }
 }
 
 // ─── Editable text field (auto-saves on blur) ────────────────────────────────
@@ -176,6 +197,7 @@ export default function UserDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [savingField, setSavingField] = useState<string | null>(null);
+  const [loginLinkBusy, setLoginLinkBusy] = useState(false);
 
   // Address creation
   const [showAddrForm, setShowAddrForm] = useState(false);
@@ -275,6 +297,27 @@ export default function UserDetailPage() {
       alert(e instanceof Error ? e.message : "Update failed");
     } finally {
       setSavingField(null);
+    }
+  }
+
+  // ── Copy login link (open the user's logged-in dashboard) ─────────────────
+  async function handleCopyLoginLink() {
+    if (!user || loginLinkBusy) return;
+    setLoginLinkBusy(true);
+    try {
+      const out = await createUserLoginLink(user.id);
+      const url = `${window.location.origin}/app/orders/?token=${encodeURIComponent(out.token)}`;
+      const copied = await copyToClipboard(url);
+      if (copied) {
+        setFlash("Login link copied — valid for 15 minutes");
+      } else {
+        // Last resort: let the admin copy manually.
+        window.prompt("Copy this login link (valid 15 minutes):", url);
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not create login link");
+    } finally {
+      setLoginLinkBusy(false);
     }
   }
 
@@ -387,6 +430,14 @@ export default function UserDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleCopyLoginLink}
+              disabled={loginLinkBusy}
+              title="Copy a link that opens this user's logged-in dashboard (valid 15 minutes)"
+              className="rounded-lg bg-ink-navy px-3 py-1.5 text-xs font-semibold text-chalk-white hover:bg-tape disabled:opacity-50"
+            >
+              {loginLinkBusy ? "Generating…" : "🔗 Copy Login Link"}
+            </button>
             <Badge value={user.role} map={ROLE_STYLE} />
           </div>
         </div>

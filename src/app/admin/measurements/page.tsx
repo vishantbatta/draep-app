@@ -288,6 +288,11 @@ function MeasurementsPageInner() {
               active: false,
               onClick: () => router.push("/admin/catalogue/validation-rules"),
             },
+            {
+              label: "SOP Video Generator",
+              active: false,
+              onClick: () => router.push("/admin/actions/sop-video"),
+            },
           ],
         },
       }),

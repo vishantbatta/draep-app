@@ -98,6 +98,18 @@ const BACKEND_ORIGIN =
 
 const nextConfig = {
   reactStrictMode: true,
+  async redirects() {
+    return [
+      {
+        // /app/orders has no index page — the orders list lives on /app.
+        // Forward admin login links (/app/orders/?token=…) to the dashboard;
+        // the query string (incl. the token) is preserved automatically.
+        source: "/app/orders",
+        destination: "/app",
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

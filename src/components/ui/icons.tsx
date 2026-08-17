@@ -283,3 +283,11 @@ export function EyeOff(props: IconProps) {
     </svg>
   );
 }
+
+export function ChatBubble(props: IconProps) {
+  return (
+    <svg {...svg(props)}>
+      <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+    </svg>
+  );
+}

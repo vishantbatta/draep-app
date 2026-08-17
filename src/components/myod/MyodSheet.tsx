@@ -38,6 +38,7 @@ import {
   placementLabel,
   type ComponentSelection,
   type DesignStep,
+  type PlacementPick,
   type Selections,
   type StepComponent,
   type StepOption,
@@ -200,6 +201,18 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
         // Components resolve to explicit ∪ catalog default; a component with
         // no default at all is omitted rather than invented.
         const isAddon = c.section === "Add-ons";
+        // Multi-spot add-on: one line per spot (labels already name the spot).
+        if (isAddon && sel?.picks && sel.picks.length > 0) {
+          for (const pick of sel.picks) {
+            const opt = c.options.find((o) => o.id === pick.variationId);
+            if (!opt) continue;
+            let line = `- ${c.label}: ${opt.label}`;
+            if (c.description) line += ` — ${c.description}`;
+            if (opt.description) line += ` | ${opt.description}`;
+            lines.push(line);
+          }
+          continue;
+        }
         const chosenId = isAddon
           ? sel?.variationId
           : (sel?.variationId ?? c.defaultOptionId);
@@ -247,6 +260,15 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
                 line += ` (placed on ${placementLabel(sel.placement)})`;
               if (c.description) line += ` — ${c.description}`;
               lines.push(line);
+            }
+            continue;
+          }
+          // Multi-spot add-on: one line per spot.
+          if (c.section === "Add-ons" && sel?.picks && sel.picks.length > 0) {
+            for (const pick of sel.picks) {
+              const opt = c.options.find((o) => o.id === pick.variationId);
+              if (!opt) continue;
+              lines.push(`- ${c.label}: ${opt.label}`);
             }
             continue;
           }
@@ -368,7 +390,8 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
       // depictedForCompare for how each side resolves defaults and off states.
       const sameSelection = (x?: ComponentSelection, y?: ComponentSelection) =>
         (x?.variationId ?? null) === (y?.variationId ?? null) &&
-        (x?.variationTypeId ?? null) === (y?.variationTypeId ?? null);
+        (x?.variationTypeId ?? null) === (y?.variationTypeId ?? null) &&
+        myodPicksEqual(x?.picks, y?.picks);
       const sameDesign = allComponents.every((c) =>
         sameSelection(
           requestedForCompare(c, next[c.id], defaultsMap),
@@ -499,7 +522,8 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
     // requestedForCompare / depictedForCompare for the fallback semantics.
     const sameSel = (x?: ComponentSelection, y?: ComponentSelection) =>
       (x?.variationId ?? null) === (y?.variationId ?? null) &&
-      (x?.variationTypeId ?? null) === (y?.variationTypeId ?? null);
+      (x?.variationTypeId ?? null) === (y?.variationTypeId ?? null) &&
+      myodPicksEqual(x?.picks, y?.picks);
     const sameDesign = allComponents.every((c) =>
       sameSel(
         requestedForCompare(c, selections[c.id], defaultsMap),
@@ -519,6 +543,14 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
         if (!sel) continue;
         if (sel.variationId === "__off__") {
           lines.push(`${c.label}: off`);
+          continue;
+        }
+        // Multi-spot add-on: one line per spot.
+        if (sel.picks && sel.picks.length > 0) {
+          for (const pick of sel.picks) {
+            const opt = c.options.find((o) => o.id === pick.variationId);
+            lines.push(`${c.label}: ${opt?.label ?? "on"}`);
+          }
           continue;
         }
         const opt = c.options.find((o) => o.id === sel.variationId);
@@ -736,6 +768,22 @@ function defaultSelections(steps: DesignStep[]): Selections {
 
 /** Sentinel meaning "explicitly off" — never equal to a real variation id. */
 const OFF_SELECTION: ComponentSelection = { variationId: "__off__" };
+
+/** Deep compare of two selections' multi-spot picks (order-sensitive). */
+function myodPicksEqual(
+  a: PlacementPick[] | undefined,
+  b: PlacementPick[] | undefined,
+): boolean {
+  const pa = a ?? [];
+  const pb = b ?? [];
+  if (pa.length !== pb.length) return false;
+  return pa.every(
+    (p, i) =>
+      p.variationId === pb[i].variationId &&
+      (p.variationTypeId ?? null) === (pb[i].variationTypeId ?? null) &&
+      p.placement === pb[i].placement,
+  );
+}
 
 /**
  * Effective-selection resolution for the skip-if-same-design checks. The two
@@ -1564,15 +1612,25 @@ function ExtrasRow({
   // asset — bool add-ons have no options, so their image lives there.
   const thumbUrl =
     chosenOpt?.assetUrl ?? component.options[0]?.assetUrl ?? component.assetUrl;
+  // Multi-spot add-on: name every spot's combination, "first +N more".
+  const pickOpts = (selection?.picks ?? [])
+    .map((p) => component.options.find((o) => o.id === p.variationId))
+    .filter(Boolean) as StepOption[];
+  const multiText =
+    pickOpts.length > 1
+      ? `${pickOpts[0].label} +${pickOpts.length - 1} more`
+      : (pickOpts[0]?.label ?? "");
   const valueText = !isSet
     ? "Optional"
     : component.kind === "toggle"
       ? "On"
-      : chosenOpt
-        ? chosenSub
-          ? `${chosenOpt.label} · ${chosenSub.label}`
-          : chosenOpt.label
-        : "Optional";
+      : pickOpts.length > 0
+        ? multiText
+        : chosenOpt
+          ? chosenSub
+            ? `${chosenOpt.label} · ${chosenSub.label}`
+            : chosenOpt.label
+          : "Optional";
   const placeText = selection?.placement
     ? placementLabel(selection.placement)
     : null;
@@ -1681,11 +1739,13 @@ function BrandSpinner({ size = 16 }: { size?: number }) {
 /**
  * The picker that lives inside the bottom sheet. Holds a LOCAL draft of the
  * selection (variation + sub-type + placement) so the user can set multiple
- * axes (e.g. Keyhole shape + placement) before committing. Three modes by
- * component shape: bool add-ons (enable + place), multi-axis add-ons (one chip
- * section per axis, resolved to a variation on Confirm), and everything else
- * (image card per variation). Nothing is applied to the live design until
- * Confirm — on confirm, `onConfirm(draft)` fires once and the sheet closes.
+ * axes (e.g. Keyhole shape + placement) before committing. Four modes by
+ * component shape: bool add-ons (enable + place), multi-spot add-ons (a
+ * leading Where axis — spots toggle on/off, each active spot picks its own
+ * combination on the remaining axes), multi-axis add-ons (one chip section
+ * per axis, resolved to a variation on Confirm), and everything else (image
+ * card per variation). Nothing is applied to the live design until Confirm —
+ * on confirm, `onConfirm(draft)` fires once and the sheet closes.
  */
 function ExtrasPicker({
   component,
@@ -1744,6 +1804,35 @@ function ExtrasPicker({
     );
     return { ...(seed?.axisValues ?? {}) };
   });
+
+  // Multi-spot add-ons (a leading "Where" axis): one pick set per active spot
+  // — several spots can be on at once, each with its own combination (a key
+  // hole on each sleeve). Seeded from the selection's picks, else its single
+  // combination, else the catalog default. A spot's presence = active.
+  const [spotSel, setSpotSel] = useState<Record<string, Record<string, string>>>(
+    () => {
+      const spotAxes = (component.axes ?? []).filter((a) => a.key !== "where");
+      const seed: Record<string, Record<string, string>> = {};
+      const seedFrom = (optId: string | undefined) => {
+        if (!optId) return;
+        const opt = component.options.find((o) => o.id === optId);
+        const where = opt?.axisValues?.where;
+        if (!where || seed[where]) return;
+        const rest: Record<string, string> = {};
+        for (const a of spotAxes) {
+          const v = opt?.axisValues?.[a.key];
+          if (v) rest[a.key] = v;
+        }
+        seed[where] = rest;
+      };
+      if (initialSelection?.picks?.length) {
+        for (const p of initialSelection.picks) seedFrom(p.variationId);
+      } else {
+        seedFrom(initialSelection?.variationId ?? component.defaultOptionId);
+      }
+      return seed;
+    },
+  );
 
   // For toggle add-ons there are no option cards — the add-on's own asset
   // (when it has one) + enable/disable + place.
@@ -1833,6 +1922,180 @@ function ExtrasPicker({
   // combination are dimmed; Confirm resolves the picks to a variation.
   const axes = component.kind !== "toggle" ? (component.axes ?? []) : [];
   if (axes.length >= 2) {
+    // Where-priced grid: the Where chips toggle spots on/off (multi-select)
+    // and every active spot gets its own indented pick set on the remaining
+    // axes — the same add-on can sit on several spots at once (a key hole on
+    // each sleeve, each with its own shape/size).
+    if (axes[0].key === "where") {
+      const whereAxis = axes[0];
+      const spotAxes = axes.slice(1);
+      const activeSpots = Object.keys(spotSel);
+      const resolveSpot = (where: string): StepOption | undefined => {
+        const sel = spotSel[where];
+        if (!sel) return undefined;
+        return component.options.find(
+          (o) =>
+            o.axisValues?.where === where &&
+            spotAxes.every((a) => o.axisValues?.[a.key] === sel[a.key]),
+        );
+      };
+      const comboExistsAt = (where: string, key: string, value: string) =>
+        component.options.some(
+          (o) =>
+            o.axisValues?.where === where &&
+            o.axisValues?.[key] === value &&
+            spotAxes.every(
+              (a) =>
+                a.key === key || o.axisValues?.[a.key] === spotSel[where]?.[a.key],
+            ),
+        );
+      const toggleSpot = (where: string) => {
+        setSpotSel((prev) => {
+          const next = { ...prev };
+          if (next[where]) {
+            delete next[where];
+            return next;
+          }
+          const atSpot = component.options.filter(
+            (o) => o.axisValues?.where === where,
+          );
+          const def =
+            atSpot.find((o) => o.id === component.defaultOptionId) ?? atSpot[0];
+          const rest: Record<string, string> = {};
+          for (const a of spotAxes) {
+            const v = def?.axisValues?.[a.key];
+            if (v) rest[a.key] = v;
+          }
+          next[where] = rest;
+          return next;
+        });
+      };
+      const pickSpotAxis = (where: string, key: string, value: string) => {
+        setSpotSel((prev) =>
+          prev[where]
+            ? { ...prev, [where]: { ...prev[where], [key]: value } }
+            : prev,
+        );
+      };
+      const previewOpt = resolveSpot(activeSpots[0] ?? "");
+      const allResolved =
+        activeSpots.length > 0 &&
+        activeSpots.every((w) => resolveSpot(w) !== undefined);
+      return (
+        <>
+          <div className="flex flex-col gap-4 py-2">
+            {(previewOpt?.assetUrl ?? component.assetUrl) && (
+              <div className="flex w-full justify-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previewOpt?.assetUrl ?? component.assetUrl}
+                  alt=""
+                  className="max-h-56 w-auto max-w-full rounded-card object-contain"
+                />
+              </div>
+            )}
+            {component.description && (
+              <p className="px-1 text-caption leading-snug text-muted">
+                {component.description}
+              </p>
+            )}
+            <div className="flex flex-col gap-2">
+              <span className="eyebrow px-1">{whereAxis.label}</span>
+              <div className="flex flex-wrap gap-1.5">
+                {whereAxis.values.map((val) => {
+                  const selected = !!spotSel[val];
+                  return (
+                    <button
+                      key={val}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => toggleSpot(val)}
+                      className={
+                        "rounded-pill border px-3 py-1.5 text-caption leading-tight transition-all ease-brand active:scale-[0.97] disabled:opacity-50 " +
+                        (selected
+                          ? "border-transparent bg-tape text-chalk-white"
+                          : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")
+                      }
+                      style={
+                        selected
+                          ? { backgroundImage: "var(--tape-gradient)" }
+                          : undefined
+                      }
+                    >
+                      {val.charAt(0).toUpperCase() + val.slice(1)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {activeSpots.map((where) => {
+              const sel = spotSel[where];
+              const spotOpt = resolveSpot(where);
+              return (
+                <div
+                  key={where}
+                  className="flex flex-col gap-2 rounded-card border border-hairline bg-mist-navy/40 px-2.5 py-2.5"
+                >
+                  <span className="px-1 text-caption font-semibold capitalize text-ink-navy">
+                    {where}
+                  </span>
+                  {spotAxes.map((a) => (
+                    <div key={a.key} className="flex flex-col gap-2">
+                      <span className="eyebrow px-1">{a.label}</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {a.values.map((val) => {
+                          const selected = sel[a.key] === val;
+                          const exists = comboExistsAt(where, a.key, val);
+                          return (
+                            <button
+                              key={val}
+                              type="button"
+                              disabled={disabled || !exists}
+                              onClick={() => pickSpotAxis(where, a.key, val)}
+                              className={
+                                "rounded-pill border px-3 py-1.5 text-caption leading-tight transition-all ease-brand active:scale-[0.97] " +
+                                (!exists
+                                  ? "cursor-not-allowed border-hairline bg-chalk-white text-muted opacity-40"
+                                  : selected
+                                    ? "border-transparent bg-tape text-chalk-white"
+                                    : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")
+                              }
+                              style={
+                                selected && exists
+                                  ? { backgroundImage: "var(--tape-gradient)" }
+                                  : undefined
+                              }
+                            >
+                              {val.charAt(0).toUpperCase() + val.slice(1)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  {!spotOpt && (
+                    <p className="px-1 text-caption text-muted">
+                      Pick an option in each row.
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <PickerFooter
+            canConfirm={allResolved}
+            onConfirm={() => {
+              const picks: PlacementPick[] = activeSpots.map((w) => ({
+                variationId: resolveSpot(w)!.id,
+                placement: w,
+              }));
+              onConfirm({ variationId: picks[0].variationId, picks });
+            }}
+            confirmLabel={strings.myod.done}
+          />
+        </>
+      );
+    }
     const resolved = component.options.find((o) =>
       axes.every((a) => o.axisValues?.[a.key] === axisSel[a.key]),
     );

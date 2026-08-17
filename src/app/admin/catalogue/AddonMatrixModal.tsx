@@ -24,11 +24,10 @@
  * updates live. A cell with an empty price is saved as null = combination
  * not sellable (the order-creation picker disables it).
  *
- * Each variation's display name is auto-generated from its Style · Type ·
- * Shape values (size/color/placement render as tag badges on the variation
- * cards instead); the Name field on a cell overrides it. Custom names are
- * detected on load (a stored label that matches neither generated form) and
- * pre-filled, so a re-save keeps them.
+ * Each variation's display name is auto-generated from all its axis values
+ * ("Round · Small", grid order); the Name field on a cell overrides it.
+ * Custom names are detected on load (a stored label that doesn't match the
+ * generated form) and pre-filled, so a re-save keeps them.
  *
  * "Clear all" (top right) resets the editor to a blank grid — unsaved only:
  * a save still needs at least one enabled axis, so a cleared state can't be
@@ -59,22 +58,12 @@ const AXIS_HINTS: Record<AxisName, string> = {
   color: "e.g. gold, navy, red",
 };
 
-// Axes that form a variation's display name (server mirror: _NAME_AXES).
-// Values on the other axes (size/color/placement) render as tag badges on
-// the variation cards instead of being part of the name.
-const NAME_AXES: ReadonlySet<string> = new Set(["style", "type", "shape"]);
-
 /**
- * Auto-generated display name for a combination: its style/type/shape values
- * title-cased and " · "-joined (fixed axis order, matching the server). With
- * no name axis enabled the full combination is the name.
+ * Auto-generated display name for a combination: every axis value title-cased
+ * and " · "-joined in grid order (server mirror of the label builder).
  */
-function autoName(axesOrder: readonly string[], combo: readonly string[]): string {
-  const hasNameAxis = axesOrder.some((a) => NAME_AXES.has(a));
-  const parts = hasNameAxis
-    ? combo.filter((_, i) => NAME_AXES.has(axesOrder[i]))
-    : combo;
-  return parts.map(capitalizeWords).join(" · ");
+function autoName(combo: readonly string[]): string {
+  return combo.map(capitalizeWords).join(" · ");
 }
 
 function tupleKey(values: string[]): string {
@@ -205,7 +194,7 @@ export function AddonMatrixModal({
   // Last price typed into a cell — the source the header ⧉ buttons copy.
   const [lastPrice, setLastPrice] = useState<string | null>(null);
   // Per-combination display-name overrides (tuple-key → custom name). Empty
-  // entry = use the auto-generated name (style/type/shape values).
+  // entry = use the auto-generated name (all axis values joined).
   const [names, setNames] = useState<Record<string, string>>({});
   // Tuple-keys of combinations removed from the preview: they are skipped on
   // save (in add mode never created; in replace mode any existing row for
@@ -252,19 +241,15 @@ export function AddonMatrixModal({
           const key = tupleKey(nextAxes.map((ax) => v[ax] as string));
           if (v.price != null) nextPrices[key] = String(v.price);
         }
-        // Seed name overrides from existing rows — but only labels that are
-        // neither the current auto name (style/type/shape) nor the legacy
-        // all-values name, so genuinely custom names survive a re-save while
-        // generated ones refresh to the current scheme.
+        // Seed name overrides from existing rows — but only labels that aren't
+        // the current auto name (all axis values joined), so genuinely custom
+        // names survive a re-save while generated ones refresh on save.
         const nextNames: Record<string, string> = {};
         for (const v of existingVariations) {
           if (!nextAxes.every((ax) => v[ax] as string | null)) continue;
           const vals = nextAxes.map((ax) => v[ax] as string);
           const stored = getLabel(v.labels ?? {}, v.slug, v.id);
-          const generated =
-            stored === autoName(nextAxes, vals) ||
-            stored === vals.map(capitalizeWords).join(" · ");
-          if (stored && !generated) nextNames[tupleKey(vals)] = stored;
+          if (stored && stored !== autoName(vals)) nextNames[tupleKey(vals)] = stored;
         }
         setAxes(nextAxes);
         setValuesText(nextValues);
@@ -602,7 +587,7 @@ export function AddonMatrixModal({
                       type="text"
                       value={names[key] ?? ""}
                       onChange={(e) => setName(key, e.target.value)}
-                      placeholder={autoName(axes, [v])}
+                      placeholder={autoName([v])}
                       className={`${nameInputCls} w-full max-w-56`}
                       title="Variation name — leave empty to use the auto-generated one"
                     />
@@ -694,7 +679,7 @@ export function AddonMatrixModal({
                               type="text"
                               value={names[key] ?? ""}
                               onChange={(e) => setName(key, e.target.value)}
-                              placeholder={autoName(axes, [rv, cv])}
+                              placeholder={autoName([rv, cv])}
                               className={`${nameInputCls} w-32`}
                               title="Variation name — leave empty to use the auto-generated one"
                             />
@@ -777,7 +762,7 @@ export function AddonMatrixModal({
                         type="text"
                         value={names[key] ?? ""}
                         onChange={(e) => setName(key, e.target.value)}
-                        placeholder={autoName(axes, c)}
+                        placeholder={autoName(c)}
                         className={`${nameInputCls} w-40`}
                         title="Variation name — leave empty to use the auto-generated one"
                       />
@@ -981,8 +966,8 @@ export function AddonMatrixModal({
                   : "removes a row from this batch — its existing variation is deleted."}{" "}
                 ⧉ next to a row/column header copies the last price you typed across every
                 combination sharing that value (all Round, all Small, all Neck…). A cell&apos;s name
-                defaults to its Style · Type · Shape values (the rest show as tags on the card) —
-                type in the Name field to override it.
+                defaults to all its axis values joined (e.g. Round · Small) — type in the Name
+                field to override it.
               </p>
             </div>
 
@@ -995,7 +980,7 @@ export function AddonMatrixModal({
                   placeholder="None"
                   options={sentCombos.map((c) => ({
                     value: tupleKey(c),
-                    label: (names[tupleKey(c)] ?? "").trim() || autoName(axes, c),
+                    label: (names[tupleKey(c)] ?? "").trim() || autoName(c),
                   }))}
                 />
               </Field>

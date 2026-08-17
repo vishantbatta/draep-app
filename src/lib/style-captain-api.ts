@@ -246,10 +246,21 @@ export interface SCMetric {
   unit: string | null;
 }
 
+/** Why a base (body-level) metric is asked: a garment instance whose
+ *  per-job link requires it, with the selections that drive it. */
+export interface SCMetricRequiredBy {
+  garment_order_id: string;
+  /** Selection labels like "Blouse length: Long waist" (empty when the
+   *  garment itself requires the metric). */
+  entity_labels: string[];
+}
+
 /** A metric as the checklist resolver returns it — catalog fields + link config. */
 export interface SCChecklistMetric extends SCMetric {
   is_required: boolean;
   priority_order: number | null;
+  /** Base metrics only — absent when no garment instance drove it. */
+  required_by?: SCMetricRequiredBy[];
 }
 
 export interface SCChecklistSection {

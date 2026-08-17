@@ -184,12 +184,27 @@ export interface DesignStep {
   columns?: 2 | 3;
 }
 
-/** The user's selection for a single component. */
+/** One spot of a multi-spot add-on pick: where it goes plus the variation
+ *  chosen for that spot. Add-ons priced by placement (a leading "Where"
+ *  axis, like Key Hole) can be placed on several spots at once — a key hole
+ *  on each sleeve, each with its own shape/size. */
+export interface PlacementPick {
+  variationId: string;
+  variationTypeId?: string;
+  /** The spot's where-axis value (a label segment, e.g. "Left Sleeve"). */
+  placement: string;
+}
+
+/** The user's selection for a single component. Multi-spot add-ons carry
+ *  their per-spot choices in `picks` (with `variationId` mirroring the first
+ *  pick so single-selection consumers keep working). */
 export interface ComponentSelection {
   variationId: string;
   variationTypeId?: string;
   /** For placement-specific add-ons: where it's placed (e.g. "back_neck"). */
   placement?: string;
+  /** Per-spot picks of a multi-spot add-on (see PlacementPick). */
+  picks?: PlacementPick[];
 }
 
 /** All selections: component id → selection. */
@@ -197,6 +212,22 @@ export type Selections = Record<string, ComponentSelection>;
 
 /** Add-on selection state (simplified for MYOD): addon id → chosen variation id. */
 export type AddonSelections = Record<string, string>;
+
+/** Deep compare of two selections' multi-spot picks (order-sensitive). */
+function picksEqual(
+  a: PlacementPick[] | undefined,
+  b: PlacementPick[] | undefined,
+): boolean {
+  const pa = a ?? [];
+  const pb = b ?? [];
+  if (pa.length !== pb.length) return false;
+  return pa.every(
+    (p, i) =>
+      p.variationId === pb[i].variationId &&
+      (p.variationTypeId ?? null) === (pb[i].variationTypeId ?? null) &&
+      p.placement === pb[i].placement,
+  );
+}
 
 /**
  * Compare two selections deeply, including sub-types. A component present in
@@ -218,6 +249,7 @@ export function selectionsEqual(
     if ((sa.variationTypeId ?? null) !== (sb.variationTypeId ?? null)) {
       return false;
     }
+    if (!picksEqual(sa.picks, sb.picks)) return false;
   }
   return true;
 }
@@ -243,7 +275,8 @@ export function selectionMatchesImage(
     const aId = a?.variationId ?? null;
     const bId = b?.variationId ?? null;
     if (aId !== bId) return false;
-    return (a?.variationTypeId ?? null) === (b?.variationTypeId ?? null);
+    if ((a?.variationTypeId ?? null) !== (b?.variationTypeId ?? null)) return false;
+    return picksEqual(a?.picks, b?.picks);
   };
 
   // Selected choice components must match.
@@ -477,6 +510,16 @@ export function buildDesignBrief(
         continue;
       }
       if (!sel) continue;
+      // Multi-spot add-on: one line per spot (the option label already names
+      // the spot, e.g. "Key hole: Left Sleeve · Bow · Small").
+      if (sel.picks && sel.picks.length > 0) {
+        for (const pick of sel.picks) {
+          const option = comp.options.find((o) => o.id === pick.variationId);
+          if (!option) continue;
+          parts.push(describeLine(comp, option, pick.variationTypeId));
+        }
+        continue;
+      }
       const option = comp.options.find((o) => o.id === sel.variationId);
       if (!option) continue;
       let line = describeLine(comp, option, sel.variationTypeId);
@@ -530,6 +573,17 @@ export function describeSelection(
   // Boolean toggle ON.
   if (selection.variationId === "__toggle_on__") {
     return `${comp.label} → on`;
+  }
+  // Multi-spot add-on: name every spot's combination.
+  if (selection.picks && selection.picks.length > 0) {
+    const spots = selection.picks
+      .map((pick) => {
+        const option = comp.options.find((o) => o.id === pick.variationId);
+        return option ? describeOption(option, pick.variationTypeId) : null;
+      })
+      .filter(Boolean);
+    if (spots.length === 0) return "";
+    return `${comp.label} → ${spots.join("; ")}`;
   }
   const option = comp.options.find((o) => o.id === selection.variationId);
   if (!option) return "";

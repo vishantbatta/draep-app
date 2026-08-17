@@ -633,6 +633,7 @@ export default function ValidationRulesPage() {
             { label: "URLs", active: false, onClick: () => router.push("/admin/actions/urls") },
             { label: "Measurements", active: false, onClick: () => router.push("/admin/measurements") },
             { label: "Validation Rules", active: true, onClick: () => router.push("/admin/catalogue/validation-rules") },
+            { label: "SOP Video Generator", active: false, onClick: () => router.push("/admin/actions/sop-video") },
           ],
         },
       }),

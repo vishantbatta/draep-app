@@ -960,8 +960,8 @@ function CataloguePageInner() {
                   onDelete={(v) => setDeleteItem({ type: "addonVariation", id: v.id, label: getLabel(v.labels, v.slug, v.id) })}
                   badges={(v) => {
                     const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
-                    // Style/shape/type are part of the variation's name, not
-                    // badges — the tag row carries the non-name axes.
+                    // The name already spells out the full combination — badges
+                    // repeat the scannable differentiators (color/size/placement).
                     if (v.color) b.push({ label: v.color });
                     if (v.size) b.push({ label: v.size });
                     if (v.placement) b.push({ label: `@ ${v.placement}`, variant: "accent" });

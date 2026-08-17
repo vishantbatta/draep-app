@@ -34,10 +34,10 @@ export default function ConfirmedPage() {
   const booking = draft?.booking;
 
   const displayOrderId = paymentOrderId
-    ? `DRP-${paymentOrderId.slice(0, 8)}`
+    ? paymentOrderId.slice(0, 8)
     : orderId
-      ? `DRP-${orderId.slice(0, 8)}`
-      : "DRP-——";
+      ? orderId.slice(0, 8)
+      : "——";
 
   const address = draft?.contact
     ? `${draft.contact.address1}${draft.contact.address2 ? `, ${draft.contact.address2}` : ""}, ${draft.contact.pincode}`

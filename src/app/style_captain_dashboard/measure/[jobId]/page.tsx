@@ -877,6 +877,12 @@ export default function MeasureJobPage() {
             metric={currentMetric}
             draft={currentDraft}
             onChange={updateDraft}
+            requiredBy={(
+              (currentMetric as SCChecklistMetric).required_by ?? []
+            ).map((r) => ({
+              garment: garmentLabels[r.garment_order_id] ?? "this order",
+              entities: r.entity_labels ?? [],
+            }))}
           />
 
           {/* Input + CTA in sticky footer */}

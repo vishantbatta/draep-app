@@ -4,7 +4,32 @@
  */
 
 import { apiDelete, apiGet, apiPost, apiPut, apiPatch } from "./client";
-import type { OrderOut, ValidateOut } from "@/types/api";
+import type {
+  CustomerOrderDetail,
+  OrderListOut,
+  OrderOut,
+  ValidateOut,
+} from "@/types/api";
+
+// GET /orders — signed-in customer's own orders, newest first
+export function listOrders(
+  page = 1,
+  perPage = 20,
+  signal?: AbortSignal,
+): Promise<OrderListOut> {
+  return apiGet<OrderListOut>("/orders", {
+    query: { page, per_page: perPage },
+    signal,
+  });
+}
+
+// GET /orders/{order_id}/detail — full customer breakdown (/app order page)
+export function getOrderDetail(
+  orderId: string,
+  signal?: AbortSignal,
+): Promise<CustomerOrderDetail> {
+  return apiGet<CustomerOrderDetail>(`/orders/${orderId}/detail`, { signal });
+}
 
 // POST /orders
 export function createOrder(garmentId: string): Promise<OrderOut> {

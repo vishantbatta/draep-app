@@ -83,6 +83,18 @@ export async function adminLogin(email: string, password: string): Promise<strin
   return data.token;
 }
 
+export interface UserLoginLink {
+  token: string;
+  expires_at: string; // ISO datetime
+}
+
+/** Mint a short-lived login-link token for a user (admin impersonation). */
+export async function createUserLoginLink(userId: string): Promise<UserLoginLink> {
+  return adminFetch<UserLoginLink>(`/admin/users/${userId}/login-link`, {
+    method: "POST",
+  });
+}
+
 export async function fetchTables(): Promise<string[]> {
   const data = await adminFetch<{ tables: string[] }>("/admin/tables");
   return data.tables;
@@ -828,7 +840,7 @@ export interface GarmentOrderItemRow {
    * JSONB column: an array on rows written by the customer flow and the new
    * admin editor (["Sleeves"]), but a scalar string on rows written by older
    * admin flows. Consumers should normalize (see normalizePlacement in
-   * GarmentOrderEditor).
+   * GarmentSelectionSheet).
    */
   placement: string | string[] | null;
   price: number | null;
@@ -2311,3 +2323,92 @@ export async function aiGenerateImage(input: AiContentInput): Promise<AiImageRes
     body: JSON.stringify(input),
   });
 }
+
+// ─── SOP Video Generator ──────────────────────────────────────────────────────
+
+export type SopVideoLang = "english" | "hindi" | "kannada";
+export const SOP_VIDEO_LANGUAGES: { key: SopVideoLang; label: string }[] = [
+  { key: "english", label: "English" },
+  { key: "hindi", label: "Hindi" },
+  { key: "kannada", label: "Kannada" },
+];
+
+export interface SopVideoLangState {
+  status: "pending" | "narrating" | "subtitles" | "building" | "done" | "error";
+  slides_done: number;
+  notes_detected: boolean;
+  notes_generated: boolean;
+  download_url: string | null;
+  filename: string | null;
+  duration_s: number | null;
+  error: string | null;
+}
+
+export interface SopVideoJob {
+  job_id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  step: string;
+  total_slides: number;
+  subtitles: boolean;
+  languages: Partial<Record<SopVideoLang, SopVideoLangState>>;
+  error: string | null;
+}
+
+/**
+ * POST /admin/sop-video/jobs — upload a .pptx/.pdf and start video generation.
+ * Multipart, so it can't go through adminFetch (which forces JSON headers).
+ */
+export async function createSopVideoJob(input: {
+  file: File;
+  mode: "generate" | "detect";
+  languages: SopVideoLang[];
+  subtitles: boolean;
+}): Promise<{ job_id: string }> {
+  const token = getAdminToken();
+  if (!token) throw new Error("No admin token");
+
+  const formData = new FormData();
+  formData.append("file", input.file);
+  formData.append("mode", input.mode);
+  formData.append("languages", input.languages.join(","));
+  formData.append("subtitles", input.subtitles ? "true" : "false");
+
+  const res = await fetch(`${API_URL}/admin/sop-video/jobs`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let message = `Upload failed (${res.status})`;
+    if (text) {
+      try {
+        const body = JSON.parse(text) as { error?: { message?: string } };
+        message = body?.error?.message ?? message;
+      } catch {
+        // Non-JSON error body
+      }
+    }
+    throw new Error(message);
+  }
+  return (await res.json()) as { job_id: string };
+}
+
+export async function getSopVideoJob(jobId: string): Promise<SopVideoJob> {
+  return adminFetch<SopVideoJob>(`/admin/sop-video/jobs/${jobId}`);
+}
+
+export async function deleteSopVideoJob(jobId: string): Promise<void> {
+  return adminFetch<void>(`/admin/sop-video/jobs/${jobId}`, { method: "DELETE" });
+}
+
+/**
+ * Full URL for a finished video. The <video> tag and download links can't send
+ * an Authorization header, so the admin token rides along as ?token=.
+ */
+export function sopVideoFileUrl(jobId: string, lang: SopVideoLang): string {
+  const token = getAdminToken() ?? "";
+  return `${API_URL}/admin/sop-video/jobs/${jobId}/file/${lang}?token=${encodeURIComponent(token)}`;
+}
+

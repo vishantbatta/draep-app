@@ -25,7 +25,6 @@ import {
   createGarmentOrder,
   createMeasurementJob,
   deleteGarmentOrder,
-  deleteGarmentOrderItem,
   deleteTableRow,
   fetchOrderAdjustments,
   createOrderAdjustment,
@@ -62,7 +61,8 @@ import {
 } from "@/lib/job-pdf";
 import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
 import { buildUpiPayUrl, UPI_VPA } from "@/lib/upi";
-import { GarmentOrderEditor } from "./GarmentOrderEditor";
+import { GarmentSelectionSheet } from "@/components/admin/GarmentSelectionSheet";
+import { BottomSheet as ScSheet } from "@/components/style-captain/BottomSheet";
 import { GarmentOrderAssets } from "./GarmentOrderAssets";
 import {
   DesignFromImage,
@@ -481,7 +481,6 @@ export default function OrderDetailPage() {
   );
   // Admin discounts/fees. garment_order_id === null => whole-order scope.
   const [adjustments, setAdjustments] = useState<OrderAdjustmentRow[]>([]);
-  const [expandedGOs, setExpandedGOs] = useState<Set<string>>(new Set());
   const [garments, setGarments] = useState<GarmentRow[]>([]);
   const [garmentMap, setGarmentMap] = useState<Map<string, GarmentRow>>(
     new Map(),
@@ -491,20 +490,16 @@ export default function OrderDetailPage() {
   const [newGONote, setNewGONote] = useState("");
   const [creatingGO, setCreatingGO] = useState(false);
   const [deletingGOId, setDeletingGOId] = useState<string | null>(null);
-  const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
   const [editingGOId, setEditingGOId] = useState<string | null>(null);
 
   // ── AI "Upload Reference" design flow per garment order ───────────────────
-  // Per-GO tab: "upload" (AI reference) vs "manual" (catalog editor).
-  const [goDesignTabs, setGoDesignTabs] = useState<
-    Record<string, "upload" | "manual">
-  >({});
-  // AI-prefilled editor items + reference image per GO. When set, the editor
-  // opens with these selections (apply mode) and a composer beneath it.
+  // The flow itself lives inside the GarmentSelectionSheet ("Upload reference"
+  // tab). This state only tracks what the AI applied, so the sheet seeds from
+  // the AI picks instead of the saved rows.
   const [goAIPrefill, setGoAIPrefill] = useState<
     Record<string, { items: GarmentOrderItemRow[]; imageUrl: string }>
   >({});
-  // Bumps per AI turn so the editor remounts with fresh initialItems.
+  // Bumps per AI turn so the selections sheet reseeds with fresh items.
   const [goAIIterations, setGoAIIterations] = useState<Record<string, number>>({});
   // Stable AI thread id per GO (shared upload-zone → composer handoff).
   const [goThreadIds] = useState<Record<string, string>>({});
@@ -563,8 +558,6 @@ export default function OrderDetailPage() {
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [savingMeasurements, setSavingMeasurements] = useState(false);
   const [newMetricId, setNewMetricId] = useState("");
-  // For "Reset design" pending state
-  const [resettingGOId, setResettingGOId] = useState<string | null>(null);
 
   // ── Inline reschedule state (per-job collapsible slot picker) ───────────────
   const [rescheduleJobId, setRescheduleJobId] = useState<string | null>(null);
@@ -667,11 +660,6 @@ export default function OrderDetailPage() {
       setJobs(mj);
       setTransactions(tx);
       setAdjustments(adj);
-
-      // 4. Auto-expand the first garment order
-      if (gos.length > 0) {
-        setExpandedGOs(new Set([gos[0].id]));
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load order");
     } finally {
@@ -711,9 +699,8 @@ export default function OrderDetailPage() {
           });
       }
     }
-    // expandedGOs intentionally excluded — expansion is a UI affordance, not a
-    // fetch trigger anymore. itemsByGO is read here only to seed the initial
-    // pass; the setItemsByGO updaters are idempotent so re-runs are harmless.
+    // itemsByGO is read here only to seed the initial pass; the
+    // setItemsByGO updaters are idempotent so re-runs are harmless.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [garmentOrders]);
 
@@ -759,17 +746,9 @@ export default function OrderDetailPage() {
     }
   }
 
-  function toggleGO(id: string) {
-    setExpandedGOs((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
   // ── AI design prefill (apply mode) ─────────────────────────────────────────
-  /** Apply an AI design result to a garment order's editor (apply mode). */
+  /** Apply an AI design result to a garment order (opens the selections
+   *  sheet prefilled with the AI picks). */
   function applyGODesign(
     goId: string,
     selections: AISelection[],
@@ -782,6 +761,9 @@ export default function OrderDetailPage() {
       ...prev,
       [goId]: (prev[goId] ?? 0) + 1,
     }));
+    // Open the selections sheet on the AI picks so the admin can review,
+    // adjust and save them.
+    setEditingGOId(goId);
   }
 
   /**
@@ -868,14 +850,13 @@ export default function OrderDetailPage() {
         status: "pending",
       });
       setGarmentOrders((prev) => [created, ...prev]);
-      setExpandedGOs((prev) => new Set(prev).add(created.id));
-      // Auto-open the design editor so the admin can configure the garment
+      // Auto-open the selections sheet so the admin can style the garment
       setEditingGOId(created.id);
       // reset form
       setShowNewGOForm(false);
       setNewGOGarmentId("");
       setNewGONote("");
-      flash("Garment order created — configure the design below");
+      flash("Garment order created — pick its style in the sheet");
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to create garment order");
     } finally {
@@ -926,68 +907,11 @@ export default function OrderDetailPage() {
         next.delete(goId);
         return next;
       });
-      setExpandedGOs((prev) => {
-        const next = new Set(prev);
-        next.delete(goId);
-        return next;
-      });
       flash("Garment order deleted");
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to delete garment order");
     } finally {
       setDeletingGOId(null);
-    }
-  }
-
-  // ── Delete a single garment order item ─────────────────────────────────────
-  async function handleDeleteGarmentOrderItem(goId: string, itemId: string) {
-    if (!confirm("Delete this item?")) return;
-    setDeletingItemId(itemId);
-    try {
-      await deleteGarmentOrderItem(itemId);
-      setItemsByGO((prev) => {
-        const next = new Map(prev);
-        const items = next.get(goId);
-        if (items) {
-          next.set(
-            goId,
-            items.filter((it) => it.id !== itemId),
-          );
-        }
-        return next;
-      });
-      flash("Item deleted");
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to delete item");
-    } finally {
-      setDeletingItemId(null);
-    }
-  }
-
-  // ── Update a garment order item field ──────────────────────────────────────
-  async function handleUpdateGarmentOrderItem(
-    goId: string,
-    itemId: string,
-    patch: Partial<GarmentOrderItemRow>,
-  ) {
-    try {
-      await updateTableRow("garment_orders_items", itemId, patch as Record<string, unknown>);
-      setItemsByGO((prev) => {
-        const next = new Map(prev);
-        const items = next.get(goId);
-        if (items) {
-          next.set(
-            goId,
-            items.map((it) => (it.id === itemId ? { ...it, ...patch } : it)),
-          );
-        }
-        return next;
-      });
-      // Any item write re-derives the garment + order totals server-side.
-      await refreshOrderTotal();
-      flash("Item updated");
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Update failed");
     }
   }
 
@@ -1786,41 +1710,6 @@ export default function OrderDetailPage() {
     }
   }
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // RESET DESIGN — delete all garment_orders_items for a garment order
-  // ──────────────────────────────────────────────────────────────────────────
-  async function handleResetDesign(goId: string) {
-    const items = itemsByGO.get(goId) ?? [];
-    if (items.length === 0) {
-      flash("No design items to reset");
-      return;
-    }
-    if (
-      !confirm(
-        `Reset design? This will delete all ${items.length} style selections for this garment order and set the total to the base price.`,
-      )
-    ) {
-      return;
-    }
-    setResettingGOId(goId);
-    try {
-      await Promise.all(items.map((it) => deleteTableRow("garment_orders_items", it.id)));
-      // total_price is derived on the backend — don't set it directly. Just
-      // refresh so the breakdown + grand total reflect the reset design.
-      setItemsByGO((prev) => {
-        const next = new Map(prev);
-        next.set(goId, []);
-        return next;
-      });
-      await refreshOrderTotal();
-      flash("Design reset to base");
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to reset design");
-    } finally {
-      setResettingGOId(null);
-    }
-  }
-
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -2225,43 +2114,62 @@ export default function OrderDetailPage() {
             Garment Orders ({garmentOrders.length})
           </h2>
           <button
-            onClick={() => setShowNewGOForm((v) => !v)}
+            onClick={() => {
+              setNewGOGarmentId("");
+              setNewGONote("");
+              setShowNewGOForm(true);
+            }}
             disabled={creatingGO}
             className="rounded-lg bg-ink-navy px-3 py-1.5 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
           >
-            {showNewGOForm ? "Cancel" : "+ New Garment Order"}
+            + New Garment Order
           </button>
         </div>
 
-        {/* ── New Garment Order form ─────────────────────────────────────── */}
+        {/* ── New Garment Order sheet (garment picker + note) ──────────── */}
         {showNewGOForm && (
-          <div className="mb-3 rounded-xl border border-tape/40 bg-tape/5 p-4">
-            <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">
-              Create new garment order
-            </div>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[200px] flex-1">
-                <label className="mb-1 block text-[11px] font-medium text-muted">
+          <ScSheet title="New garment order" onClose={() => setShowNewGOForm(false)}>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
                   Garment
-                </label>
-                <select
-                  value={newGOGarmentId}
-                  onChange={(e) => setNewGOGarmentId(e.target.value)}
-                  className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
-                >
-                  <option value="">— Select garment —</option>
-                  {garments.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {garmentLabel(g)} {g.gender ? `(${g.gender})` : ""} •{" "}
-                      {formatPrice(g.base_price)}
-                    </option>
-                  ))}
-                </select>
+                </p>
+                {garments.map((g) => {
+                  const selected = newGOGarmentId === g.id;
+                  return (
+                    <button
+                      key={g.id}
+                      onClick={() => setNewGOGarmentId(g.id)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-card border px-3 py-2.5 text-left transition ${
+                        selected
+                          ? "border-ink-navy bg-mist-navy/30"
+                          : "border-hairline bg-chalk-white hover:bg-mist-navy/20"
+                      }`}
+                    >
+                      <span className="min-w-0 text-caption font-medium text-ink-navy">
+                        {garmentLabel(g)}
+                        {g.gender && (
+                          <span className="ml-2 rounded-pill bg-mist-navy px-1.5 py-0.5 text-[10px] font-normal text-muted">
+                            {g.gender}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 font-mono text-caption text-ink">
+                        {formatPrice(g.base_price)}
+                      </span>
+                    </button>
+                  );
+                })}
+                {garments.length === 0 && (
+                  <p className="py-2 text-center text-caption text-muted">
+                    Loading garments…
+                  </p>
+                )}
               </div>
-              <div className="min-w-[200px] flex-1">
-                <label className="mb-1 block text-[11px] font-medium text-muted">
+              <div>
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
                   Note
-                </label>
+                </p>
                 <input
                   type="text"
                   value={newGONote}
@@ -2273,22 +2181,12 @@ export default function OrderDetailPage() {
               <button
                 onClick={handleCreateGarmentOrder}
                 disabled={creatingGO || !newGOGarmentId}
-                className="rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-800 disabled:opacity-50"
+                className="tap w-full rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary transition disabled:opacity-50"
               >
-                {creatingGO ? "Creating…" : "Create"}
+                {creatingGO ? "Creating…" : "Create garment order"}
               </button>
             </div>
-            {newGOGarmentId && (
-              <div className="mt-2 text-[11px] text-muted">
-                {(() => {
-                  const g = garmentMap.get(newGOGarmentId);
-                  return g
-                    ? `Base price: ${formatPrice(g.base_price)}`
-                    : null;
-                })()}
-              </div>
-            )}
-          </div>
+          </ScSheet>
         )}
 
         {garmentOrders.length === 0 && !showNewGOForm ? (
@@ -2298,33 +2196,22 @@ export default function OrderDetailPage() {
         ) : (
           <div className="space-y-3">
             {garmentOrders.map((go) => {
-              const expanded = expandedGOs.has(go.id);
               const items = itemsByGO.get(go.id);
+              const aiPrefill = goAIPrefill[go.id];
               return (
                 <div
                   key={go.id}
                   className="overflow-hidden rounded-xl border border-hairline bg-chalk-white"
                 >
-                  {/* GO header */}
-                  <div className="flex cursor-pointer flex-wrap items-center justify-between gap-3 px-4 py-3 transition hover:bg-mist-navy/30">
-                    <div
-                      className="flex flex-1 items-center gap-3"
-                      onClick={() => toggleGO(go.id)}
-                    >
-                      <svg
-                        className={`h-4 w-4 shrink-0 text-muted transition-transform ${expanded ? "rotate-90" : ""}`}
-                        viewBox="0 0 16 16"
-                        fill="none"
-                      >
-                        <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <div>
-                        <div className="text-sm font-medium text-ink-navy">
-                          {garmentDisplayLabel(go.garment_id)}
-                        </div>
-                        <div className="text-[11px] text-muted">
-                          GO ID: {truncateId(go.id)}
-                        </div>
+                  {/* GO header — glance info; everything below stays visible */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-ink-navy">
+                        {garmentDisplayLabel(go.garment_id)}
+                      </div>
+                      <div className="text-[11px] text-muted">
+                        GO ID: {truncateId(go.id)}
+                        {items && items.length > 0 && ` · ${items.length} selections`}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -2333,20 +2220,7 @@ export default function OrderDetailPage() {
                         {formatPrice(go.total_price)}
                       </span>
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingGOId((cur) => (cur === go.id ? null : go.id));
-                        }}
-                        title="Edit design"
-                        className="rounded-md border border-hairline-strong px-2 py-1 text-xs font-medium text-ink-navy transition hover:bg-mist-navy"
-                      >
-                        {editingGOId === go.id ? "Close editor" : "Edit design"}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteGarmentOrder(go.id);
-                        }}
+                        onClick={() => handleDeleteGarmentOrder(go.id)}
                         disabled={deletingGOId === go.id}
                         title="Delete garment order"
                         className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 disabled:opacity-40"
@@ -2362,320 +2236,131 @@ export default function OrderDetailPage() {
                     </div>
                   </div>
 
-                  {/* GO expanded content */}
-                  {expanded && (
-                    <div className="border-t border-hairline px-4 py-3">
-                      {/* Status editor */}
-                      <div className="mb-3 flex flex-wrap items-end gap-3">
-                        <div>
-                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                            Garment Order Status
-                          </div>
-                          <select
-                            value={go.status ?? ""}
-                            onChange={(e) =>
-                              handleUpdateGarmentOrder(go.id, {
-                                status: (e.target.value || null) as GarmentOrderStatus | null,
-                              })
-                            }
-                            className="mt-0.5 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-xs focus:border-ink-navy focus:outline-none"
-                          >
-                            <option value="">— None —</option>
-                            {GARMENT_ORDER_STATUSES.map((s) => (
-                              <option key={s} value={s}>
-                                {s.replace(/_/g, " ")}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                            Total Price
-                          </div>
-                          <div className="mt-0.5 font-mono text-sm text-ink">
-                            {formatPrice(go.total_price)}
-                          </div>
-                          <div className="mt-0.5 text-[10px] text-muted">
-                            Auto-derived from design + adjustments.{" "}
-                            <button
-                              onClick={() => handleResetDesign(go.id)}
-                              disabled={resettingGOId === go.id}
-                              className="font-medium text-red-600 underline hover:text-red-700 disabled:opacity-50"
-                              title="Delete all style selections; total re-derives from base"
-                            >
-                              {resettingGOId === go.id
-                                ? "Resetting…"
-                                : "Reset design"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Inline-editable user_note */}
-                      <div className="mb-3">
-                        <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                          User Note
-                        </div>
-                        <textarea
-                          value={go.user_note ?? ""}
-                          onChange={(e) => {
-                            setGarmentOrders((prev) =>
-                              prev.map((g) =>
-                                g.id === go.id ? { ...g, user_note: e.target.value } : g,
-                              ),
-                            );
-                          }}
-                          onBlur={(e) => {
-                            if (e.target.value !== (go.user_note ?? "")) {
-                              handleUpdateGarmentOrder(go.id, {
-                                user_note: e.target.value || null,
-                              });
-                            }
-                          }}
-                          rows={2}
-                          placeholder="Add a note for this garment order…"
-                          className="mt-0.5 w-full rounded-md border border-hairline-strong bg-chalk-white px-2 py-1.5 text-xs focus:border-ink-navy focus:outline-none"
-                        />
-                        <div className="mt-0.5 text-[10px] text-muted">
-                          Saved on blur.
-                        </div>
-                      </div>
-
-                      {/* Design inspiration images — upload / remove per GO */}
-                      <GarmentOrderAssets
-                        go={go}
-                        onAttach={attachGOImageUrls}
-                        onDetach={detachGOImageUrl}
+                  {/* GO body — compact, always visible (no expander) */}
+                  <div className="space-y-2 border-t border-hairline px-4 py-2.5">
+                    {/* Status + user note on one line */}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <select
+                        value={go.status ?? ""}
+                        onChange={(e) =>
+                          handleUpdateGarmentOrder(go.id, {
+                            status: (e.target.value || null) as GarmentOrderStatus | null,
+                          })
+                        }
+                        aria-label="Status"
+                        className="w-full shrink-0 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1.5 text-xs focus:border-ink-navy focus:outline-none sm:w-36"
+                      >
+                        <option value="">— Status —</option>
+                        {GARMENT_ORDER_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {s.replace(/_/g, " ")}
+                          </option>
+                        ))}
+                      </select>
+                      <textarea
+                        value={go.user_note ?? ""}
+                        onChange={(e) => {
+                          setGarmentOrders((prev) =>
+                            prev.map((g) =>
+                              g.id === go.id ? { ...g, user_note: e.target.value } : g,
+                            ),
+                          );
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value !== (go.user_note ?? "")) {
+                            handleUpdateGarmentOrder(go.id, {
+                              user_note: e.target.value || null,
+                            });
+                          }
+                        }}
+                        rows={1}
+                        placeholder="Note for this garment — saved on blur…"
+                        aria-label="User note"
+                        className="min-w-0 flex-1 resize-y rounded-md border border-hairline-strong bg-chalk-white px-2 py-1.5 text-xs focus:border-ink-navy focus:outline-none"
                       />
-
-                      {/* Design editor: "Upload Reference" (AI) vs "Manual Select" */}
-                      {editingGOId === go.id && (
-                        <div className="mb-4">
-                          {goAIPrefill[go.id] ? (
-                            /* ── AI prefilled: reference image + editor + composer ── */
-                            <div className="space-y-3">
-                              <div className="flex items-start justify-between gap-3">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={goAIPrefill[go.id].imageUrl}
-                                  alt="Reference design"
-                                  className="max-h-[280px] rounded-lg border border-hairline object-contain"
-                                />
-                                <button
-                                  onClick={() => {
-                                    setGoAIPrefill((prev) => {
-                                      const next = { ...prev };
-                                      delete next[go.id];
-                                      return next;
-                                    });
-                                  }}
-                                  className="shrink-0 rounded-md border border-hairline-strong px-2 py-1 text-[11px] text-muted hover:bg-mist-navy"
-                                >
-                                  Reset
-                                </button>
-                              </div>
-
-                              <GarmentOrderEditor
-                                key={`${go.id}-ai-${goAIIterations[go.id] ?? 0}`}
-                                garmentId={go.garment_id}
-                                garmentOrderId={go.id}
-                                initialItems={goAIPrefill[go.id].items}
-                                basePrice={
-                                  garmentMap.get(go.garment_id)?.base_price ?? null
-                                }
-                                onSaveComplete={(updated) => {
-                                  setItemsByGO((prev) => {
-                                    const next = new Map(prev);
-                                    next.set(go.id, updated);
-                                    return next;
-                                  });
-                                  // total_price is derived server-side from the
-                                  // saved items (+ adjustments); pull the
-                                  // recomputed garment + order totals.
-                                  refreshOrderTotal();
-                                  flash("Design saved");
-                                }}
-                                onCancel={() => setEditingGOId(null)}
-                              />
-
-                              {/* Composer for further AI refinement */}
-                              <DesignFromImage
-                                garmentId={go.garment_id}
-                                garmentOrderId={go.id}
-                                composerOnly
-                                threadId={ensureGOThreadId(go.id)}
-                                onApplyDraft={(selections, addons, imageUrl) =>
-                                  applyGODesign(go.id, selections, addons, imageUrl)
-                                }
-                                onImageUrl={(imageUrl) =>
-                                  applyGOImageUrl(go.id, imageUrl)
-                                }
-                              />
-                            </div>
-                          ) : (
-                            /* ── Tabbed: AI upload vs manual select ── */
-                            <>
-                              <div className="mb-2 flex gap-1 border-b border-hairline">
-                                <button
-                                  onClick={() =>
-                                    setGoDesignTabs((prev) => ({
-                                      ...prev,
-                                      [go.id]: "upload",
-                                    }))
-                                  }
-                                  className={`border-b-2 px-3 py-1.5 text-xs font-medium transition ${
-                                    (goDesignTabs[go.id] ?? "manual") === "upload"
-                                      ? "border-ink-navy text-ink-navy"
-                                      : "border-transparent text-muted hover:text-ink"
-                                  }`}
-                                >
-                                  Upload Reference
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    setGoDesignTabs((prev) => ({
-                                      ...prev,
-                                      [go.id]: "manual",
-                                    }))
-                                  }
-                                  className={`border-b-2 px-3 py-1.5 text-xs font-medium transition ${
-                                    goDesignTabs[go.id] === "manual"
-                                      ? "border-ink-navy text-ink-navy"
-                                      : "border-transparent text-muted hover:text-ink"
-                                  }`}
-                                >
-                                  Manual Select
-                                </button>
-                              </div>
-
-                              {(goDesignTabs[go.id] ?? "manual") === "upload" ? (
-                                <DesignFromImage
-                                  garmentId={go.garment_id}
-                                  garmentOrderId={go.id}
-                                  threadId={ensureGOThreadId(go.id)}
-                                  onApplyDraft={(selections, addons, imageUrl) =>
-                                    applyGODesign(
-                                      go.id,
-                                      selections,
-                                      addons,
-                                      imageUrl,
-                                    )
-                                  }
-                                  onImageUrl={(imageUrl) =>
-                                    applyGOImageUrl(go.id, imageUrl)
-                                  }
-                                  onCancel={() => setEditingGOId(null)}
-                                />
-                              ) : (
-                                <GarmentOrderEditor
-                                  key={go.id}
-                                  garmentId={go.garment_id}
-                                  garmentOrderId={go.id}
-                                  initialItems={items ?? []}
-                                  basePrice={
-                                    garmentMap.get(go.garment_id)?.base_price ?? null
-                                  }
-                                  onSaveComplete={(updated) => {
-                                    setItemsByGO((prev) => {
-                                      const next = new Map(prev);
-                                      next.set(go.id, updated);
-                                      return next;
-                                    });
-                                    // total_price is derived server-side from
-                                    // the saved items (+ adjustments); pull the
-                                    // recomputed garment + order totals.
-                                    refreshOrderTotal();
-                                    flash("Design saved");
-                                  }}
-                                  onCancel={() => setEditingGOId(null)}
-                                />
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Items */}
-                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                        Items {items && items.length > 0 ? `(${items.length})` : ""}
-                      </div>
-                      {items === undefined ? (
-                        <div className="py-3 text-xs text-muted">Loading items…</div>
-                      ) : items.length === 0 ? (
-                        <div className="py-3 text-xs text-muted">No items.</div>
-                      ) : (
-                        <div className="mt-1 overflow-x-auto">
-                          <table className="w-full text-left text-xs">
-                            <thead>
-                              <tr className="border-b border-hairline text-[10px] uppercase tracking-wide text-muted">
-                                <th className="py-2 pr-3 font-medium">Type</th>
-                                <th className="py-2 pr-3 font-medium">Label</th>
-                                <th className="py-2 pr-3 font-medium">Placement</th>
-                                <th className="py-2 pr-3 text-right font-medium">Price</th>
-                                <th className="py-2 pr-3 font-medium">IDs</th>
-                                <th className="py-2 font-medium"></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {items.map((it) => (
-                                <tr key={it.id} className="border-b border-hairline last:border-0">
-                                  <td className="py-2 pr-3">
-                                    <span className={`rounded-pill px-1.5 py-0.5 text-[10px] font-medium ${
-                                      it.type === "variation"
-                                        ? "bg-blue-50 text-blue-700"
-                                        : it.type === "add_on"
-                                        ? "bg-purple-50 text-purple-700"
-                                        : "bg-gray-100 text-gray-600"
-                                    }`}>
-                                      {it.type ?? "—"}
-                                    </span>
-                                  </td>
-                                  <td className="py-2 pr-3 text-ink">
-                                    {it.label_snapshot ?? "—"}
-                                  </td>
-                                  <td className="py-2 pr-3 text-muted">
-                                    {Array.isArray(it.placement)
-                                      ? it.placement.join(", ") || "—"
-                                      : it.placement ?? "—"}
-                                  </td>
-                                  <td className="py-2 pr-3 text-right font-mono text-sm text-ink">
-                                    {/* Snapshot from catalog at checkout — read-only.
-                                        To change a price, add an adjustment. */}
-                                    {it.price != null ? formatPrice(it.price) : "—"}
-                                  </td>
-                                  <td className="py-2 pr-3 text-[10px] text-muted">
-                                    {it.variation_id && <div>var: {truncateId(it.variation_id)}</div>}
-                                    {it.addon_id && <div>addon: {truncateId(it.addon_id)}</div>}
-                                  </td>
-                                  <td className="py-2">
-                                    <button
-                                      onClick={() => handleDeleteGarmentOrderItem(go.id, it.id)}
-                                      disabled={deletingItemId === it.id}
-                                      title="Delete item"
-                                      className="flex h-6 w-6 items-center justify-center rounded text-red-500 transition hover:bg-red-50 disabled:opacity-40"
-                                    >
-                                      {deletingItemId === it.id ? (
-                                        <span className="text-[9px]">…</span>
-                                      ) : (
-                                        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
-                                          <path d="M3 5h10M6 5V3.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V5M5 5l.5 8a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1l.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                                        </svg>
-                                      )}
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-
-                      {/* Garment-level adjustments now live in the Price
-                          Breakdown section below (single source of truth for
-                          all money UI). This block is intentionally omitted
-                          here to avoid duplication. */}
                     </div>
-                  )}
+
+                    {/* Design inspiration images — upload / remove per GO */}
+                    <GarmentOrderAssets
+                      go={go}
+                      onAttach={attachGOImageUrls}
+                      onDetach={detachGOImageUrl}
+                    />
+
+                    {/* Manual selections + AI reference both live in this
+                        sheet ("Manual select" / "Upload reference" tabs). */}
+                    <GarmentSelectionSheet
+                        open={editingGOId === go.id}
+                        garmentId={go.garment_id}
+                        garmentOrderId={go.id}
+                        initialItems={goAIPrefill[go.id]?.items ?? items ?? []}
+                        sessionId={`${go.id}-${goAIIterations[go.id] ?? 0}-${
+                          goAIPrefill[go.id] ? "ai" : "saved"
+                        }`}
+                        basePrice={
+                          garmentMap.get(go.garment_id)?.base_price ?? null
+                        }
+                        aiPanel={
+                          <DesignFromImage
+                            garmentId={go.garment_id}
+                            garmentOrderId={go.id}
+                            threadId={ensureGOThreadId(go.id)}
+                            onApplyDraft={(selections, addons, imageUrl) =>
+                              applyGODesign(go.id, selections, addons, imageUrl)
+                            }
+                            onImageUrl={(imageUrl) =>
+                              applyGOImageUrl(go.id, imageUrl)
+                            }
+                          />
+                        }
+                        onClose={() => setEditingGOId(null)}
+                        onSaveComplete={(updated) => {
+                          setItemsByGO((prev) => {
+                            const next = new Map(prev);
+                            next.set(go.id, updated);
+                            return next;
+                          });
+                          // Picks are persisted now — drop any AI prefill so
+                          // reopening seeds from the saved rows instead of a
+                          // stale AI snapshot.
+                          setGoAIPrefill((prev) => {
+                            if (!prev[go.id]) return prev;
+                            const next = { ...prev };
+                            delete next[go.id];
+                            return next;
+                          });
+                          // total_price is derived server-side from the
+                          // saved items (+ adjustments); pull the
+                          // recomputed garment + order totals.
+                          refreshOrderTotal();
+                          flash("Design saved");
+                        }}
+                      />
+                  </div>
+
+                  {/* Footer CTAs — always visible */}
+                  <div className="flex flex-wrap items-center gap-2 border-t border-hairline bg-mist-navy/20 px-4 py-3">
+                    <button
+                      onClick={() =>
+                        setEditingGOId((cur) => (cur === go.id ? null : go.id))
+                      }
+                      className={`tap rounded-pill px-3.5 py-2 text-xs font-semibold transition ${
+                        editingGOId === go.id
+                          ? "border border-hairline-strong bg-chalk-white text-ink-navy hover:bg-mist-navy/40"
+                          : "bg-ink-navy text-chalk-white hover:bg-ink-navy/90"
+                      }`}
+                    >
+                      {editingGOId === go.id ? "Close selections" : "Edit selections"}
+                    </button>
+                    {aiPrefill && (
+                      <span
+                        title="AI reference applied — review the picks in the sheet's Manual select tab"
+                        className="rounded-pill border border-hairline-strong bg-chalk-white px-3.5 py-2 text-xs font-medium text-muted"
+                      >
+                        ✓ Reference applied
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}

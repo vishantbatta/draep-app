@@ -232,7 +232,7 @@ export default function SchedulePage() {
           <p className="mt-8 text-center text-caption text-muted">
             <span className="text-muted">Order ID</span>{" "}
             <MonoNumber className="font-mono text-ink-navy">
-              DRP-{orderId.slice(0, 8)}
+              {orderId.slice(0, 8)}
             </MonoNumber>
           </p>
         )}

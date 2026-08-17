@@ -30,7 +30,10 @@ import {
   type AdminSlotOption,
 } from "@/lib/admin-api";
 import { SlotPicker } from "@/components/admin/SlotPicker";
-import { GarmentOrderEditor, type DraftItem } from "./[id]/GarmentOrderEditor";
+import {
+  GarmentSelectionSheet,
+  type DraftItem,
+} from "@/components/admin/GarmentSelectionSheet";
 import { DesignFromImage } from "./[id]/DesignFromImage";
 import { AcquisitionSection } from "@/components/acquisition/AcquisitionSection";
 import {
@@ -130,16 +133,11 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
   const [garmentsLoading, setGarmentsLoading] = useState(false);
   const [garmentDrafts, setGarmentDrafts] = useState<GarmentDraft[]>([]);
   const draftIdCounter = useRef(0);
-  // Per-draft tab state: "upload" (AI) vs "manual" (accordion editor).
-  // When prefilledItems are set, tabs disappear and only the editor shows.
-  const [draftTabs, setDraftTabs] = useState<Record<string, "upload" | "manual">>({});
-  // AI-prefilled initial items per draft. When set, the editor opens directly
-  // with these selections pre-loaded (no tab toggle shown).
-  const [prefilledByDraft, setPrefilledByDraft] = useState<
-    Record<string, { items: GarmentOrderItemRow[]; imageUrl: string }>
-  >({});
+  // Which draft's GarmentSelectionSheet is open (null = none). The sheet has
+  // "Manual select" and "Upload reference" tabs — the AI flow lives inside it.
+  const [draftSheetId, setDraftSheetId] = useState<string | null>(null);
   // Per-draft iteration counter — bumps each time the AI returns new
-  // selections so the GarmentOrderEditor remounts with fresh initialItems.
+  // selections so the GarmentSelectionSheet reseeds with fresh items.
   const [draftIterations, setDraftIterations] = useState<Record<string, number>>({});
   // Stable AI thread id per draft, shared between the upload-zone instance
   // and the composerOnly instance so conversation context survives the
@@ -221,8 +219,8 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
     setSelectedSlotDate(undefined);
     setSelectedSlot(undefined);
     setSelectedCaptainId("");
-    setPrefilledByDraft({});
     setDraftIterations({});
+    setDraftSheetId(null);
     setDraftOrderId(null);
     setDraftCustomerId(null);
     setDraftGarmentOrderIds({});
@@ -427,32 +425,15 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
 
   /**
    * Apply an AI design result (from DesignFromImage) to a garment draft:
-   * stores prefilled editor items, the reference image, the raw draft items,
-   * and bumps the iteration counter so the editor remounts with fresh data.
+   * stores the raw draft items + an estimated total on the draft (so the
+   * summary line and later persistence carry them), and bumps the iteration
+   * counter so the selections sheet reseeds with the fresh AI picks.
    */
   function applyAIDraft(
     draftId: string,
     items: DraftItem[],
     imageUrl: string,
   ) {
-    const prefilled: GarmentOrderItemRow[] = items.map((it, i) => ({
-      id: `prefilled-${draftId}-${i}`,
-      garment_order_id: "draft",
-      garment_style_component_id: it.garment_style_component_id,
-      type: it.type,
-      variation_id: it.variation_id,
-      variation_type_id: it.variation_type_id,
-      addon_id: it.addon_id,
-      addon_variation_id: it.addon_variation_id,
-      placement: it.placement,
-      price: it.price,
-      custom_input: null,
-      label_snapshot: it.label_snapshot,
-    }));
-    setPrefilledByDraft((prev) => ({
-      ...prev,
-      [draftId]: { items: prefilled, imageUrl },
-    }));
     // Carry the AI reference image onto the draft so it is persisted as
     // assets_shared when the garment_order is created/updated. Dedupe so
     // repeated AI iterations on the same draft don't pile up copies.
@@ -468,7 +449,13 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
           : d,
       ),
     );
-    updateGarmentDraft(draftId, { draftItems: items });
+    // Seed the running total from the AI picks (base + item prices) — the
+    // same arithmetic the selections sheet applies on "Apply selections".
+    const draft = garmentDrafts.find((d) => d.id === draftId);
+    const basePrice =
+      garments.find((g) => g.id === draft?.garmentId)?.base_price ?? 0;
+    const est = basePrice + items.reduce((s, it) => s + (it.price ?? 0), 0);
+    updateGarmentDraft(draftId, { draftItems: items, computedTotal: est });
     setDraftIterations((prev) => ({
       ...prev,
       [draftId]: (prev[draftId] ?? 0) + 1,
@@ -991,12 +978,6 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
                     // changes — the old inspiration photo no longer applies.
                     assetsShared: [],
                   });
-                  // Clear AI prefill when garment changes
-                  setPrefilledByDraft((prev) => {
-                    const next = { ...prev };
-                    delete next[draft.id];
-                    return next;
-                  });
                 }}
                 className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
               >
@@ -1008,66 +989,54 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
                 ))}
               </select>
 
-              {/* Inline editor for this garment */}
+              {/* Style + design for this garment */}
               {draft.garmentId && (
-                <div className="mt-2">
-                  {prefilledByDraft[draft.id] ? (
-                    /* ── AI prefilled: show reference image on top, editor below — no tabs ── */
-                    <div className="space-y-3">
-                      {/* Reference image */}
-                      <div className="flex items-start justify-between gap-3">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={prefilledByDraft[draft.id].imageUrl}
-                          alt="Reference design"
-                          className="max-h-[280px] rounded-lg border border-hairline object-contain"
-                        />
-                        <button
-                          onClick={() => {
-                            setPrefilledByDraft((prev) => {
-                              const next = { ...prev };
-                              delete next[draft.id];
-                              return next;
-                            });
-                            updateGarmentDraft(draft.id, {
-                              draftItems: [],
-                              computedTotal: 0,
-                            });
-                          }}
-                          className="shrink-0 rounded-md border border-hairline-strong px-2 py-1 text-[11px] text-muted hover:bg-mist-navy"
-                        >
-                          Reset
-                        </button>
-                      </div>
+                <div className="mt-2 space-y-2">
+                  {/* Summary + entry into the design sheet (Manual select /
+                      Upload reference tabs live inside the sheet) */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-hairline bg-chalk-white px-3 py-2">
+                    <div className="min-w-0 text-xs text-ink-navy">
+                      {draft.draftItems.length > 0 ? (
+                        <>
+                          <span className="font-medium">
+                            {draft.draftItems.length} selection
+                            {draft.draftItems.length === 1 ? "" : "s"}
+                          </span>
+                          <span className="text-muted">
+                            {" "}
+                            · {formatPrice(draft.computedTotal)}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-muted">
+                          No selections yet — pick a style or upload a reference
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setDraftSheetId(draft.id)}
+                      className="tap shrink-0 rounded-pill bg-ink-navy px-3 py-1.5 text-caption font-medium text-chalk-white transition hover:bg-ink-navy/90"
+                    >
+                      Design garment
+                    </button>
+                  </div>
 
-                      {/* Editor with prefilled selections.
-                          key includes the iteration counter so the editor
-                          remounts whenever the AI returns new selections. */}
-                      <GarmentOrderEditor
-                        key={`${draft.id}-prefilled-${draftIterations[draft.id] ?? 0}`}
-                        garmentId={draft.garmentId}
-                        garmentOrderId="draft"
-                        initialItems={prefilledByDraft[draft.id].items}
-                        basePrice={
-                          garments.find((g) => g.id === draft.garmentId)?.base_price ?? null
-                        }
-                        draftMode
-                        draftSaving={submitting}
-                        onDraftChange={(items) =>
-                          updateGarmentDraft(draft.id, { draftItems: items })
-                        }
-                        onComputedTotalChange={(total) =>
-                          updateGarmentDraft(draft.id, { computedTotal: total })
-                        }
-                      />
-
-                      {/* Composer (upload · mic · text) for further AI
-                          refinement. Shares the draft's thread id so it keeps
-                          the conversation context from the Analyze step. */}
+                  {/* The selections sheet (draft mode — Apply updates the
+                      draft; "Upload reference" tab runs the AI flow) */}
+                  <GarmentSelectionSheet
+                    open={draftSheetId === draft.id}
+                    garmentId={draft.garmentId}
+                    garmentOrderId="draft"
+                    initialItems={draft.draftItems}
+                    basePrice={
+                      garments.find((g) => g.id === draft.garmentId)?.base_price ??
+                      null
+                    }
+                    sessionId={`${draft.id}-${draftIterations[draft.id] ?? 0}`}
+                    aiPanel={
                       <DesignFromImage
                         garmentId={draft.garmentId}
                         draftMode
-                        composerOnly
                         threadId={draftThreadIds[draft.id]}
                         onDraftChange={(items, imageUrl) =>
                           applyAIDraft(draft.id, items, imageUrl)
@@ -1076,70 +1045,17 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
                           applyImageUrl(draft.id, imageUrl)
                         }
                       />
-                    </div>
-                  ) : (
-                    /* ── Tabbed: AI upload vs manual select ── */
-                    <>
-                      <div className="mb-2 flex gap-1 border-b border-hairline">
-                        <button
-                          onClick={() =>
-                            setDraftTabs((prev) => ({ ...prev, [draft.id]: "upload" }))
-                          }
-                          className={`border-b-2 px-3 py-1.5 text-xs font-medium transition ${
-                            (draftTabs[draft.id] ?? "upload") === "upload"
-                              ? "border-ink-navy text-ink-navy"
-                              : "border-transparent text-muted hover:text-ink"
-                          }`}
-                        >
-                          Upload Reference
-                        </button>
-                        <button
-                          onClick={() =>
-                            setDraftTabs((prev) => ({ ...prev, [draft.id]: "manual" }))
-                          }
-                          className={`border-b-2 px-3 py-1.5 text-xs font-medium transition ${
-                            draftTabs[draft.id] === "manual"
-                              ? "border-ink-navy text-ink-navy"
-                              : "border-transparent text-muted hover:text-ink"
-                          }`}
-                        >
-                          Manual Select
-                        </button>
-                      </div>
-
-                      {(draftTabs[draft.id] ?? "upload") === "upload" ? (
-                        <DesignFromImage
-                          garmentId={draft.garmentId}
-                          draftMode
-                          threadId={draftThreadIds[draft.id]}
-                          onDraftChange={(items, imageUrl) =>
-                            applyAIDraft(draft.id, items, imageUrl)
-                          }
-                          onImageUrl={(imageUrl) =>
-                            applyImageUrl(draft.id, imageUrl)
-                          }
-                        />
-                      ) : (
-                        <GarmentOrderEditor
-                          key={draft.id}
-                          garmentId={draft.garmentId}
-                          garmentOrderId="draft"
-                          initialItems={[]}
-                          basePrice={
-                            garments.find((g) => g.id === draft.garmentId)?.base_price ?? null
-                          }
-                          draftMode
-                          draftSaving={submitting}
-                          onDraftChange={(items) =>
-                            updateGarmentDraft(draft.id, { draftItems: items })
-                          }
-                          onComputedTotalChange={(total) =>
-                            updateGarmentDraft(draft.id, { computedTotal: total })
-                          }
-                        />
-                      )}
-                    </>
-                  )}
+                    }
+                    draftMode
+                    draftSaving={submitting}
+                    onClose={() => setDraftSheetId(null)}
+                    onDraftChange={(items) =>
+                      updateGarmentDraft(draft.id, { draftItems: items })
+                    }
+                    onComputedTotalChange={(total) =>
+                      updateGarmentDraft(draft.id, { computedTotal: total })
+                    }
+                  />
                 </div>
               )}
             </div>

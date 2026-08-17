@@ -31,6 +31,10 @@ interface AuthStoreState {
   bootstrap: () => Promise<void>;
   initAnonymous: () => Promise<void>;
 
+  // Admin login link (?token=… URL → user session)
+  exchangeLoginLink: (token: string) => Promise<OtpVerifyOut>;
+  consumeLoginLinkFromUrl: () => Promise<void>;
+
   // OTP flow
   sendOtp: (phone: string, countryCode?: string) => Promise<void>;
   verifyOtp: (
@@ -63,8 +67,13 @@ export const useAuthStore = create<AuthStoreState>()(
       /**
        * Called on app mount. Checks if we have a valid token; if not,
        * mints an anonymous session. If the token is expired, re-mints.
+       *
+       * A `?token=` login link in the URL (admin-issued) takes priority
+       * over any persisted session and is exchanged first.
        */
       bootstrap: async () => {
+        await get().consumeLoginLinkFromUrl();
+
         const state = get();
         const now = Date.now();
 
@@ -126,6 +135,49 @@ export const useAuthStore = create<AuthStoreState>()(
           expiresAt: new Date(result.expires_at).getTime(),
         });
         return result;
+      },
+
+      /**
+       * Exchange a short-lived admin-issued login-link token for a full
+       * user session (admin viewing a user's dashboard). Mirrors verifyOtp.
+       */
+      exchangeLoginLink: async (linkToken: string) => {
+        const result = await authApi.exchangeLoginLink(linkToken);
+        setToken(result.session_token);
+        set({
+          token: result.session_token,
+          sessionType: "user",
+          user: result.user,
+          activeOrderId: result.active_order_id,
+          expiresAt: new Date(result.expires_at).getTime(),
+        });
+        return result;
+      },
+
+      /**
+       * If the current URL carries ?token=<login-link>, exchange it and
+       * strip the token from the address bar + history so it can't leak
+       * via re-copying the URL. Invalid/expired links fall through to the
+       * normal session flow silently.
+       */
+      consumeLoginLinkFromUrl: async () => {
+        if (typeof window === "undefined") return;
+        const params = new URLSearchParams(window.location.search);
+        const linkToken = params.get("token");
+        if (!linkToken) return;
+
+        params.delete("token");
+        const qs = params.toString();
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`,
+        );
+        try {
+          await get().exchangeLoginLink(linkToken);
+        } catch {
+          // Expired / invalid link — continue as whatever session we had.
+        }
       },
 
       refreshSession: async () => {

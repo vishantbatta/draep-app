@@ -203,6 +203,103 @@ export interface OrderOut {
   updated_at: string | null;
 }
 
+export interface OrderListItem {
+  id: string;
+  order_number: string | null;
+  /** First garment order's garment — powers "re-order" on the dashboard. */
+  garment_id: string | null;
+  library_id: string | null;
+  /** English labels of every garment in the order, in sequence. */
+  garments: string[];
+  payment_status: string | null;
+  fulfillment_status: string | null;
+  total_price: number | null;
+  slot: Record<string, unknown> | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface OrderListOut {
+  items: OrderListItem[];
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}
+
+/** One resolved selection/add-on row on the order detail page. */
+export interface OrderDetailItem {
+  type: "selection" | "add_on" | null;
+  /** Component / add-on name, e.g. "Sleeve style". */
+  label: string | null;
+  /** Chosen variation / variant, e.g. "Regular short". */
+  value: string | null;
+  placement: string[] | null;
+  price: number | null;
+  custom_input: Record<string, unknown> | null;
+  source: string | null;
+}
+
+export interface OrderDetailGarmentOrder {
+  id: string;
+  garment_id: string | null;
+  garment_label: string | null;
+  library_id: string | null;
+  status: string | null;
+  user_note: string | null;
+  base_price: number | null;
+  /** Additive total: base + priced items + scoped adjustments (invoice math). */
+  total_price: number | null;
+  items: OrderDetailItem[];
+}
+
+export interface OrderDetailAdjustment {
+  label: string | null;
+  type: string | null; // discount | fee
+  amount: number;
+}
+
+export interface OrderTransaction {
+  id: string;
+  type: string | null; // payment | refund
+  amount: number | null;
+  status: string | null;
+  provider: string | null;
+  method: string | null;
+  captured_at: string | null;
+  refunded_at: string | null;
+  created_at: string | null;
+}
+
+/** One style-captain measurement visit tied to the order. */
+export interface OrderMeasurementJob {
+  id: string;
+  status: string | null; // scheduled | in_progress | completed | cancelled | needs_reassignment
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  notes: string | null;
+  captain_name: string | null;
+}
+
+export interface CustomerOrderDetail {
+  id: string;
+  order_number: string | null;
+  payment_status: string | null;
+  fulfillment_status: string | null;
+  total_price: number | null;
+  paid_amount: number;
+  balance_due: number;
+  slot: Record<string, unknown> | null;
+  contact: Record<string, unknown> | null;
+  measurement_jobs: OrderMeasurementJob[];
+  created_at: string | null;
+  updated_at: string | null;
+  garment_orders: OrderDetailGarmentOrder[];
+  adjustments: OrderDetailAdjustment[];
+  transactions: OrderTransaction[];
+}
+
 export interface ValidationIssue {
   code: string;
   message: string;
