@@ -6,7 +6,10 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "draep",
     description:
       "Design your custom blouse on the phone. A Style Captain visits your home to measure, then delivers and trials — fixes included.",
-    start_url: "/",
+    // No `start_url`: on install, iOS Safari and Android Chrome stamp the page
+    // the user was on (e.g. /admin) as the app's launch URL. Adding start_url
+    // back would force every install to open that URL instead.
+    // `scope: "/"` must stay so navigation stays inside the app window.
     scope: "/",
     display: "standalone",
     orientation: "portrait",
