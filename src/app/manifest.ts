@@ -15,30 +15,14 @@ export default function manifest(): MetadataRoute.Manifest {
     categories: ["shopping", "lifestyle"],
     icons: [
       {
-        src: "/icons/favicon-16x16.png",
-        sizes: "16x16",
-        type: "image/png",
-      },
-      {
-        src: "/icons/favicon-32x32.png",
-        sizes: "32x32",
-        type: "image/png",
-      },
-      {
-        src: "/icons/icon-192x192.png",
-        sizes: "192x192",
+        src: "/logo_alpha_icon.png",
+        sizes: "560x606",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/icons/icon-512x512.png",
-        sizes: "512x512",
-        type: "image/png",
-        purpose: "any",
-      },
-      {
-        src: "/icons/maskable-512x512.png",
-        sizes: "512x512",
+        src: "/logo_alpha_icon.png",
+        sizes: "560x606",
         type: "image/png",
         purpose: "maskable",
       },

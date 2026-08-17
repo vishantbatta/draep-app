@@ -44,13 +44,9 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
-    icon: [
-      { url: "/icons/favicon-32x32.png", sizes: "32x32", type: "image/png" },
-      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png" },
-    ],
-    shortcut: ["/icons/favicon-32x32.png"],
-    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    icon: [{ url: "/logo_alpha_icon.png", type: "image/png", sizes: "560x606" }],
+    shortcut: [{ url: "/logo_alpha_icon.png", type: "image/png" }],
+    apple: [{ url: "/logo_alpha_icon.png" }],
   },
 };
 
