@@ -38,7 +38,10 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "draep",
-    statusBarStyle: "black-translucent",
+    // "default" keeps content below the notch/Dynamic Island in the installed
+    // iOS app (black-translucent slides every page under it, with white
+    // status-bar text that's unreadable on our light headers).
+    statusBarStyle: "default",
   },
   formatDetection: {
     telephone: false,

@@ -81,6 +81,14 @@
     @apply min-h-[44px] min-w-[44px];
   }
 
+  /* Bottom safe-area padding for sticky action bars — keeps CTAs above the
+     iOS home indicator in the installed PWA (viewport-fit=cover). max()
+     preserves the py-3 rest padding when there is no inset (normal browser).
+     PriceBar/MyodSheet inline this already; sticky bars elsewhere use this. */
+  .pb-safe {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
   /* Tick-pattern divider (Brand Book §8 — tick marks are the core motif).
      Hairline ticks on tape-silver, used between sections and inside cards. */
   .tick-divider {

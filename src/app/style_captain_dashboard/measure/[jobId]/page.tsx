@@ -1660,7 +1660,7 @@ function GarmentMetricsReview({
       )}
 
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
-      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
           <button
             onClick={onBack}
@@ -1853,7 +1853,7 @@ function JobStartScreen({
       )}
 
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
-      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
         <div className="mx-auto max-w-[480px]">
           <button
             onClick={onStart}
@@ -1985,7 +1985,7 @@ function GarmentStartScreen({
       )}
 
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
-      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
           <button
             onClick={onBack}
@@ -2251,7 +2251,7 @@ function OverallReviewScreen({
       )}
 
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
-      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
           <button
             onClick={onBack}
@@ -2461,7 +2461,7 @@ function CheckpointScreen({
       )}
 
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
-      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
           <button
             onClick={onBack}
@@ -3091,7 +3091,7 @@ function FinalNotesPhase({
         </div>
       )}
 
-      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
           <button
             onClick={onBack}
@@ -3561,7 +3561,7 @@ function GarmentPhase({
               : "This is a walk-in job without a linked order."}
           </p>
         </div>
-        <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+        <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
           <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
             <button
               onClick={onBack}
@@ -3613,7 +3613,7 @@ function GarmentPhase({
         ))}
       </div>
 
-      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+      <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
         {allHaveCloth ? (
           <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
             <button

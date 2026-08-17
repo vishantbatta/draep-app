@@ -214,7 +214,7 @@ export function MetricInputBar({
   const hasValue = draft.valueNumeric !== null;
 
   return (
-    <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 backdrop-blur">
+    <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
       <div className="mx-auto max-w-[480px] space-y-2.5">
         {/* Input row */}
         <div className="rounded-card border border-hairline bg-chalk-white px-3 py-2.5 shadow-card">
