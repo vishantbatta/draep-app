@@ -2617,9 +2617,14 @@ export default function OrderDetailPage() {
                   </div>
                 )}
 
-                {/* ── Admin measurement override panel ─────────────────────── */}
+                {/* ── Admin measurement override — bottom sheet (same UX as
+                    the design-selection sheet; the overlay is fixed, so its
+                    position in this map is visually irrelevant) ───────── */}
                 {measurementsJobId === job.id && (
-                  <div className="mt-3 rounded-lg border border-tape/40 bg-tape/5 p-3">
+                  <ScSheet
+                    title="Admin Measurement Override"
+                    onClose={closeMeasurements}
+                  >
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
                         Admin Measurement Override
@@ -2804,7 +2809,7 @@ export default function OrderDetailPage() {
                         </div>
                       </>
                     )}
-                  </div>
+                  </ScSheet>
                 )}
               </div>
             ))}
