@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Draep Brand Book — Nature Edition</title>
+<meta name="description" content="Draep Nature Edition brand book — a palette inspired by a gerbera flower. Colors, typography, light theme, logo usage and WCAG 2.1 AA accessibility standards.">
+<meta name="theme-color" content="#0A0114">
+<link rel="icon" type="image/png" sizes="128x128" href="/favicon_alpha.png">
+<link rel="apple-touch-icon" href="/apple_touch_alpha.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --night:#0A0114; --night2:#150829;
+  --marigold:#FABB30; --tangerine:#E87E35; --coral:#EF655B;
+  --flamingo:#F604A4; --fuchsia:#E200C2; --orchid:#B700E1;
+  --violet:#8100F5; --indigo:#3D08EC; --deepviolet:#34188E;
+  --cream:#F5E7AE; --text:#EFE9FA; --muted:#A79BC4; --line:rgba(255,255,255,.09);
+  /* gradients */
+  --grad:linear-gradient(90deg,#FABB30 0%,#E87E35 14%,#EF655B 30%,#F604A4 48%,#E200C2 62%,#B700E1 76%,#8100F5 88%,#3D08EC 100%); /* decorative surfaces only */
+  --grad-ink-sm:linear-gradient(90deg,#FABB30 0%,#EF655B 45%,#F604A4 100%);  /* text-safe at any size: worst stop ≥ 5.0:1 */
+  --grad-ink-lg:linear-gradient(90deg,#FABB30 0%,#EF655B 22%,#F604A4 45%,#B700E1 68%,#8100F5 100%); /* large text only (≥24px / 19px bold): worst stop 3.2:1 */
+  --grad-btn:linear-gradient(90deg,#D6006B 0%,#8A00B8 55%,#4B0BD8 100%);    /* white text ≥ 5.2:1 on every stop */
+  --grad-soft:linear-gradient(135deg,rgba(248,144,16,.14),rgba(230,0,194,.14),rgba(61,8,236,.14));
+  /* light theme tokens (WCAG-checked on #FFFFFF / #FAF6FF) */
+  --lt-ink:#1C1230; --lt-muted:#5B4B77; --lt-amber:#8A5A00; --lt-flamingo:#C4006B;
+  --lt-violet:#7B1FA2; --lt-indigo:#3D08EC; --lt-wash:#FAF6FF; --lt-border:#E9E2F5;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',system-ui,sans-serif;color:var(--text);background:var(--night);line-height:1.65;font-size:16px}
+h1,h2,h3,h4{font-family:'Poppins',sans-serif;color:#fff;line-height:1.22}
+.mono{font-family:'IBM Plex Mono',monospace}
+.wrap{max-width:1080px;margin:0 auto;padding:0 32px}
+section{padding:84px 0;border-bottom:1px solid var(--line);position:relative;overflow:hidden}
+.eyebrow{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:500;margin-bottom:14px;background:var(--grad-ink-sm);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+h2.sec{font-size:34px;margin-bottom:8px}
+.sec-sub{color:var(--muted);max-width:660px;margin-bottom:40px}
+.grad-text{background:var(--grad-ink-lg);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+
+/* accessibility helpers */
+.skip{position:absolute;left:-9999px;top:12px;z-index:99;background:var(--marigold);color:#1C1230;font-weight:600;padding:10px 18px;border-radius:8px}
+.skip:focus{left:12px}
+:focus-visible{outline:3px solid var(--marigold);outline-offset:3px;border-radius:4px}
+.lt :focus-visible{outline-color:var(--lt-flamingo)}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+}
+
+/* HERO */
+.hero{background:radial-gradient(1100px 600px at 12% -10%,rgba(179,0,225,.22),transparent 60%),radial-gradient(900px 520px at 92% 8%,rgba(246,4,164,.16),transparent 55%),radial-gradient(800px 600px at 55% 115%,rgba(61,8,236,.18),transparent 60%),var(--night);padding:0;border:none;position:relative;overflow:hidden}
+.hero .wrap{padding-top:92px;padding-bottom:96px;position:relative;z-index:2}
+.hero::after{content:"";position:absolute;left:50%;top:-220px;width:760px;height:760px;transform:translateX(-50%);border-radius:50%;background:var(--grad);opacity:.10;filter:blur(90px)}
+.hero .badge{display:inline-flex;align-items:center;gap:9px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:var(--cream);font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;padding:7px 16px;border-radius:999px;margin-bottom:34px}
+.hero .badge img{width:18px;height:18px}
+.hero img.logo{width:min(520px,100%);display:block;margin-bottom:36px;filter:drop-shadow(0 18px 50px rgba(230,0,194,.22))}
+.hero h1{font-size:56px;font-weight:700;letter-spacing:-.02em;max-width:820px}
+.hero h1 .grad-text{background-image:var(--grad-ink-sm)}
+.hero p.spirit{margin-top:26px;max-width:700px;color:rgba(239,233,250,.86);font-size:18px;font-style:italic;border-left:3px solid #F604A4;padding-left:20px}
+.hero .tags{margin-top:36px;display:flex;gap:12px;flex-wrap:wrap}
+.hero .tags span{border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:8px 18px;font-size:14px;color:var(--text)}
+.hero .btn-primary{margin-top:38px}
+
+/* FOUNDATION */
+.mv{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:36px}
+.card{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:16px;padding:28px}
+.card h3{font-size:20px;margin-bottom:10px}
+.card .k{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:12px;background:var(--grad-ink-sm);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.values{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.value{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:16px;padding:22px}
+.value .n{font-family:'IBM Plex Mono',monospace;color:rgba(167,155,196,.75);font-size:13px}
+.value h3{font-size:16px;margin:8px 0 6px}
+.value p{font-size:14px;color:var(--muted)}
+.persona{margin-top:32px;background:var(--grad-btn);border-radius:20px;padding:34px;color:#fff;position:relative;overflow:hidden}
+.persona::after{content:"";position:absolute;right:-70px;bottom:-90px;width:280px;height:280px;border-radius:50%;background:rgba(10,1,20,.28);filter:blur(30px)}
+.persona .k{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;opacity:.95}
+.persona h3{color:#fff;font-size:26px;margin:6px 0 10px}
+.persona .traits{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;position:relative;z-index:1}
+.persona .traits span{background:rgba(10,1,20,.32);border:1px solid rgba(255,255,255,.3);padding:6px 14px;border-radius:999px;font-size:14px}
+
+/* NATURE */
+.nature-grid{display:grid;grid-template-columns:0.9fr 1.1fr;gap:36px;align-items:start}
+.flower-frame{position:relative;border-radius:24px;overflow:hidden;border:1px solid var(--line);background:radial-gradient(400px 300px at 50% 20%,rgba(246,4,164,.14),transparent 70%),var(--night2)}
+.flower-frame img{width:100%;display:block}
+.flower-cap{padding:14px 18px;font-size:12.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;border-top:1px solid var(--line)}
+.petals{display:flex;flex-direction:column;gap:12px}
+.petal{display:flex;align-items:center;gap:14px;background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.petal .dot{width:38px;height:38px;border-radius:50%;flex-shrink:0;box-shadow:0 0 18px rgba(0,0,0,.35)}
+.petal .t{font-weight:600;font-size:15px}
+.petal .d{font-size:13px;color:var(--muted)}
+.petal .hx{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--cream);white-space:nowrap}
+.nature-quote{margin-top:28px;border-radius:16px;padding:26px 28px;background:var(--grad-soft);border:1px solid var(--line);font-size:16.5px}
+.nature-quote strong{color:#fff}
+.lessons{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:28px}
+.lesson{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:16px;padding:20px}
+.lesson h3{font-size:15px;margin-bottom:6px}
+.lesson p{font-size:13.5px;color:var(--muted)}
+
+/* SPELLING */
+.spell-stage{background:radial-gradient(600px 300px at 50% 0%,rgba(230,0,194,.10),transparent 70%),rgba(255,255,255,.03);border:1px solid var(--line);border-radius:24px;padding:48px 32px 30px;text-align:center;margin-bottom:28px}
+.spell{font-family:'Poppins',sans-serif;font-weight:700;font-size:clamp(64px,12vw,128px);letter-spacing:.04em;line-height:1;display:flex;justify-content:center;gap:.06em}
+.spell span{display:inline-block}
+.spell .cons{color:transparent;-webkit-text-stroke:2px rgba(245,231,174,.9)}
+.spell .vow{background:linear-gradient(90deg,#FABB30 0%,#EF655B 55%,#F604A4 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.spell-notes{display:flex;justify-content:center;gap:40px;margin-top:20px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.spell-notes b{color:var(--cream);font-weight:500}
+.reasons{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.reason{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:18px;padding:28px;position:relative}
+.reason .num{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;background:var(--grad-ink-sm);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.reason h3{font-size:21px;margin:10px 0 10px}
+.reason p{font-size:15px;color:var(--muted)}
+.reason p strong{color:var(--text)}
+.vision-strip{margin-top:24px;border-radius:18px;padding:26px 30px;background:linear-gradient(90deg,rgba(246,4,164,.12),rgba(61,8,236,.12));border:1px solid var(--line);font-size:15.5px}
+.vision-strip .k{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#FF4FC0;display:block;margin-bottom:8px}
+
+/* PHILOSOPHY */
+.phil{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.phil .col h3{font-size:17px;margin-bottom:10px;padding-bottom:10px;border-bottom:2px dashed rgba(255,255,255,.16)}
+.phil .col p{font-size:14px;color:var(--muted)}
+
+/* COLOR */
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.sw{border-radius:16px;overflow:hidden;border:1px solid var(--line);background:rgba(255,255,255,.03)}
+.sw .chip{height:92px}
+.sw .meta{padding:14px 16px}
+.sw .meta .nm{font-weight:600;font-size:14.5px;color:#fff}
+.sw .meta .hx{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--muted);margin-top:2px}
+.sw .meta .us{font-size:12px;color:var(--muted);margin-top:6px}
+.gradbar{height:74px;border-radius:16px;background:var(--grad);margin-bottom:10px;box-shadow:0 12px 34px rgba(230,0,194,.18)}
+.gradbar-labels{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:30px}
+.gradbar-labels .pill{background:rgba(10,1,20,.88);color:var(--cream);font-family:'IBM Plex Mono',monospace;font-size:13px;padding:6px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.14)}
+.gradbar-labels .lbl-t{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted)}
+.ratio{margin-bottom:28px}
+.ratio .bar{display:flex;height:56px;border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+.ratio .seg{display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#fff}
+.ratio-legend{margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted)}
+.dodont{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:26px}
+.do,.dont{border-radius:16px;padding:22px}
+.do{background:rgba(46,160,67,.10);border:1px solid rgba(46,160,67,.35)}
+.dont{background:rgba(229,57,53,.10);border:1px solid rgba(229,57,53,.35)}
+.do h3{color:#6FDF8B}.dont h3{color:#FF8A80}
+.do ul,.dont ul{margin-top:10px;padding-left:18px;font-size:14px;color:var(--text)}
+.do li,.dont li{margin:6px 0}
+
+/* LIGHT THEME */
+.lt{background:#FFFFFF;color:var(--lt-ink);border-radius:24px;padding:36px;border:1px solid rgba(0,0,0,.06)}
+.lt h3{color:var(--lt-ink)}
+.lt .lt-k{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--lt-flamingo);margin:26px 0 12px}
+.lt .lt-k:first-child{margin-top:0}
+.lt-logos{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.lt-tile{border-radius:14px;padding:18px;display:flex;align-items:center;justify-content:center;min-height:110px;border:1px solid var(--lt-border)}
+.lt-tile img{max-width:88%;height:auto}
+.lt-tile.on-white{background:#FFFFFF}
+.lt-tile.on-wash{background:var(--lt-wash)}
+.lt-tile.on-cream{background:var(--cream)}
+.lt-tile.on-ink{background:var(--night)}
+.lt-tile img.dark-on-light{max-width:74%}
+.lt-tile-lbl{text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--lt-muted);margin-top:8px}
+.lt-tokens{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.lt-tok{display:flex;align-items:center;gap:12px;border:1px solid var(--lt-border);border-radius:12px;padding:10px 14px;background:var(--lt-wash)}
+.lt-tok .dot{width:30px;height:30px;border-radius:50%;flex-shrink:0;border:1px solid rgba(0,0,0,.12)}
+.lt-tok .nm{font-weight:600;font-size:13.5px}
+.lt-tok .hx{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--lt-muted)}
+.lt-type{border:1px solid var(--lt-border);border-radius:14px;padding:22px;background:#FFFFFF}
+.lt-type .pop{font-family:'Poppins',sans-serif}
+.lt-type .big{font-size:34px;font-weight:700;letter-spacing:-.02em;color:var(--lt-ink)}
+.lt-type .mid{font-size:20px;margin-top:6px;color:var(--lt-ink)}
+.lt-type p{font-size:14.5px;color:var(--lt-muted);margin-top:10px}
+.lt-type .mono{font-size:13.5px;color:var(--lt-violet);margin-top:8px}
+.lt-type .grad-lg{font-family:'Poppins',sans-serif;font-size:30px;font-weight:700;background:linear-gradient(90deg,#C4006B,#7B1FA2,#3D08EC);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;margin-top:14px}
+.lt-btnrow{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.lt-btn{display:inline-block;border:none;cursor:pointer;font-family:'Inter';font-weight:600;font-size:15px;border-radius:999px;padding:12px 28px}
+.lt-btn.primary{background:var(--grad-btn);color:#fff}
+.lt-btn.secondary{background:transparent;color:var(--lt-violet);border:1.5px solid var(--lt-violet)}
+.lt-inp{width:100%;padding:13px 16px;background:#FFFFFF;border:1px solid #D9CFEA;color:var(--lt-ink);border-radius:12px;font-size:15px;font-family:'Inter'}
+.lt-inp::placeholder{color:rgba(91,75,119,.95)}
+.lt-inp:focus{border-color:var(--lt-flamingo);box-shadow:0 0 0 3px rgba(196,0,107,.15)}
+.lt-chips{display:flex;gap:10px;flex-wrap:wrap}
+.lt-chips span{border-radius:999px;padding:6px 14px;font-size:13px;border:1px solid var(--lt-border);background:var(--lt-wash);color:var(--lt-ink)}
+.lt-ok{border:1px solid #B9DFC8;background:#E8F1EC;color:#1C7A48;border-radius:12px;padding:12px 16px;font-size:14px}
+.lt-alert{border:1px solid #F2C4BD;background:#FCE9E7;color:#B3382C;border-radius:12px;padding:12px 16px;font-size:14px}
+.lt-note{margin-top:22px;font-size:13.5px;color:var(--lt-muted);border-top:1px dashed var(--lt-border);padding-top:16px}
+.lt-note code{font-family:'IBM Plex Mono',monospace;color:var(--lt-violet)}
+
+/* TYPE */
+.type-spec{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:16px;padding:32px;margin-bottom:16px}
+.type-spec .lbl{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;background:var(--grad-ink-sm);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:12px}
+.pop{font-family:'Poppins',sans-serif}
+.big{font-size:46px;font-weight:700;color:#fff;letter-spacing:-.02em}
+.mid{font-size:24px;color:#fff}
+.scale{display:flex;gap:24px;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--muted);font-family:'IBM Plex Mono',monospace}
+
+/* COMPONENTS */
+.comp-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.demo{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:16px;padding:26px}
+.demo .lbl{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:16px}
+.btn{display:inline-block;border:none;cursor:pointer;font-family:'Inter';font-weight:600;font-size:15px}
+.btn-primary{background:var(--grad-btn);color:#fff;border-radius:999px;padding:12px 30px;box-shadow:0 6px 20px rgba(138,0,184,.35)}
+.btn-secondary{background:transparent;color:#fff;border:1.5px solid rgba(245,231,174,.75);border-radius:999px;padding:11px 28px}
+.btn-ghost{background:transparent;color:#D9D2E8;border-radius:999px;padding:10px 22px;font-weight:500}
+.btnrow{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.inp{width:100%;padding:14px 16px;background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--text);border-radius:12px;font-size:15px;font-family:'Inter'}
+.inp::placeholder{color:rgba(196,185,222,.95)}
+.inp:focus{border-color:var(--flamingo);box-shadow:0 0 0 3px rgba(246,4,164,.22)}
+.field-lbl{font-size:13px;color:var(--muted);margin-bottom:6px;display:block}
+.toggle{width:48px;height:26px;background:var(--grad-btn);border-radius:999px;position:relative;display:inline-block}
+.toggle::after{content:"";position:absolute;top:3px;right:3px;width:20px;height:20px;background:#fff;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.toast{background:rgba(255,255,255,.05);border:1px solid var(--line);border-left:4px solid #F604A4;border-radius:12px;padding:16px 18px;font-size:14px;display:flex;gap:12px;align-items:center}
+.alert{border:1px solid rgba(229,57,53,.4);background:rgba(229,57,53,.10);color:#FF8A80;border-radius:12px;padding:14px 16px;font-size:14px;margin-top:12px}
+.ok{border:1px solid rgba(46,160,67,.4);background:rgba(46,160,67,.10);color:#6FDF8B;border-radius:12px;padding:14px 16px;font-size:14px}
+.chips{display:flex;gap:10px;flex-wrap:wrap}
+.chipP{border-radius:999px;padding:7px 16px;font-size:13.5px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05)}
+.timeline{display:flex;align-items:center;justify-content:space-between;margin-top:8px;position:relative}
+.timeline::before{content:"";position:absolute;left:0;right:0;top:9px;border-top:2px dashed rgba(255,255,255,.18);z-index:0}
+.step{position:relative;z-index:1;text-align:center;flex:1}
+.step .dot{width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.2);margin:0 auto 10px}
+.step.active .dot{background:var(--flamingo);box-shadow:0 0 0 5px rgba(246,4,164,.22)}
+.step.done .dot{background:var(--violet)}
+.step .t{font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace}
+
+/* VOICE */
+.voice-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px}
+.voice{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:16px;padding:22px}
+.voice h3{font-size:15px;margin-bottom:6px}
+.voice p{font-size:13.5px;color:var(--muted)}
+.quotes{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.quote{border-radius:16px;padding:24px;font-size:17px;font-weight:500;background:var(--grad-soft);border:1px solid var(--line);font-family:'Poppins',sans-serif;color:var(--text)}
+.quote small{display:block;margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+
+/* MARK USAGE */
+.mark-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.tile{border-radius:16px;border:1px solid var(--line);padding:22px;display:flex;align-items:center;justify-content:center;min-height:140px}
+.tile img{max-width:82%;height:auto}
+.tile .alpha-sm{max-width:64px}
+.tile.on-night{background:var(--night)}
+.tile.on-glow{background:radial-gradient(300px 160px at 50% 120%,rgba(179,0,225,.35),transparent 70%),var(--night2)}
+.tile.on-cream{background:var(--cream)}
+.tile-lbl{text-align:center;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);margin-top:8px}
+.clearspace{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:16px;padding:30px;display:flex;gap:36px;align-items:center;flex-wrap:wrap}
+.cs-box{position:relative;padding:34px;border:1.5px dashed rgba(246,4,164,.55);border-radius:12px}
+.cs-box img{width:300px;display:block}
+.cs-box .x{position:absolute;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--flamingo)}
+
+/* MERCH */
+.merch{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+.merch .demo h3{font-size:16px;margin-bottom:8px}
+.merch .demo p{font-size:13.5px;color:var(--muted)}
+.thread-row{display:flex;gap:8px;margin:12px 0}
+.thread{width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.25)}
+.fav-icons{display:flex;gap:10px;align-items:flex-end;margin-top:12px}
+.fav-icons span{display:flex;align-items:center;justify-content:center;background:var(--night);border-radius:22%;border:1px solid rgba(255,255,255,.12)}
+.fav-icons img{display:block}
+
+/* ACCESSIBILITY */
+.a11y-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px}
+.a11y{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:16px;padding:20px}
+.a11y h3{font-size:15px;margin-bottom:6px}
+.a11y p{font-size:13.5px;color:var(--muted)}
+.ct-table{width:100%;border-collapse:collapse;font-size:13.5px}
+.ct-table th,.ct-table td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+.ct-table th{font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.ct-table td{color:var(--text)}
+.ct-table td.mono{color:var(--cream);font-size:12.5px}
+.ct-table .pass{color:#6FDF8B;font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:nowrap}
+.ct-table .lg{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:nowrap}
+
+/* SUMMARY */
+.summary{background:linear-gradient(135deg,rgba(250,187,48,.10),rgba(230,0,194,.12),rgba(61,8,236,.14)),var(--night2);border:none}
+.qr-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:32px}
+.qr-grid .k{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;background:linear-gradient(90deg,#FABB30 0%,#EF655B 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:12px}
+.summary .eyebrow{background-image:linear-gradient(90deg,#FABB30 0%,#EF655B 100%)}
+.qr-grid ul{list-style:none}
+.qr-grid li{font-size:14.5px;margin:8px 0;display:flex;align-items:center;gap:10px;color:var(--text)}
+.swd{width:16px;height:16px;border-radius:5px;display:inline-block;flex-shrink:0;border:1px solid rgba(255,255,255,.2)}
+footer{padding:34px 0;text-align:center;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--muted);letter-spacing:.06em}
+footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
+
+@media(max-width:880px){
+  .mv,.values,.comp-grid,.reasons,.dodont,.nature-grid,.voice-grid,.quotes,.merch,.qr-grid,.a11y-grid{grid-template-columns:1fr}
+  .swatches{grid-template-columns:repeat(2,1fr)}
+  .phil,.lessons{grid-template-columns:1fr}
+  .mark-grid{grid-template-columns:1fr 1fr}
+  .lt-logos,.lt-tokens{grid-template-columns:1fr 1fr}
+  .hero h1{font-size:38px}.big{font-size:34px}
+}
+</style>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="badge"><img src="/logo_alpha.png" alt="" aria-hidden="true">Draep Design System · Nature Edition · v0.3</span>
+    <img class="logo" src="/logo_nature_transparent.png" alt="draep logo — alpha bloom mark and gradient wordmark">
+    <h1>What you wear is who you are.<br><span class="grad-text">Paint the world the way you want!</span></h1>
+    <p class="spirit">If Draep were a person, they would be a garden in bloom — every flower a different color, every color belonging. We believe your clothes are your self-portrait, and that gives you a quiet power: the responsibility to make the world a little more beautiful — or a little more dull — by what you choose to wear. We choose beautiful. Every time, for everyone.</p>
+    <div class="tags"><span>🌸 Inspired by nature</span><span>🧡 Everyone included</span><span>✊ Challenge the status quo</span><span>🌍 Paint the world</span><span>♿ WCAG 2.1 AA</span></div>
+    <div style="margin-top:8px">
+      <button class="btn btn-primary" id="download-brandbook-nature">⬇ Download the Brand Book (.md)</button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<section><div class="wrap">
+  <div class="eyebrow">01 — Foundation</div>
+  <h2 class="sec">Brand Foundation</h2>
+  <p class="sec-sub">Everything Draep does starts with one belief — the thing you wear represents you as a person, and everyone deserves to be represented exactly as they are.</p>
+  <div class="mv">
+    <div class="card"><div class="k">Mission</div><h3>Give every individual the right to represent themselves</h3><p style="color:var(--muted);font-size:15px">Clothes that carry your personality — designed around who you are, measured for the body you have, made so that being yourself is the easiest thing you put on in the morning.</p></div>
+    <div class="card"><div class="k">Vision</div><h3>A world as colorful as nature</h3><p style="color:var(--muted);font-size:15px">Just as nature holds a lot — a lot — of colors, we want the world to hold a lot of characters: each individual representing themselves, all and everyone inclusive, together painting the world beautiful.</p></div>
+  </div>
+  <div class="values">
+    <div class="value"><div class="n">01</div><h3>Self-Expression</h3><p>Your clothes are your voice before you speak — we make them say you.</p></div>
+    <div class="value"><div class="n">02</div><h3>Inclusion</h3><p>Every section, every faction, every body, every story — all and everyone included.</p></div>
+    <div class="value"><div class="n">03</div><h3>Responsibility</h3><p>What you wear can make the world beautiful or dull. We take that power seriously.</p></div>
+    <div class="value"><div class="n">04</div><h3>Courage</h3><p>We spell things differently around here — the status quo is a starting point, not an answer.</p></div>
+    <div class="value"><div class="n">05</div><h3>Craftsmanship</h3><p>Precision tailoring in service of personality — the fit follows the person, never the reverse.</p></div>
+    <div class="value"><div class="n">06</div><h3>Nature's Wisdom</h3><p>Our palette is borrowed from a flower — because nature never asks anyone to be less colorful.</p></div>
+  </div>
+  <div class="persona">
+    <div class="k">Brand Personality</div>
+    <h3>The Garden in Bloom</h3>
+    <p style="max-width:660px">Draep is warm like sunlight, bold like a flamingo pink petal, and impossible to mistake for anything else. A garden doesn't compare its flowers — it just makes room for all of them to be vivid. That's us: making room for every person to be vividly themselves.</p>
+    <div class="traits"><span>Warm</span><span>Bold</span><span>Inclusive</span><span>Alive</span><span>Unapologetic</span></div>
+  </div>
+</div></section>
+
+<section style="background:var(--night2)"><div class="wrap">
+  <div class="eyebrow">02 — Origin of the Colors</div>
+  <h2 class="sec">Inspired by Nature</h2>
+  <p class="sec-sub">This brand book — and every color in it — is inspired by nature, most of all by one flower. Our entire palette was picked from its petals.</p>
+  <div class="nature-grid">
+    <div>
+      <div class="flower-frame">
+        <img src="/flower_nature.png" alt="The gerbera flower that inspired the Draep nature palette">
+        <div class="flower-cap">◍ the inspiration · gerbera bloom · palette source</div>
+      </div>
+    </div>
+    <div>
+      <div class="petals">
+        <div class="petal"><span class="dot" style="background:#FABB30"></span><div><div class="t">Heart of the flower</div><div class="d">Marigold gold — joy, warmth, the courage to be seen.</div></div><span class="hx">#FABB30</span></div>
+        <div class="petal"><span class="dot" style="background:#E87E35"></span><div><div class="t">Inner petals</div><div class="d">Tangerine — openness, the welcome before the wow.</div></div><span class="hx">#E87E35</span></div>
+        <div class="petal"><span class="dot" style="background:#EF655B"></span><div><div class="t">Mid petals</div><div class="d">Coral bloom — warmth worn on the outside.</div></div><span class="hx">#EF655B</span></div>
+        <div class="petal"><span class="dot" style="background:#F604A4"></span><div><div class="t">Petal body</div><div class="d">Flamingo pink — confidence, celebration, self-love.</div></div><span class="hx">#F604A4</span></div>
+        <div class="petal"><span class="dot" style="background:#B700E1"></span><div><div class="t">Petal edges</div><div class="d">Orchid purple — depth, individuality, character.</div></div><span class="hx">#B700E1</span></div>
+        <div class="petal"><span class="dot" style="background:#3D08EC"></span><div><div class="t">Shadows between petals</div><div class="d">Indigo night — the quiet that makes the colors sing.</div></div><span class="hx">#3D08EC</span></div>
+      </div>
+      <div class="nature-quote">
+        <strong>Why a flower?</strong> Because nature has a lot — a lot — of colors, and it never asks any of them to tone down. We want the world to look like that too: full of characters, each individual representing themselves. <strong>All and everyone, inclusive.</strong>
+      </div>
+    </div>
+  </div>
+  <div class="lessons">
+    <div class="lesson"><h3>🌞 Nature doesn't edit</h3><p>No flower is "too much." No color apologizes. Neither should the person wearing it.</p></div>
+    <div class="lesson"><h3>🌈 Diversity is the design</h3><p>A single-color garden is a parking lot. The beauty is in the mix — always the mix.</p></div>
+    <div class="lesson"><h3>🌱 Beauty with duty</h3><p>Nature makes the world beautiful by default. So can you — it starts with what you wear.</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eyebrow">03 — The Name</div>
+  <h2 class="sec">Why we spell it <span class="grad-text">d r a e p</span></h2>
+  <p class="sec-sub">The unusual spelling isn't a typo — it's the whole brand compressed into five letters. Two reasons, one vision.</p>
+  <div class="spell-stage">
+    <div class="spell" role="img" aria-label="draep wordmark">
+      <span class="cons">d</span><span class="cons">r</span><span class="vow">a</span><span class="vow">e</span><span class="cons">p</span>
+    </div>
+    <div class="spell-notes">
+      <span><b>d r</b> — the consonants open the door</span>
+      <span><b>a e</b> — the vowels sit together, included</span>
+      <span><b>p</b> — one consonant closes, protecting the whole</span>
+    </div>
+  </div>
+  <div class="reasons">
+    <div class="reason">
+      <div class="num">Reason 01</div>
+      <h3>Everyone is included</h3>
+      <p>The vowels — <strong>a</strong> and <strong>e</strong> — sit <strong>together</strong> at the very heart of the word, gathered close and never separated, while the consonants hold the space around them. It's a small act of typography that says a large thing: <strong>everyone has the right to represent themselves the way they want</strong>, and in our word — as in our world — there is room for all and everyone.</p>
+    </div>
+    <div class="reason">
+      <div class="num">Reason 02</div>
+      <h3>Challenging the status quo</h3>
+      <p>"Drape" is how it has always been spelled — usual, expected, normal. <strong>We spell it differently on purpose.</strong> The moment you notice the letters are not in their usual order, you're already asking why — and that question is the point. We are here to challenge the status quo of things that simply existed because nobody questioned them.</p>
+    </div>
+  </div>
+  <div class="vision-strip">
+    <span class="k">The logo's vision</span>
+    The mark you see in our logo is a vision: to help <strong>everyone — each and every individual, from different sections and different factions — have the right to represent themselves</strong>. And its colors are a promise: they are <strong>the way we want to paint this world</strong>.
+  </div>
+</div></section>
+
+<section style="background:var(--night2)"><div class="wrap">
+  <div class="eyebrow">04 — Visual Identity</div>
+  <h2 class="sec">Wear Your World</h2>
+  <p class="sec-sub">A night-dark canvas so that every color — like every person — gets to be seen. The gradient is the hero; everything else makes room for it.</p>
+  <div class="phil">
+    <div class="col"><h3>Color Physics</h3><p>Deep violet-night backgrounds carry calm and let the bloom gradient glow. The gradient always reads left-to-right, gold into indigo — the same journey a petal takes from sunshine to shade. The gradient is the celebration, never the wallpaper.</p></div>
+    <div class="col"><h3>Type Hierarchy</h3><p>Poppins' rounded geometry echoes the lowercase wordmark and the friendliness of the brand; Inter keeps dense order and catalogue UI legible; IBM Plex Mono makes measurements, hex codes, and sizes look exactly as considered as they are.</p></div>
+    <div class="col"><h3>Spatial Logic</h3><p>Petal-soft curves everywhere — 16px cards, pill buttons, circular color dots. Glows instead of hard shadows, dashed stems instead of hard dividers. Empty space is soil: it exists so the colors can grow.</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eyebrow">05 — Color</div>
+  <h2 class="sec">The Bloom Palette</h2>
+  <p class="sec-sub">Eight colors, one flower. Sampled from our logo — which was sampled from nature itself.</p>
+  <div class="swatches">
+    <div class="sw"><div class="chip" style="background:#FABB30"></div><div class="meta"><div class="nm">Marigold</div><div class="hx">#FABB30</div><div class="us">Highlights, joy moments, the start of the gradient</div></div></div>
+    <div class="sw"><div class="chip" style="background:#E87E35"></div><div class="meta"><div class="nm">Tangerine</div><div class="hx">#E87E35</div><div class="us">Warm accents, energy, illustration fills</div></div></div>
+    <div class="sw"><div class="chip" style="background:#EF655B"></div><div class="meta"><div class="nm">Coral Bloom</div><div class="hx">#EF655B</div><div class="us">Warmth, secondary CTAs, notifications</div></div></div>
+    <div class="sw"><div class="chip" style="background:#F604A4"></div><div class="meta"><div class="nm">Flamingo</div><div class="hx">#F604A4</div><div class="us">Primary accent, focus rings, key highlights</div></div></div>
+    <div class="sw"><div class="chip" style="background:#E200C2"></div><div class="meta"><div class="nm">Fuchsia</div><div class="hx">#E200C2</div><div class="us">Gradient core, hover states, celebration</div></div></div>
+    <div class="sw"><div class="chip" style="background:#B700E1"></div><div class="meta"><div class="nm">Orchid</div><div class="hx">#B700E1</div><div class="us">Depth, active states, evening accents</div></div></div>
+    <div class="sw"><div class="chip" style="background:#8100F5"></div><div class="meta"><div class="nm">Violet</div><div class="hx">#8100F5</div><div class="us">Links, progress, transitions</div></div></div>
+    <div class="sw"><div class="chip" style="background:#3D08EC"></div><div class="meta"><div class="nm">Indigo Night</div><div class="hx">#3D08EC</div><div class="us">The end of the gradient, rich backgrounds</div></div></div>
+  </div>
+  <div class="gradbar" role="img" aria-label="The bloom gradient, running from marigold FABB30 through coral, flamingo pink, fuchsia and orchid to indigo night 3D08EC"></div>
+  <div class="gradbar-labels"><span class="pill">#FABB30</span><span class="lbl-t">◍ the bloom gradient</span><span class="pill">#3D08EC</span></div>
+  <div class="ratio">
+    <div class="lbl" style="font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Proportion — how a layout should bloom</div>
+    <div class="bar">
+      <div class="seg" style="flex:6;background:#150829">60% Night canvas</div>
+      <div class="seg" style="flex:3;background:linear-gradient(90deg,#B700E1,#3D08EC)">30% Petal depth</div>
+      <div class="seg" style="flex:1;background:var(--grad)" role="img" aria-label="10 percent full bloom gradient"></div>
+    </div>
+    <div class="ratio-legend">10% — the full bloom gradient · used like a flower: once, deliberately.</div>
+  </div>
+  <div class="dodont">
+    <div class="do"><h3>✅ Do</h3><ul><li>Let the gradient travel left-to-right, gold into indigo</li><li>Use night canvases so colors glow like petals at dusk</li><li>Keep one bloom gradient per view — it's the protagonist</li><li>Pair the palette with cream #F5E7AE for warm text accents</li></ul></div>
+    <div class="dont"><h3>❌ Don't</h3><ul><li>Reverse the gradient — indigo into gold reads as night falling, not blooming</li><li>Set small text in gradient — large display only (see Accessibility)</li><li>Use every color at full volume in one layout</li><li>Put neon or off-palette colors next to the flower-sampled set</li></ul></div>
+  </div>
+</div></section>
+
+<section style="background:var(--night2)"><div class="wrap">
+  <div class="eyebrow">06 — On White</div>
+  <h2 class="sec">The Light Theme</h2>
+  <p class="sec-sub">Night is where the garden glows — but the same brand blooms in daylight. Same flower, deeper inks: every pair below meets WCAG 2.1 AA.</p>
+  <div class="lt">
+    <div class="lt-k">Logo on light</div>
+    <div class="lt-logos">
+      <div><div class="lt-tile on-white"><img class="dark-on-light" src="/logo_nature_transparent.png" alt="Draep logo on white"></div><div class="lt-tile-lbl">◍ on white</div></div>
+      <div><div class="lt-tile on-wash"><img class="dark-on-light" src="/logo_nature_transparent.png" alt="Draep logo on lilac wash"></div><div class="lt-tile-lbl">◍ on lilac wash</div></div>
+      <div><div class="lt-tile on-cream"><img class="dark-on-light" src="/logo_nature_transparent.png" alt="Draep logo on petal cream"></div><div class="lt-tile-lbl">◍ on petal cream</div></div>
+      <div><div class="lt-tile on-ink"><img src="/logo_alpha.png" alt="Alpha bloom mark on night"></div><div class="lt-tile-lbl">◍ alpha mark · night</div></div>
+    </div>
+
+    <div class="lt-k">Light inks & surfaces</div>
+    <div class="lt-tokens">
+      <div class="lt-tok"><span class="dot" style="background:#1C1230"></span><div><div class="nm">Ink</div><div class="hx">#1C1230 · text on white</div></div></div>
+      <div class="lt-tok"><span class="dot" style="background:#5B4B77"></span><div><div class="nm">Plum Muted</div><div class="hx">#5B4B77 · secondary text</div></div></div>
+      <div class="lt-tok"><span class="dot" style="background:#8A5A00"></span><div><div class="nm">Amber Ink</div><div class="hx">#8A5A00 · labels & links</div></div></div>
+      <div class="lt-tok"><span class="dot" style="background:#C4006B"></span><div><div class="nm">Flamingo Ink</div><div class="hx">#C4006B · accents & focus</div></div></div>
+      <div class="lt-tok"><span class="dot" style="background:#7B1FA2"></span><div><div class="nm">Violet Ink</div><div class="hx">#7B1FA2 · data & code</div></div></div>
+      <div class="lt-tok"><span class="dot" style="background:#FAF6FF;border-color:#D9CFEA"></span><div><div class="nm">Lilac Wash</div><div class="hx">#FAF6FF · soft surface</div></div></div>
+    </div>
+
+    <div class="lt-k">Typography on white</div>
+    <div class="lt-type">
+      <div class="pop big">Paint the world the way you want!</div>
+      <div class="pop mid" style="font-weight:600">Every color. Everyone. Always.</div>
+      <p>Inter body copy stays effortless on white — 15–17px, 1.65 line height, plum-muted secondary text that never drops below 7.7:1 contrast.</p>
+      <div class="mono">d-r-a-e-p · #C4006B · 38 cm · vowels together</div>
+      <div class="grad-lg">Nature has every colour. So do you.</div>
+    </div>
+
+    <div class="lt-k">Components on white</div>
+    <div class="lt-btnrow" style="margin-bottom:16px">
+      <button class="lt-btn primary" type="button">Paint my world</button>
+      <button class="lt-btn secondary" type="button">Explore colours</button>
+    </div>
+    <label class="field-lbl" for="lt-dd" style="color:var(--lt-muted)">How do you want to be seen today?</label>
+    <input class="lt-inp" id="lt-dd" placeholder="Describe your colours…">
+    <div class="lt-chips" style="margin-top:16px"><span>🌞 Bold</span><span>🌸 Floral</span><span>🌙 Evening</span><span>🌱 Everyday</span></div>
+    <div style="margin-top:16px"><div class="lt-ok">✓ You're on the list — everyone included.</div></div>
+    <div style="margin-top:10px"><div class="lt-alert">✕ That colour is off-palette — nature didn't make it, and neither did we.</div></div>
+
+    <p class="lt-note">Rule of thumb on white: the blossom gradient stays <strong>decorative</strong> (bars, borders, imagery), while text uses the deep inks — <code>Ink</code>, <code>Amber</code>, <code>Flamingo Ink</code>, <code>Violet Ink</code>. Gradient text is reserved for large headlines in <code>#C4006B → #3D08EC</code>, where every stop clears 5.9:1.</p>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eyebrow">07 — Typography</div>
+  <h2 class="sec">Typography</h2>
+  <p class="sec-sub">Three voices, one conversation: Poppins speaks, Inter explains, IBM Plex Mono measures.</p>
+  <div class="type-spec">
+    <div class="lbl">Display — Poppins · SemiBold / Bold</div>
+    <div class="pop big">Paint the world the way you want!</div>
+    <div class="pop mid" style="margin-top:10px">Every color. Everyone. Always.</div>
+    <div class="scale"><span>H1 46/52 · -2%</span><span>H2 34/40</span><span>H3 21/28</span><span>Weight 600–700</span></div>
+  </div>
+  <div class="type-spec">
+    <div class="lbl">Body — Inter · Regular / Medium</div>
+    <p style="max-width:640px;font-size:15.5px">Inter keeps long-form reading effortless on dark canvases. Body text sits at 15–17px with 1.65 line height; muted copy uses <span class="mono" style="color:var(--muted)">#A79BC4</span>, never dropping below 7.4:1 contrast against the night.</p>
+    <div class="scale"><span>Body 16/26</span><span>Small 14/20</span><span>Caption 12/16</span><span>Weight 400–600</span></div>
+  </div>
+  <div class="type-spec">
+    <div class="lbl">Data — IBM Plex Mono · Regular / Medium</div>
+    <p class="mono" style="font-size:15px;color:var(--cream)">d-r-a-e-p · #F604A4 · 38 cm · vowel positions: 3, 4 — together</p>
+    <div class="scale"><span>Code 14/20</span><span>Labels 12/16 · +12% tracking</span><span>Weight 400–500</span></div>
+  </div>
+</div></section>
+
+<section style="background:var(--night2)"><div class="wrap">
+  <div class="eyebrow">08 — Components</div>
+  <h2 class="sec">Component Library</h2>
+  <p class="sec-sub">The same components the product uses — re-homed in the garden. Night surfaces, petal curves, one glowing gradient.</p>
+  <div class="comp-grid">
+    <div class="demo"><div class="lbl">Buttons</div>
+      <div class="btnrow"><button class="btn btn-primary" type="button">Paint my world</button><button class="btn btn-secondary" type="button">Explore colours</button><button class="btn btn-ghost" type="button">Maybe later</button></div>
+    </div>
+    <div class="demo"><div class="lbl">Inputs</div>
+      <label class="field-lbl" for="dd">How do you want to be seen today?</label>
+      <input class="inp" id="dd" placeholder="Describe your colours…">
+    </div>
+    <div class="demo"><div class="lbl">Chips & Selection</div>
+      <div class="chips"><span class="chipP" style="border-color:#FABB30">🌞 Bold</span><span class="chipP" style="border-color:#F604A4">🌸 Floral</span><span class="chipP" style="border-color:#8100F5">🌙 Evening</span><span class="chipP">🌱 Everyday</span></div>
+    </div>
+    <div class="demo"><div class="lbl">Toggle</div>
+      <div class="btnrow"><span class="toggle" role="img" aria-label="Toggle — on"></span><span style="font-size:14px;color:var(--muted)">Show me every colour of me</span></div>
+    </div>
+    <div class="demo"><div class="lbl">Toast / Notification</div>
+      <div class="toast"><span aria-hidden="true">🌸</span><span>Your outfit is being stitched in <b style="color:var(--cream)">flamingo pink</b> — just like you asked.</span></div>
+    </div>
+    <div class="demo"><div class="lbl">Status Messages</div>
+      <div class="ok">✓ You're on the list — everyone included.</div>
+      <div class="alert">✕ That colour is off-palette — nature didn't make it, and neither did we.</div>
+    </div>
+    <div class="demo" style="grid-column:1/-1"><div class="lbl">Order Journey</div>
+      <div class="timeline">
+        <div class="step done"><div class="dot"></div><div class="t">You</div></div>
+        <div class="step done"><div class="dot"></div><div class="t">Design</div></div>
+        <div class="step active"><div class="dot"></div><div class="t">Measure</div></div>
+        <div class="step"><div class="dot"></div><div class="t">Stitch</div></div>
+        <div class="step"><div class="dot"></div><div class="t">Bloom</div></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eyebrow">09 — Voice</div>
+  <h2 class="sec">Voice & Messaging</h2>
+  <p class="sec-sub">Draep speaks like a garden in full bloom — warm, vivid, and completely uninterested in making anyone smaller.</p>
+  <div class="voice-grid">
+    <div class="voice"><h3>Warm, not shy</h3><p>Greet like sunlight. We can talk about feelings because clothes are feelings you can wear.</p></div>
+    <div class="voice"><h3>Bold, not loud</h3><p>Confidence is a flamingo petal — vivid without shouting. Say the true thing, brightly.</p></div>
+    <div class="voice"><h3>Inclusive, always</h3><p>Every sentence has room for everyone. "You" is never one kind of person at Draep.</p></div>
+    <div class="voice"><h3>Celebrate difference</h3><p>Compare nothing, exclude no one. Different is the design, not the exception.</p></div>
+    <div class="voice"><h3>Invite responsibility</h3><p>Gently remind: what you wear shapes the world's color. Choose beautiful.</p></div>
+    <div class="voice"><h3>Question the usual</h3><p>Our spelling broke a rule on purpose. Our voice can too — kindly.</p></div>
+  </div>
+  <div class="quotes">
+    <div class="quote">"What you wear is who you are. Wear yourself."<small>tagline · primary</small></div>
+    <div class="quote">"Nature has every colour. So do you."<small>campaign line</small></div>
+    <div class="quote">"Everyone included. Everyone in bloom."<small>community line</small></div>
+  </div>
+</div></section>
+
+<section style="background:var(--night2)"><div class="wrap">
+  <div class="eyebrow">10 — The Marks</div>
+  <h2 class="sec">Using the Mark</h2>
+  <p class="sec-sub">Two marks, one garden: the full lockup for space to speak, the alpha bloom for small places. Both bloom best at night.</p>
+  <div class="mark-grid">
+    <div>
+      <div class="tile on-night"><img src="/logo_nature_transparent.png" alt="Full Draep logo on night background"></div>
+      <div class="tile-lbl">◍ lockup · on night — preferred</div>
+    </div>
+    <div>
+      <div class="tile on-glow"><img src="/logo_nature_transparent.png" alt="Full Draep logo on a glowing background"></div>
+      <div class="tile-lbl">◍ lockup · on a petal glow</div>
+    </div>
+    <div>
+      <div class="tile on-cream"><img src="/logo_nature_transparent.png" alt="Full Draep logo on cream background"></div>
+      <div class="tile-lbl">◍ lockup · on cream</div>
+    </div>
+    <div>
+      <div class="tile on-night"><img class="alpha-sm" src="/logo_alpha.png" alt="Alpha bloom mark for small sizes and favicons"></div>
+      <div class="tile-lbl">◍ alpha mark · small sizes</div>
+    </div>
+  </div>
+  <div class="clearspace">
+    <div class="cs-box">
+      <img src="/logo_nature_transparent.png" alt="Draep logo clear space diagram">
+      <span class="x" style="top:6px;left:10px">x</span><span class="x" style="top:6px;right:10px">x</span>
+      <span class="x" style="bottom:6px;left:10px">x</span><span class="x" style="bottom:6px;right:10px">x</span>
+    </div>
+    <div style="flex:1;min-width:260px">
+      <h3 style="font-size:17px;margin-bottom:8px">Clear space & minimum size</h3>
+      <p style="font-size:14px;color:var(--muted)">Keep a margin of <span class="mono" style="color:var(--cream)">x</span> on all sides, where <span class="mono" style="color:var(--cream)">x = the height of the bloom mark</span>. Nothing enters the garden but the logo. Minimum digital width: <span class="mono" style="color:var(--cream)">140 px</span>. Below that — and for favicons and app icons — switch to the alpha bloom mark alone, always on night.</p>
+    </div>
+  </div>
+  <div class="dodont">
+    <div class="do"><h3>✅ Do</h3><ul><li>Place on night backgrounds so the gradient glows</li><li>Use the transparent lockup — never a boxed or flattened copy</li><li>Use the alpha bloom mark for favicons & sizes under 140 px</li><li>Let it breathe — clear space is part of the design</li></ul></div>
+    <div class="dont"><h3>❌ Don't</h3><ul><li>Rotate, skew, or re-order the wordmark — the spelling is the story</li><li>Re-color individual letters off-palette</li><li>Place directly on busy florals or mid-tone photos</li><li>Squash the bloom mark into a circle container</li></ul></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eyebrow">11 — Merch</div>
+  <h2 class="sec">Physical & Merch Design</h2>
+  <p class="sec-sub">From screen to stitch — the garden comes with us. Embroider it, print it, grow it.</p>
+  <div class="merch">
+    <div class="demo"><div class="lbl">Embroidery Threads</div>
+      <h3>Eight petal threads</h3>
+      <p>Use this exact thread set for stitched logos — the bloom gradient rendered in floss.</p>
+      <div class="thread-row">
+        <span class="thread" style="background:#FABB30"></span><span class="thread" style="background:#E87E35"></span><span class="thread" style="background:#EF655B"></span><span class="thread" style="background:#F604A4"></span><span class="thread" style="background:#E200C2"></span><span class="thread" style="background:#B700E1"></span><span class="thread" style="background:#8100F5"></span><span class="thread" style="background:#3D08EC"></span>
+      </div>
+    </div>
+    <div class="demo"><div class="lbl">Packaging</div>
+      <h3>Night boxes, seed-paper tags</h3>
+      <p>Deep violet boxes with a hot-foil bloom gradient. Hang tags printed on seed paper — plant the tag, grow a flower. The brand literally gives back to the nature it borrowed from.</p>
+    </div>
+    <div class="demo"><div class="lbl">Garment Labels</div>
+      <h3>Woven in the vowels</h3>
+      <p>Cream woven labels with the wordmark gradient-stitched along the hem of every piece — and inside, one line: <i>"Made for exactly who you are."</i></p>
+    </div>
+    <div class="demo"><div class="lbl">Icons & Favicon</div>
+      <h3>The alpha bloom</h3>
+      <p>Browser tabs, app tiles and load screens use the transparent alpha mark on a night rounded-square — from 16 px favicon to 180 px touch icon.</p>
+      <div class="fav-icons" aria-hidden="true">
+        <span style="width:24px;height:24px"><img style="width:20px;height:20px" src="/logo_alpha.png" alt=""></span>
+        <span style="width:36px;height:36px"><img style="width:30px;height:30px" src="/logo_alpha.png" alt=""></span>
+        <span style="width:52px;height:52px"><img style="width:44px;height:44px" src="/logo_alpha.png" alt=""></span>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<section style="background:var(--night2)"><div class="wrap">
+  <div class="eyebrow">12 — Accessibility</div>
+  <h2 class="sec">Accessibility — WCAG 2.1 AA</h2>
+  <p class="sec-sub">A brand inspired by a flower that includes every color must include every person. Every text/background pair on this page is contrast-audited; nothing ships below AA.</p>
+  <div class="a11y-grid">
+    <div class="a11y"><h3>Contrast, audited</h3><p>Every text pair is measured, not eyeballed — see the table below. Gradient text is large-text-only where its stops clear 3:1; small labels use the 5:1+ gold-to-flamingo ink.</p></div>
+    <div class="a11y"><h3>Keyboard & focus</h3><p>A skip-to-content link, a single H1, ordered headings, and a 3:1+ focus ring on every interactive element — marigold on night, flamingo on white. Nothing is mouse-only.</p></div>
+    <div class="a11y"><h3>Motion & visuals</h3><p>All animation respects prefers-reduced-motion. Color is never the only signal — states carry icons (✓ / ✕) and text, and decorative imagery is hidden from screen readers.</p></div>
+    <div class="a11y"><h3>Touch targets</h3><p>Buttons and inputs keep a minimum 44 × 44 px hit area, comfortable for every hand.</p></div>
+    <div class="a11y"><h3>Landmarks & alt text</h3><p>Semantic header, main, sections and footer; meaningful images carry descriptive alt text; the wordmark stage is announced as "draep wordmark".</p></div>
+    <div class="a11y"><h3>Zoom & reflow</h3><p>Fluid layouts reflow to a single column at 880 px with no horizontal scrolling and no loss of content at 200% zoom.</p></div>
+  </div>
+  <div class="card" style="overflow-x:auto">
+    <table class="ct-table">
+      <caption class="mono" style="text-align:left;color:var(--muted);font-size:12px;padding-bottom:10px">Key contrast ratios (WCAG 2.1 · AA ≥ 4.5:1 normal text · ≥ 3:1 large text)</caption>
+      <thead><tr><th scope="col">Pair</th><th scope="col">Foreground</th><th scope="col">Background</th><th scope="col">Ratio</th><th scope="col">AA</th></tr></thead>
+      <tbody>
+        <tr><td>Dark body text</td><td class="mono">#EFE9FA</td><td class="mono">#0A0114 night</td><td class="pass">17.2:1</td><td class="pass">AAA</td></tr>
+        <tr><td>Dark muted text</td><td class="mono">#A79BC4</td><td class="mono">#1D1130 panel</td><td class="pass">7.5:1</td><td class="pass">AAA</td></tr>
+        <tr><td>Cream data text</td><td class="mono">#F5E7AE</td><td class="mono">#0A0114 night</td><td class="pass">16.5:1</td><td class="pass">AAA</td></tr>
+        <tr><td>Flamingo labels</td><td class="mono">#F604A4</td><td class="mono">#0A0114 night</td><td class="pass">5.3:1</td><td class="pass">AA</td></tr>
+        <tr><td>Small gradient ink (worst stop)</td><td class="mono">gold→flamingo</td><td class="mono">#1D1130 panel</td><td class="pass">5.0:1</td><td class="pass">AA</td></tr>
+        <tr><td>Large gradient ink (worst stop)</td><td class="mono">gold→violet</td><td class="mono">#0A0114 night</td><td class="lg">3.2:1</td><td class="pass">AA · large only</td></tr>
+        <tr><td>Buttons & persona (white on deep bloom)</td><td class="mono">#FFFFFF</td><td class="mono">#D6006B→#4B0BD8</td><td class="pass">5.2–9.0:1</td><td class="pass">AA</td></tr>
+        <tr><td>Light ink on white</td><td class="mono">#1C1230</td><td class="mono">#FFFFFF</td><td class="pass">17.8:1</td><td class="pass">AAA</td></tr>
+        <tr><td>Light muted on white</td><td class="mono">#5B4B77</td><td class="mono">#FFFFFF</td><td class="pass">7.7:1</td><td class="pass">AAA</td></tr>
+        <tr><td>Amber ink on white</td><td class="mono">#8A5A00</td><td class="mono">#FFFFFF</td><td class="pass">5.9:1</td><td class="pass">AA</td></tr>
+        <tr><td>Flamingo ink on white</td><td class="mono">#C4006B</td><td class="mono">#FFFFFF</td><td class="pass">5.9:1</td><td class="pass">AA</td></tr>
+        <tr><td>Violet ink on white</td><td class="mono">#7B1FA2</td><td class="mono">#FFFFFF</td><td class="pass">8.2:1</td><td class="pass">AAA</td></tr>
+        <tr><td>Light gradient headline (worst stop)</td><td class="mono">#C4006B→#3D08EC</td><td class="mono">#FFFFFF</td><td class="pass">5.9:1</td><td class="pass">AA</td></tr>
+        <tr><td>Light success message</td><td class="mono">#1C7A48</td><td class="mono">#E8F1EC</td><td class="pass">4.6:1</td><td class="pass">AA</td></tr>
+        <tr><td>Light error message</td><td class="mono">#B3382C</td><td class="mono">#FCE9E7</td><td class="pass">5.1:1</td><td class="pass">AA</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div></section>
+
+<section class="summary" style="border:none"><div class="wrap">
+  <div class="eyebrow">Quick Reference</div>
+  <h2 class="sec">One-glance summary</h2>
+  <div class="qr-grid">
+    <div><div class="k">Colors</div><ul>
+      <li><span class="swd" style="background:#0A0114"></span>#0A0114 Night canvas</li>
+      <li><span class="swd" style="background:#FABB30"></span>#FABB30 Marigold</li>
+      <li><span class="swd" style="background:#F604A4"></span>#F604A4 Flamingo</li>
+      <li><span class="swd" style="background:#3D08EC"></span>#3D08EC Indigo Night</li>
+      <li><span class="swd" style="background:#F5E7AE"></span>#F5E7AE Petal Cream</li>
+      <li><span class="swd" style="background:#FFFFFF"></span>Light: #1C1230 ink on white</li>
+    </ul></div>
+    <div><div class="k">Typography</div><ul>
+      <li>Headings — Poppins</li><li>Body — Inter</li><li>Data — IBM Plex Mono</li>
+    </ul><div class="k" style="margin-top:20px">Marks</div><ul><li>Transparent lockup ≥ 140 px</li><li>Alpha bloom — favicon & small</li></ul></div>
+    <div><div class="k">Essence</div><ul>
+      <li>The Garden in Bloom</li><li>Inspired by a gerbera flower</li><li>draep — vowels together, everyone included</li><li>"Paint the world the way you want!"</li>
+      <li>WCAG 2.1 AA, always</li>
+    </ul></div>
+  </div>
+</div></section>
+
+</main>
+
+<footer><img src="/logo_alpha.png" alt="" aria-hidden="true">Draep Design System · Nature Edition · v0.3 · inspired by a flower 🌸</footer>
+
+<script>
+(function(){
+  var md = `# Draep Brand Book — Nature Edition (v0.3)
+
+> **What you wear is who you are. Paint the world the way you want!**
+>
+> If Draep were a person, they would be a garden in bloom — every flower a different color, every color belonging. Your clothes are your self-portrait, and that gives you the responsibility to make the world beautiful — or dull — by what you wear. We choose beautiful.
+
+|  |  |
+| --- | --- |
+| **Version** | 0.3 — Nature Edition |
+| **Inspiration** | Nature — most of all, one gerbera flower |
+| **Keywords** | 🌸 Inspired by nature · 🧡 Everyone included · ✊ Challenge the status quo · 🌍 Paint the world · ♿ WCAG 2.1 AA |
+
+---
+
+## 01 · Brand Foundation
+
+**Mission — Give every individual the right to represent themselves**
+Clothes that carry your personality — designed around who you are, measured for the body you have.
+
+**Vision — A world as colorful as nature**
+Just as nature holds a lot of colors, we want the world to hold a lot of characters: each individual representing themselves, all and everyone inclusive.
+
+### Values
+1. **Self-Expression** — Your clothes are your voice before you speak.
+2. **Inclusion** — Every section, every faction, every body — all and everyone included.
+3. **Responsibility** — What you wear can make the world beautiful or dull.
+4. **Courage** — The status quo is a starting point, not an answer.
+5. **Craftsmanship** — The fit follows the person, never the reverse.
+6. **Nature's Wisdom** — Nature never asks anyone to be less colorful.
+
+**Brand Personality — The Garden in Bloom**
+Warm like sunlight, bold like a flamingo pink petal. A garden doesn't compare its flowers — it makes room for all of them to be vivid.
+
+---
+
+## 02 · Inspired by Nature
+
+This brand book — and every color in it — is inspired by nature, most of all by one gerbera flower.
+
+| Part of the flower | Color | Hex |
+| --- | --- | --- |
+| Heart of the flower | Marigold | \`#FABB30\` |
+| Inner petals | Tangerine | \`#E87E35\` |
+| Mid petals | Coral Bloom | \`#EF655B\` |
+| Petal body | Flamingo | \`#F604A4\` |
+| Petal edges | Orchid | \`#B700E1\` |
+| Shadows between petals | Indigo Night | \`#3D08EC\` |
+
+**Why a flower?** Because nature has a lot — a lot — of colors, and it never asks any of them to tone down. We want the world to look like that too: full of characters, each individual representing themselves. All and everyone, inclusive.
+
+---
+
+## 03 · Why we spell it "draep"
+
+The vowels — **a** and **e** — sit together at the heart of the word, held by the consonants around them.
+
+**Reason 1 — Everyone is included.** The vowels gathered together, never separated: everyone has the right to represent themselves the way they want. All and everyone included.
+
+**Reason 2 — Challenging the status quo.** "Drape" is how it has always been spelled. We spell it differently on purpose — we are here to challenge the status quo of things that simply existed because nobody questioned them.
+
+**The logo's vision:** to help everyone — each and every individual, from different sections and different factions — have the right to represent themselves. Its colors are the way we want to paint this world.
+
+---
+
+## 04 · Visual Identity — "Wear Your World"
+
+- **Color Physics** — Night canvases let the bloom gradient (gold → coral → pink → magenta → purple → indigo, always left-to-right) glow like petals at dusk.
+- **Type Hierarchy** — Poppins for display, Inter for body, IBM Plex Mono for data.
+- **Spatial Logic** — Petal-soft curves, glows instead of hard shadows, empty space as soil.
+
+## 05 · The Bloom Palette
+
+| | | | |
+| --- | --- | --- | --- |
+| \`#FABB30\` Marigold | \`#E87E35\` Tangerine | \`#EF655B\` Coral Bloom | \`#F604A4\` Flamingo |
+| \`#E200C2\` Fuchsia | \`#B700E1\` Orchid | \`#8100F5\` Violet | \`#3D08EC\` Indigo Night |
+
+Plus \`#0A0114\` Night canvas and \`#F5E7AE\` Petal Cream.
+
+**Proportion:** 60% night canvas · 30% petal depth · 10% full bloom gradient.
+
+## 06 · On White — The Light Theme
+
+Same flower, deeper inks. Every pair meets WCAG 2.1 AA:
+
+| Token | Hex | Use |
+| --- | --- | --- |
+| Ink | \`#1C1230\` | Body & headings on white (17.8:1) |
+| Plum Muted | \`#5B4B77\` | Secondary text (7.7:1) |
+| Amber Ink | \`#8A5A00\` | Labels & links (5.9:1) |
+| Flamingo Ink | \`#C4006B\` | Accents & focus (5.9:1) |
+| Violet Ink | \`#7B1FA2\` | Data & code (8.2:1) |
+| Lilac Wash | \`#FAF6FF\` | Soft surface |
+
+The blossom gradient stays decorative on light; gradient headlines use \`#C4006B → #3D08EC\` (≥ 5.9:1). Buttons keep the deep bloom gradient \`#D6006B → #4B0BD8\` with white text (≥ 5.2:1).
+
+## 07 · Typography
+Headings — Poppins · Body — Inter · Data — IBM Plex Mono.
+
+## 08 · Voice
+Warm, not shy · Bold, not loud · Inclusive, always · Celebrate difference · Invite responsibility · Question the usual.
+
+**Lines:** "What you wear is who you are. Wear yourself." · "Nature has every colour. So do you." · "Everyone included. Everyone in bloom."
+
+## 09 · Using the Marks
+
+Two marks, one garden. **The full transparent lockup** blooms on night backgrounds (clear space = bloom-mark height on all sides; minimum width 140 px). **The alpha bloom mark** (transparent) is for favicons, app icons and sizes under 140 px — always on night. Never rotate, re-order, or re-color the wordmark — the spelling is the story.
+
+## 10 · Merch
+Eight petal embroidery threads · night boxes with seed-paper hang tags (plant the tag, grow a flower) · cream woven labels: "Made for exactly who you are." · alpha bloom favicon set from 16 px to 180 px touch icons.
+
+## 11 · Accessibility — WCAG 2.1 AA
+
+A brand that includes every color must include every person.
+
+- **Contrast** — every text/background pair measured: dark theme body 17.2:1, muted 7.5:1, flamingo labels 5.3:1; light theme ink 17.8:1, muted 7.7:1, accents ≥ 5.9:1.
+- **Gradient text** — large text only on night (worst stop 3.2:1); small gradient labels use the gold→flamingo ink (≥ 5.0:1).
+- **Keyboard** — skip link, one H1, ordered headings, 3:1 focus rings.
+- **Motion** — prefers-reduced-motion respected throughout.
+- **Never color-only** — states carry icons and text; decorative imagery is aria-hidden.
+- **Touch targets** — ≥ 44 × 44 px; layouts reflow at 880 px.
+
+---
+
+*Draep Design System · Nature Edition · v0.3 · inspired by a flower 🌸*
+`;
+
+  function download(){
+    var blob = new Blob([md], {type:'text/markdown;charset=utf-8'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'Draep-Brand-Book-Nature-Edition.md';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  }
+
+  var btn = document.getElementById('download-brandbook-nature');
+  if(btn) btn.addEventListener('click', download);
+})();
+</script>
+</body>
+</html>
