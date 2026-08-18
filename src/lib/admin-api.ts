@@ -2199,6 +2199,51 @@ export async function getOrderBalance(orderId: string): Promise<OrderBalance> {
   return adminFetch<OrderBalance>(`/admin/orders/${orderId}/balance`);
 }
 
+// ─── Reports (admin Reports tab) ─────────────────────────────────────────────
+
+export type ReportMetric = "revenue_booked" | "revenue_collected" | "orders_booked";
+export type ReportBucket = "daily" | "weekly" | "monthly";
+
+/** One customer's contribution to a bucket (tooltip row). */
+export interface ReportItem {
+  /** Customer name / phone. */
+  label: string;
+  /** Order or payment value in rupees. */
+  value: number;
+}
+
+export interface ReportPoint {
+  /** Bucket start, YYYY-MM-DD (Mon for weekly, 1st for monthly). */
+  bucket_start: string;
+  /** Rupee integers for revenue metrics, count for orders_booked. */
+  value: number;
+  /** Per-customer breakdown for the tooltip, largest first. */
+  items?: ReportItem[];
+}
+
+export interface ReportSeries {
+  metric: ReportMetric;
+  bucket: ReportBucket;
+  from_date: string;
+  to_date: string;
+  points: ReportPoint[];
+}
+
+/**
+ * GET /admin/reports/series — one gap-filled, time-bucketed series.
+ * Omit range to use the backend's default window for the bucket.
+ */
+export async function fetchReportSeries(
+  metric: ReportMetric,
+  bucket: ReportBucket,
+  range?: { from?: string; to?: string },
+): Promise<ReportSeries> {
+  const params = new URLSearchParams({ metric, bucket });
+  if (range?.from) params.set("from", range.from);
+  if (range?.to) params.set("to", range.to);
+  return adminFetch<ReportSeries>(`/admin/reports/series?${params.toString()}`);
+}
+
 // ─── Short links (Configure → URLs admin sub-tab) ───────────────────────────
 
 export interface ShortLink {

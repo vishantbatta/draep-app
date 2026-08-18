@@ -83,6 +83,17 @@ const PRIMARY_TABS: PrimaryTab[] = [
     ),
   },
   {
+    label: "Reports",
+    href: "/admin/reports",
+    matchPrefix: "/admin/reports",
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
+        <path d="M3.5 16.5v-5M10 16.5V4.5M16.5 16.5v-8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <path d="M2.5 16.5h15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     label: "Data",
     href: "/admin/data",
     matchPrefix: "/admin/data",
