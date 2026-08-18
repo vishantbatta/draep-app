@@ -348,20 +348,26 @@ function placementText(p: string | string[] | null | undefined): string | null {
 
 /**
  * Best-effort display label for a garment-order item, mirroring the page's
- * `itemDisplayLabel`. The label_snapshot is a JSON string like
- * '{"en":"Blouse cut → Princess cut"}'; parse it and return the localized
- * text. Falls back to the raw string if it isn't JSON, then to type/placement.
- * Items carry immutable label snapshots stamped at checkout, so this never
- * needs the live catalog.
+ * `itemDisplayLabel`. The label_snapshot column is JSONB, so the generic
+ * tables API returns it as an object like {en: "Blouse cut → Princess cut"};
+ * a JSON string is also accepted. Falls back to the raw string if it isn't
+ * JSON, then to type/placement. Items carry immutable label snapshots stamped
+ * at checkout, so this never needs the live catalog.
  */
 function itemLabelText(it: GarmentOrderItemRow): string {
-  if (it.label_snapshot) {
-    try {
-      const parsed = JSON.parse(it.label_snapshot) as Record<string, string>;
-      const text = parsed.en ?? parsed[Object.keys(parsed)[0] ?? ""];
-      if (text) return text;
-    } catch {
-      return it.label_snapshot;
+  const snap = it.label_snapshot;
+  if (snap) {
+    if (typeof snap === "object") {
+      const text = snap.en ?? Object.values(snap)[0];
+      if (text) return String(text);
+    } else {
+      try {
+        const parsed = JSON.parse(snap) as Record<string, string>;
+        const text = parsed.en ?? parsed[Object.keys(parsed)[0] ?? ""];
+        if (text) return text;
+      } catch {
+        return snap;
+      }
     }
   }
   const type = it.type === "add_on" ? "Add-on" : "Selection";

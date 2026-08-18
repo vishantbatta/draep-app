@@ -171,9 +171,19 @@ function computeRefundable(txns: TransactionRow[]): number {
   return captured - refunded;
 }
 
-/** Parse an OrderAdjustmentRow.label (JSON string like '{"en":"Rush fee"}') to text. */
-function adjustmentLabel(raw: string | null | undefined): string {
+/**
+ * Parse an OrderAdjustmentRow.label to display text. The column is JSONB, so
+ * the generic tables API returns it as an object ({en: "Rush fee"}); tolerate
+ * a JSON string or plain text too, and never return a non-string (rendering
+ * the raw object crashes the page).
+ */
+function adjustmentLabel(
+  raw: string | Record<string, string> | null | undefined,
+): string {
   if (!raw) return "Adjustment";
+  if (typeof raw === "object") {
+    return raw.en ?? Object.values(raw)[0] ?? "Adjustment";
+  }
   try {
     const parsed = JSON.parse(raw) as Record<string, string>;
     return parsed.en ?? parsed[Object.keys(parsed)[0] ?? ""] ?? "Adjustment";
@@ -255,15 +265,24 @@ function buildGarmentBreakdown(
   return lines;
 }
 
-/** Human label for a garment_orders_items row — prefers label_snapshot. */
+/** Human label for a garment_orders_items row — prefers label_snapshot.
+ *  The column is JSONB, so the API returns an object ({en: "…"}); a JSON
+ *  string is also accepted. Never return a non-string — rendering the raw
+ *  object crashes the page. */
 function itemDisplayLabel(it: GarmentOrderItemRow): string {
-  if (it.label_snapshot) {
-    try {
-      const parsed = JSON.parse(it.label_snapshot) as Record<string, string>;
-      const text = parsed.en ?? parsed[Object.keys(parsed)[0] ?? ""];
-      if (text) return text;
-    } catch {
-      return it.label_snapshot;
+  const snap = it.label_snapshot;
+  if (snap) {
+    if (typeof snap === "object") {
+      const text = snap.en ?? Object.values(snap)[0];
+      if (text) return String(text);
+    } else {
+      try {
+        const parsed = JSON.parse(snap) as Record<string, string>;
+        const text = parsed.en ?? parsed[Object.keys(parsed)[0] ?? ""];
+        if (text) return text;
+      } catch {
+        return snap;
+      }
     }
   }
   if (it.type === "add_on") return "Add-on";

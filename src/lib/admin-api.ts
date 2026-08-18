@@ -845,7 +845,8 @@ export interface GarmentOrderItemRow {
   placement: string | string[] | null;
   price: number | null;
   custom_input: string | null;
-  label_snapshot: string | null;
+  // JSONB column — the generic tables API returns it as an object, e.g. {en: "…"}
+  label_snapshot: string | Record<string, string> | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -857,7 +858,8 @@ export interface OrderAdjustmentRow {
   garment_order_id: string | null;
   type: "discount" | "fee" | null;
   amount: number | null; // signed paise: negative = discount, positive = fee
-  label: string | null; // JSON string from the generic API, e.g. '{"en":"Rush fee"}'
+  // JSONB column — the generic tables API returns it as an object, e.g. {en: "Rush fee"}
+  label: string | Record<string, string> | null;
   target_type: string | null;
   source: string | null;
   source_ref: string | null;

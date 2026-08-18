@@ -89,7 +89,8 @@ export interface DraftItem {
   /** JSONB array on the row, e.g. ["Sleeves"]; null where N/A. */
   placement: string[] | null;
   price: number | null;
-  label_snapshot: string;
+  /** JSONB column — arrives from the API as an object ({en: "…"}); built as a string when new. */
+  label_snapshot: string | Record<string, string> | null;
 }
 
 /**
