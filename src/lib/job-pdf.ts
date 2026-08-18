@@ -1760,14 +1760,20 @@ const PRINT_CSS = `
     display: flex;
     flex-wrap: wrap;
     gap: 8pt;
+    /* flex-start so a tall photo's row-mates don't stretch to match it. */
+    align-items: flex-start;
   }
   .photo-grid img,
   .photo-grid canvas {
-    /* Fixed pixel dims - html2canvas (older CSS engine) handles explicit
-       px sizes much more reliably than aspect-ratio or grid auto-rows. */
+    /* Fixed pixel width - html2canvas (older CSS engine) handles explicit
+       px sizes much more reliably than aspect-ratio or grid auto-rows.
+       Natural-aspect sizing (height: auto + a max-height cap) renders the
+       COMPLETE image — no square cover-crop — and inlineImagesAsCanvases()
+       pre-rasterizes each canvas at exactly this box. */
     width: 200px;
-    height: 200px;
-    object-fit: cover;
+    height: auto;
+    max-height: 240px;
+    object-fit: contain;
     border-radius: 6pt;
     border: 1px solid #e2e8f0;
     background: #f8fafc;

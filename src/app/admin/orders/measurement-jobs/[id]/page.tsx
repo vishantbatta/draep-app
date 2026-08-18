@@ -926,7 +926,7 @@ export default function MeasurementJobDetailPage() {
                         <img
                           src={imgUrl}
                           alt={labelEn ?? "metric image"}
-                          className="h-full w-full object-cover"
+                          className="h-full w-full object-contain"
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-[10px] text-muted">
@@ -1124,13 +1124,13 @@ export default function MeasurementJobDetailPage() {
                                       href={url}
                                       target="_blank"
                                       rel="noreferrer"
-                                      className="block h-14 w-14 overflow-hidden rounded border border-hairline sm:h-16 sm:w-16"
+                                      className="block h-14 w-14 overflow-hidden rounded border border-hairline bg-ink-navy/5 sm:h-16 sm:w-16"
                                     >
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
                                       <img
                                         src={url}
                                         alt={`Material photo ${pi + 1}`}
-                                        className="h-full w-full object-cover"
+                                        className="h-full w-full object-contain"
                                       />
                                     </a>
                                   );

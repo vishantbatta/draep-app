@@ -836,7 +836,7 @@ export function DesignFromImage({
           <img
             src={pendingImagePreview}
             alt="Pending"
-            className="h-16 w-16 rounded-lg border border-hairline object-cover"
+            className="h-16 w-16 rounded-lg border border-hairline bg-ink-navy/5 object-contain"
           />
           <div className="flex flex-col gap-1">
             <button
@@ -1129,7 +1129,7 @@ export function DesignFromImage({
                   <img
                     src={msg.imageUrl}
                     alt="Upload"
-                    className="max-h-32 rounded-lg border border-hairline object-cover"
+                    className="max-h-32 rounded-lg border border-hairline object-contain"
                   />
                 )}
                 {msg.text && (
