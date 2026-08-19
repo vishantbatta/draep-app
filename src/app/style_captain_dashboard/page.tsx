@@ -31,6 +31,7 @@ export default function StyleCaptainDashboardPage() {
   const [activeJobs, setActiveJobs] = useState<SCJob[]>([]);
   const [recentJobs, setRecentJobs] = useState<SCJob[]>([]);
   const [tab, setTab] = useState<"active" | "missed" | "completed">("active");
+  const [search, setSearch] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleOverview, setScheduleOverview] =
     useState<SCScheduleOverview | null>(null);
@@ -61,27 +62,49 @@ export default function StyleCaptainDashboardPage() {
   }, [load]);
 
   // Split the live jobs into upcoming vs missed.
-  // "Missed" = assigned to this captain, scheduled, but past its slot time and
-  // never started/completed (i.e. scheduled_at < now). "Active" keeps only
-  // upcoming scheduled visits + anything already in_progress.
+  // "Missed" = this captain's jobs whose visit time has passed:
+  //   - scheduled but past its slot time and never started (scheduled_at < now)
+  //   - in_progress but scheduled for yesterday or earlier — stale carryovers;
+  //     anything scheduled today stays active so same-day work isn't buried.
+  // Jobs with no scheduled_at (walk-ins) are never "missed".
   const nowIso = new Date().toISOString();
-  const missedJobs = activeJobs.filter(
-    (j) => j.status === "scheduled" && (j.scheduled_at ?? "") < nowIso,
-  );
-  const upcomingJobs = activeJobs.filter(
-    (j) => !(j.status === "scheduled" && (j.scheduled_at ?? "") < nowIso),
-  );
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const todayStartIso = startOfToday.toISOString();
+  const isMissed = (j: SCJob): boolean => {
+    if (!j.scheduled_at) return false;
+    if (j.status === "scheduled") return j.scheduled_at < nowIso;
+    if (j.status === "in_progress") return j.scheduled_at < todayStartIso;
+    return false;
+  };
+  const missedJobs = activeJobs.filter(isMissed);
+  const upcomingJobs = activeJobs.filter((j) => !isMissed(j));
+
+  // Customer search — matches name (case-insensitive) or phone (digit-wise, so
+  // partial numbers and "+91"-prefixed queries both work). Applied to every
+  // tab's list; counts and the empty state follow the filtered results.
+  const q = search.trim().toLowerCase();
+  const qDigits = search.replace(/\D/g, "");
+  const matchesSearch = (job: SCJob): boolean =>
+    q === "" ||
+    (job.customer_name ?? "").toLowerCase().includes(q) ||
+    (qDigits !== "" &&
+      (job.customer_phone ?? "").replace(/\D/g, "").includes(qDigits));
+
+  const filteredUpcoming = upcomingJobs.filter(matchesSearch);
+  const filteredMissed = missedJobs.filter(matchesSearch);
+  const filteredRecent = recentJobs.filter(matchesSearch).sort((a, b) => {
+    const aTime = a.performed_at ?? a.created_at ?? "";
+    const bTime = b.performed_at ?? b.created_at ?? "";
+    return bTime.localeCompare(aTime);
+  });
 
   const visibleJobs =
     tab === "active"
-      ? upcomingJobs
+      ? filteredUpcoming
       : tab === "missed"
-        ? missedJobs
-        : [...recentJobs].sort((a, b) => {
-            const aTime = a.performed_at ?? a.created_at ?? "";
-            const bTime = b.performed_at ?? b.created_at ?? "";
-            return bTime.localeCompare(aTime);
-          });
+        ? filteredMissed
+        : filteredRecent;
 
   return (
     <div className="space-y-4">
@@ -139,15 +162,56 @@ export default function StyleCaptainDashboardPage() {
         onOpen={() => setScheduleOpen(true)}
       />
 
+      {/* ─── Customer search ────────────────────────────────────────────── */}
+      <div className="relative">
+        <svg
+          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+          viewBox="0 0 20 20"
+          fill="none"
+        >
+          <circle cx="9" cy="9" r="5.5" stroke="currentColor" strokeWidth="1.5" />
+          <path
+            d="M13.5 13.5L17 17"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name or phone"
+          aria-label="Search jobs by customer name or phone"
+          className="w-full rounded-card border border-hairline-strong bg-chalk-white py-2.5 pl-10 pr-10 text-body text-ink outline-none placeholder:text-muted focus:border-accent-text focus:ring-2 focus:ring-accent-text/30"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            aria-label="Clear search"
+            className="tap absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-mist-navy text-muted hover:text-ink-navy"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none">
+              <path
+                d="M5 5l10 10M15 5L5 15"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        )}
+      </div>
+
       {/* ─── Tabs ───────────────────────────────────────────────────────── */}
       <div className="flex gap-1 rounded-pill border border-hairline bg-chalk-white p-1">
         {(["active", "missed", "completed"] as const).map((t) => {
           const count =
             t === "active"
-              ? upcomingJobs.length
+              ? filteredUpcoming.length
               : t === "missed"
-                ? missedJobs.length
-                : recentJobs.length;
+                ? filteredMissed.length
+                : filteredRecent.length;
           const label =
             t === "active" ? "Active" : t === "missed" ? "Missed" : "Recent";
           return (
@@ -194,14 +258,18 @@ export default function StyleCaptainDashboardPage() {
       ) : visibleJobs.length === 0 ? (
         <div className="rounded-card border border-dashed border-hairline-strong bg-chalk-white/50 px-6 py-12 text-center">
           <p className="text-body font-medium text-ink-navy">
-            No {tab === "active" ? "active" : tab === "missed" ? "missed" : "recent"} jobs
+            {q
+              ? `No jobs match “${search.trim()}”`
+              : `No ${tab === "active" ? "active" : tab === "missed" ? "missed" : "recent"} jobs`}
           </p>
           <p className="mt-1 text-caption text-muted">
-            {tab === "active"
-              ? "New measurement requests will appear here."
-              : tab === "missed"
-                ? "Assigned visits you didn’t complete will show up here."
-                : "Completed and cancelled jobs will show up here."}
+            {q
+              ? "Try a different name or phone number."
+              : tab === "active"
+                ? "New measurement requests will appear here."
+                : tab === "missed"
+                  ? "Assigned visits you didn’t complete will show up here."
+                  : "Completed and cancelled jobs will show up here."}
           </p>
         </div>
       ) : (
