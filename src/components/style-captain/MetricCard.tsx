@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SCMetric } from "@/lib/style-captain-api";
 import { pickLabel } from "@/lib/sc-helpers";
 
@@ -193,6 +193,9 @@ export function MetricInputBar({
   const [inputStr, setInputStr] = useState<string>(
     draft.valueNumeric !== null ? String(draft.valueNumeric) : "",
   );
+  // This bar persists across step changes (no remount), so autoFocus only
+  // fires once. Track the input so we can refocus it on every metric change.
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Sync local input when draft changes externally (e.g. step navigation)
   useEffect(() => {
@@ -203,6 +206,12 @@ export function MetricInputBar({
     } else if (draft.valueNumeric === null) {
       setInputStr("");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.metricId]);
+
+  // Refocus when the step changes so the keyboard reopens (step jumps).
+  useEffect(() => {
+    inputRef.current?.focus({ preventScroll: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.metricId]);
 
@@ -248,6 +257,7 @@ export function MetricInputBar({
               onBlur={commitToParent}
               placeholder="0.0"
               autoFocus
+              ref={inputRef}
               className="w-full rounded-card border border-hairline-strong bg-chalk-white px-3 py-2 text-body font-medium text-ink outline-none focus:border-accent-text focus:ring-2 focus:ring-accent-text/30"
             />
             <span className="shrink-0 rounded-card bg-mist-navy px-3 py-2 text-body font-semibold text-ink-navy">
@@ -259,7 +269,12 @@ export function MetricInputBar({
         {/* CTA row */}
         <div className="flex items-center justify-between gap-3">
           <button
-            onClick={onBack}
+            onClick={() => {
+              // Refocus synchronously inside the tap gesture — mobile keyboards
+              // only reopen for focus() in the gesture's call stack.
+              inputRef.current?.focus();
+              onBack();
+            }}
             className="tap flex-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy"
           >
             Back
@@ -274,7 +289,10 @@ export function MetricInputBar({
             </button>
           ) : (
             <button
-              onClick={onNext}
+              onClick={() => {
+                inputRef.current?.focus();
+                onNext();
+              }}
               disabled={!hasValue}
               className="tap flex-[2] rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary disabled:opacity-40"
             >
