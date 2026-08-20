@@ -7,7 +7,7 @@
  *   1. On app load → check for existing token in localStorage
  *   2. If none → POST /auth/anonymous → store token
  *   3. On contact page → sendOtp + verifyOtp → upgrade anonymous → user token
- *   4. Token persists in localStorage with 7-day expiry matching backend JWT
+ *   4. Token persists in localStorage with 90-day expiry matching backend JWT
  */
 
 import { create } from "zustand";
@@ -17,7 +17,7 @@ import { authApi } from "@/lib/api";
 import { setToken, clearToken, getToken } from "@/lib/api/client";
 import type { OtpVerifyOut, SessionOut, UserOut } from "@/types/api";
 
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 
 interface AuthStoreState {
   token: string | null;
@@ -101,7 +101,7 @@ export const useAuthStore = create<AuthStoreState>()(
             sessionType: "anonymous",
             user: null,
             activeOrderId: null,
-            expiresAt: new Date(result.expires_at).getTime() || Date.now() + SEVEN_DAYS_MS,
+            expiresAt: new Date(result.expires_at).getTime() || Date.now() + NINETY_DAYS_MS,
           });
         } catch (err) {
           // If anonymous session creation fails (network), try to use
