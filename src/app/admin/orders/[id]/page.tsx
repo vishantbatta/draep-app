@@ -411,7 +411,7 @@ function EditableTextField({
 }: {
   label: string;
   value: string | null | undefined;
-  onSave: (v: string | null) => Promise<void>;
+  onSave: (v: string | null) => Promise<boolean | void>;
   placeholder?: string;
   /** Optional suggestion chips. Tap sets+saves; tap active clears. */
   chips?: readonly string[];
@@ -478,6 +478,89 @@ function EditableTextField({
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Save button with inline saving / saved / failed states ──────────────────
+
+function SaveButton({
+  onSave,
+  label,
+  className = "",
+}: {
+  /** Perform the save; resolve false (or throw) to signal failure. */
+  onSave: () => Promise<boolean | void>;
+  label: string;
+  className?: string;
+}) {
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "failed">(
+    "idle",
+  );
+
+  async function handleClick() {
+    if (state === "saving") return;
+    setState("saving");
+    let ok = true;
+    try {
+      ok = (await onSave()) !== false;
+    } catch {
+      ok = false;
+    }
+    setState(ok ? "saved" : "failed");
+    setTimeout(() => setState("idle"), ok ? 1500 : 2500);
+  }
+
+  const styles =
+    state === "saved"
+      ? "bg-green-700 text-white"
+      : state === "failed"
+        ? "border border-red-200 bg-red-50 text-red-700"
+        : "bg-ink-navy text-chalk-white hover:bg-ink-navy/90 disabled:cursor-wait disabled:opacity-70";
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={state === "saving"}
+      className={`inline-flex min-w-[5rem] items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${styles} ${className}`}
+    >
+      {state === "saving" && (
+        <svg className="h-3 w-3 animate-spin" viewBox="0 0 16 16" fill="none">
+          <circle
+            cx="8"
+            cy="8"
+            r="6"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="opacity-25"
+          />
+          <path
+            d="M14 8A6 6 0 0 0 8 2"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </svg>
+      )}
+      {state === "saved" && (
+        <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none">
+          <path
+            d="M3 8.5 6.5 12 13 4.5"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+      {state === "saving"
+        ? "Saving…"
+        : state === "saved"
+          ? "Saved"
+          : state === "failed"
+            ? "Failed"
+            : label}
+    </button>
   );
 }
 
@@ -724,29 +807,35 @@ export default function OrderDetailPage() {
   }, [garmentOrders]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-  async function handleUpdateOrderField(patch: Partial<OrderRow>) {
-    if (!order) return;
+  async function handleUpdateOrderField(
+    patch: Partial<OrderRow>,
+  ): Promise<boolean> {
+    if (!order) return false;
     try {
       await updateOrder(order.id, patch);
       setOrder({ ...order, ...patch });
       flash("Order updated");
+      return true;
     } catch (e) {
       alert(e instanceof Error ? e.message : "Update failed");
+      return false;
     }
   }
 
   async function handleUpdateGarmentOrder(
     goId: string,
     patch: Partial<GarmentOrderRow>,
-  ) {
+  ): Promise<boolean> {
     try {
       await updateGarmentOrder(goId, patch);
       setGarmentOrders((prev) =>
         prev.map((g) => (g.id === goId ? { ...g, ...patch } : g)),
       );
       flash("Garment order updated");
+      return true;
     } catch (e) {
       alert(e instanceof Error ? e.message : "Update failed");
+      return false;
     }
   }
 
@@ -2111,18 +2200,17 @@ export default function OrderDetailPage() {
             onChange={(e) =>
               setOrder({ ...order, comments: e.target.value })
             }
-            onBlur={(e) => {
-              if (e.target.value !== (order.comments ?? "")) {
-                handleUpdateOrderField({ comments: e.target.value });
-              }
-            }}
             rows={2}
             placeholder="Add internal comments…"
             className="mt-1 w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
           />
-          <div className="mt-1 text-[11px] text-muted">
-            Edits saved automatically on blur.
-          </div>
+          <SaveButton
+            label="Save comment"
+            className="mt-1.5"
+            onSave={() =>
+              handleUpdateOrderField({ comments: order.comments ?? "" })
+            }
+          />
         </div>
       </div>
 
@@ -2285,17 +2373,19 @@ export default function OrderDetailPage() {
                             ),
                           );
                         }}
-                        onBlur={(e) => {
-                          if (e.target.value !== (go.user_note ?? "")) {
-                            handleUpdateGarmentOrder(go.id, {
-                              user_note: e.target.value || null,
-                            });
-                          }
-                        }}
                         rows={1}
-                        placeholder="Note for this garment — saved on blur…"
+                        placeholder="Note for this garment…"
                         aria-label="User note"
                         className="min-w-0 flex-1 resize-y rounded-md border border-hairline-strong bg-chalk-white px-2 py-1.5 text-xs focus:border-ink-navy focus:outline-none"
+                      />
+                      <SaveButton
+                        label="Save"
+                        className="shrink-0"
+                        onSave={() =>
+                          handleUpdateGarmentOrder(go.id, {
+                            user_note: go.user_note || null,
+                          })
+                        }
                       />
                     </div>
 

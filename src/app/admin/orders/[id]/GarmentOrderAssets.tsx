@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   resolveAssetUrl,
   uploadDesignImage,
@@ -54,6 +54,24 @@ export function GarmentOrderAssets({
   const [uploading, setUploading] = useState(false);
   const [removingUrl, setRemovingUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; index: number } | null>(
+    null,
+  );
+
+  // While the fullscreen viewer is open: close on Escape and lock page scroll.
+  useEffect(() => {
+    if (!lightbox) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setLightbox(null);
+    }
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [lightbox]);
 
   // Keep raw (stored) URLs for onDetach — resolveAssetUrl rewrites absolute
   // backend URLs to same-origin ones, which would no longer match the row.
@@ -139,12 +157,12 @@ export function GarmentOrderAssets({
         <div className="mt-1 flex flex-wrap gap-2">
           {items.map(({ raw, src }, i) => (
             <div key={`${raw}-${i}`} className="group relative">
-              <a
-                href={src}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={`Open image ${i + 1} in new tab`}
-                className="block overflow-hidden rounded-md border border-hairline-strong bg-mist-navy/20"
+              <button
+                type="button"
+                onClick={() => setLightbox({ src, index: i })}
+                title={`View image ${i + 1} full-size`}
+                aria-label={`View image ${i + 1} full-size`}
+                className="block cursor-zoom-in overflow-hidden rounded-md border border-hairline-strong bg-mist-navy/20"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -153,7 +171,7 @@ export function GarmentOrderAssets({
                   className="h-20 w-20 object-contain transition group-hover:opacity-90"
                   loading="lazy"
                 />
-              </a>
+              </button>
               <button
                 onClick={() => void handleRemove(raw)}
                 disabled={removingUrl === raw || uploading}
@@ -179,7 +197,44 @@ export function GarmentOrderAssets({
       )}
       {items.length > 0 && (
         <div className="mt-0.5 text-[10px] text-muted">
-          Click a thumbnail to open full-size.
+          Click a thumbnail to view full-size.
+        </div>
+      )}
+
+      {/* Fullscreen viewer — same page, closes on ✕ / backdrop / Escape */}
+      {lightbox && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Design inspiration ${lightbox.index + 1}, full size`}
+          onClick={() => setLightbox(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-navy/90 p-4 backdrop-blur-sm sm:p-10"
+        >
+          <button
+            type="button"
+            onClick={() => setLightbox(null)}
+            aria-label="Close fullscreen image"
+            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-chalk-white/10 text-chalk-white transition hover:bg-chalk-white/25"
+          >
+            <svg className="h-5 w-5" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M3 3l10 10M13 3L3 13"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+          <div className="absolute left-4 top-5 rounded-full bg-chalk-white/10 px-3 py-1 text-xs font-medium text-chalk-white">
+            {lightbox.index + 1} / {items.length}
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightbox.src}
+            alt={`Design inspiration ${lightbox.index + 1}, full size`}
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-full max-w-full select-none rounded-lg object-contain shadow-2xl"
+          />
         </div>
       )}
     </div>
