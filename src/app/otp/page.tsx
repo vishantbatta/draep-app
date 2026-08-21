@@ -5,9 +5,12 @@
  *
  * Flow:
  *   1. User enters phone number (pre-filled from contact form if available)
- *   2. POST /auth/otp/send → backend sends OTP (test mode: constant 123456)
- *   3. User enters 6-digit OTP
- *   4. POST /auth/otp/verify → upgrades anonymous session → user session
+ *   2. OTP is sent — via the MSG91 widget when configured (lib/msg91.ts),
+ *      else the legacy test-mode endpoint (constant 123456)
+ *   3. User enters the OTP
+ *   4. Verification upgrades the anonymous session → user session
+ *      (widget: POST /auth/otp/widget/verify with MSG91's one-time token;
+ *       fallback: POST /auth/otp/verify with the code)
  *   5. On success: redirect back to contact page to continue
  *
  * If the backend has an active draft for this user, it gets re-parented.
@@ -24,6 +27,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { useBookingStore } from "@/lib/booking-store";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
+import { msg91Enabled, otpLength, sendOtpViaMsg91, verifyOtpViaMsg91 } from "@/lib/msg91";
 
 function OtpContent() {
   const router = useRouter();
@@ -31,6 +35,7 @@ function OtpContent() {
   const phoneFromQuery = searchParams.get("phone") ?? "";
 
   const verifyOtp = useAuthStore((s) => s.verifyOtp);
+  const verifyOtpWidget = useAuthStore((s) => s.verifyOtpWidget);
   const sendOtp = useAuthStore((s) => s.sendOtp);
   const authHydrated = useAuthStore((s) => s.hydrated);
   const authToken = useAuthStore((s) => s.token);
@@ -84,7 +89,12 @@ function OtpContent() {
     setLoading(true);
     setError(null);
     try {
-      await sendOtp(p);
+      if (msg91Enabled) {
+        // MSG91 identifier = country code + phone, no plus.
+        await sendOtpViaMsg91(`91${p}`);
+      } else {
+        await sendOtp(p);
+      }
       setStep("otp");
       setResendCooldown(30);
       track({ event: "option_changed", categoryId: "auth", from: null, to: "otp_sent" });
@@ -98,14 +108,23 @@ function OtpContent() {
   const clearDraft = useBookingStore((s) => s.clearDraft);
 
   const handleVerify = async () => {
-    if (otp.length < 4) {
+    if (otp.length < otpLength) {
       setError("Enter the OTP you received");
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const result = await verifyOtp(phone, otp, "+91", draftOrderId);
+      const result = msg91Enabled
+        ? // Widget verifies with MSG91 → one-time token → backend re-verifies
+          // it and mints the session (same draft re-parenting rules).
+          await verifyOtpWidget(
+            phone,
+            await verifyOtpViaMsg91(otp),
+            "+91",
+            draftOrderId,
+          )
+        : await verifyOtp(phone, otp, "+91", draftOrderId);
 
       if (result.active_order_id) {
         // Backend has an active draft for this user. Sync the store so
@@ -189,13 +208,13 @@ function OtpContent() {
             Sent to <span className="font-mono font-semibold">+91 {phone}</span>
           </p>
           <label className="block">
-            <span className="mb-1 block text-caption text-muted">6-digit OTP</span>
+            <span className="mb-1 block text-caption text-muted">{otpLength}-digit OTP</span>
             <input
               ref={inputRef}
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
-              maxLength={8}
+              maxLength={otpLength}
               data-mono
               className="w-full rounded-card border border-hairline-strong bg-chalk-white px-3 py-2.5 min-h-[44px] text-center font-mono text-h2 tracking-[0.5em] focus-visible:outline-none"
               value={otp}
@@ -221,9 +240,11 @@ function OtpContent() {
               {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend OTP"}
             </button>
           </div>
-          <p className="text-center text-caption text-muted">
-            Test mode: use OTP <span className="font-mono font-semibold">123456</span>
-          </p>
+          {!msg91Enabled && (
+            <p className="text-center text-caption text-muted">
+              Test mode: use OTP <span className="font-mono font-semibold">123456</span>
+            </p>
+          )}
         </div>
       )}
     </ScreenShell>

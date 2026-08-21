@@ -45,6 +45,23 @@ Open Chrome DevTools → mobile viewport (390×844 recommended) to test.
 - **Framer Motion** drives the four brand motion patterns (Tape Unroll, Tick,
   Curl In, Rivet Pulse). `prefers-reduced-motion` is respected automatically.
 
+## OTP login (MSG91 widget)
+
+Real OTP login runs through the [MSG91 OTP widget](https://msg91.com/help/sendotp/how-to-integrate-the-new-login-with-otp-widget)
+(`lib/msg91.ts`): MSG91 sends + verifies the code in-browser, then hands back
+a one-time token that the backend re-verifies at `POST /auth/otp/widget/verify`
+before minting a session. Set in `.env.local` (from the msg91.com OTP widget
+settings):
+
+```
+NEXT_PUBLIC_MSG91_WIDGET_ID=…
+NEXT_PUBLIC_MSG91_TOKEN_AUTH=…
+```
+
+The backend needs `MSG91_AUTH_KEY` (account authkey) in `be/.env` to verify
+tokens server-side. With any of these unset, login falls back to test mode
+(any phone + OTP `123456`).
+
 ## Mocked integrations (V0)
 
 - **Payments** (`/pay`): 1.5s simulated gateway round-trip. Real Razorpay
@@ -60,7 +77,6 @@ Open Chrome DevTools → mobile viewport (390×844 recommended) to test.
 - Defaults for Tying / Shoulder / Sleeve / Neck side (pending product)
 - Confirm CSV "Button Button" = Back button
 - Moti-work options/placements/pricing
-- OTP verification in V0
 - Final 3-hour slot windows
 - Service-area polygon source
 - Full visualization asset kit (V0 uses simplified brand-styled SVG layers)

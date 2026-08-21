@@ -173,12 +173,10 @@ export const strings = {
   dashboard: {
     title: "Your account",
     greeting: (name: string | null) => (name ? `Hi, ${name}` : "Welcome back"),
-    loginTitle: "Sign in to see your orders",
-    loginBody:
-      "Verify your phone number to view your orders, visits and invoices.",
+    loginTitle: "Welcome to the Stitch Club",
+    loginTagline: "Paint the world the way you want.",
     phoneLabel: "Phone number",
     sendCode: "Send code",
-    otpLabel: "6-digit code",
     verify: "Verify",
     demoHint: "Demo mode: any phone works with code 123456.",
     loginError: "Could not verify. Please try again.",

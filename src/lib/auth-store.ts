@@ -43,6 +43,13 @@ interface AuthStoreState {
     countryCode?: string,
     orderId?: string | null,
   ) => Promise<OtpVerifyOut>;
+  // MSG91 widget login: swap the widget's verified one-time token for a session
+  verifyOtpWidget: (
+    phone: string,
+    otpToken: string,
+    countryCode?: string,
+    orderId?: string | null,
+  ) => Promise<OtpVerifyOut>;
 
   // Session
   refreshSession: () => Promise<SessionOut>;
@@ -126,6 +133,29 @@ export const useAuthStore = create<AuthStoreState>()(
         orderId?: string | null,
       ) => {
         const result = await authApi.verifyOtp(phone, otp, countryCode, orderId);
+        setToken(result.session_token);
+        set({
+          token: result.session_token,
+          sessionType: "user",
+          user: result.user,
+          activeOrderId: result.active_order_id,
+          expiresAt: new Date(result.expires_at).getTime(),
+        });
+        return result;
+      },
+
+      /**
+       * MSG91 widget login (real OTP): the widget verified the code
+       * in-browser; swap its one-time token for a user session. Mirrors
+       * verifyOtp.
+       */
+      verifyOtpWidget: async (
+        phone: string,
+        otpToken: string,
+        countryCode = "+91",
+        orderId?: string | null,
+      ) => {
+        const result = await authApi.verifyOtpWidget(phone, otpToken, countryCode, orderId);
         setToken(result.session_token);
         set({
           token: result.session_token,

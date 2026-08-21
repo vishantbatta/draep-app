@@ -103,11 +103,16 @@ const config: Config = {
           "0%": { transform: "translateY(100%)", opacity: "0" },
           "100%": { transform: "translateY(0)", opacity: "1" },
         },
+        logoFloat: {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-6px)" },
+        },
       },
       animation: {
         rivet: "rivetPulse 2s ease-in-out infinite",
         "curl-in": "curlIn 500ms ease-in-out both",
         "slide-up": "slideUp 0.2s ease-out both",
+        "logo-float": "logoFloat 3.5s ease-in-out infinite",
       },
       maxWidth: {
         column: "480px",

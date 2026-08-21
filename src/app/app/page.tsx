@@ -10,6 +10,8 @@
  * Auth: reuses the customer session from the auth store (anonymous → OTP
  * upgrade). Anonymous visitors get an inline phone+OTP card instead of a
  * redirect — the booking flow's /otp page is step-scoped with no return-to.
+ * OTP goes through the MSG91 widget (lib/msg91.ts) when configured; the
+ * legacy test-mode endpoints are the fallback.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -18,11 +20,20 @@ import { useRouter } from "next/navigation";
 
 import { OrderStatusPills } from "@/components/order/OrderStatus";
 import { ScreenShell } from "@/components/layout/ScreenShell";
+import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { MonoNumber } from "@/components/ui/MonoNumber";
-import { Calendar, ChevronRight, Sparkle, Thread } from "@/components/ui/icons";
+import {
+  Calendar,
+  Check,
+  ChevronRight,
+  ShieldCheck,
+  Sparkle,
+  Thread,
+} from "@/components/ui/icons";
 import { libraryApi, ordersApi } from "@/lib/api";
 import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
+import { msg91Enabled, otpLength, sendOtpViaMsg91, verifyOtpViaMsg91 } from "@/lib/msg91";
 import { useBookingStore } from "@/lib/booking-store";
 import { displayOrderNumber, formatDate, slotVisitLabel } from "@/lib/order-display";
 import { formatPrice } from "@/lib/pricing";
@@ -30,6 +41,11 @@ import { strings } from "@/lib/strings";
 import type { OrderListItem } from "@/types/api";
 
 /* ============================================================ */
+
+/** "9876543210" → "98765 43210" for display only. */
+function formatPhoneDisplay(phone: string): string {
+  return phone.length === 10 ? `${phone.slice(0, 5)} ${phone.slice(5)}` : phone;
+}
 
 export default function AppDashboardPage() {
   const router = useRouter();
@@ -39,6 +55,7 @@ export default function AppDashboardPage() {
   const activeOrderId = useAuthStore((s) => s.activeOrderId);
   const sendOtp = useAuthStore((s) => s.sendOtp);
   const verifyOtp = useAuthStore((s) => s.verifyOtp);
+  const verifyOtpWidget = useAuthStore((s) => s.verifyOtpWidget);
   const logout = useAuthStore((s) => s.logout);
   const hydrateFromLibraryOrder = useBookingStore((s) => s.hydrateFromLibraryOrder);
 
@@ -88,7 +105,12 @@ export default function AppDashboardPage() {
     setLoginBusy(true);
     setLoginError(null);
     try {
-      await sendOtp(phone);
+      if (msg91Enabled) {
+        // MSG91 identifier = country code + phone, no plus.
+        await sendOtpViaMsg91(`91${phone}`);
+      } else {
+        await sendOtp(phone);
+      }
       setOtpSent(true);
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : strings.dashboard.loginError);
@@ -98,11 +120,18 @@ export default function AppDashboardPage() {
   };
 
   const handleVerifyOtp = async () => {
-    if (otp.length !== 6) return;
+    if (otp.length !== otpLength) return;
     setLoginBusy(true);
     setLoginError(null);
     try {
-      await verifyOtp(phone, otp);
+      if (msg91Enabled) {
+        // Widget verifies the code with MSG91 → one-time token → backend
+        // re-verifies it and mints the session.
+        const otpToken = await verifyOtpViaMsg91(otp);
+        await verifyOtpWidget(phone, otpToken);
+      } else {
+        await verifyOtp(phone, otp);
+      }
       // sessionType flips to "user" in the store → the effect above loads orders.
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : strings.dashboard.loginError);
@@ -171,79 +200,128 @@ export default function AppDashboardPage() {
 
       {/* Anonymous → inline OTP login card */}
       {!isLoggedIn && (
-        <section className="mt-6 rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
-          <div className="flex items-start gap-3">
-            <span
-              aria-hidden
-              className="flex h-10 w-10 flex-none items-center justify-center rounded-pill bg-accent-fill text-chalk-white"
-            >
-              <Sparkle size={20} />
+        <section className="mt-6 overflow-hidden rounded-card border border-hairline bg-chalk-white shadow-card">
+          {/* Hero — floating brand logo + welcome copy */}
+          <div className="flex flex-col items-center border-b border-hairline bg-warm-sand px-4 py-6 text-center">
+            <span className="inline-block animate-logo-float motion-reduce:animate-none drop-shadow-[0_12px_14px_rgba(168,80,16,0.28)]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="draep" className="block h-[56px] w-auto" />
             </span>
-            <div>
-              <h2 className="font-heading text-h3 text-ink-navy">
-                {strings.dashboard.loginTitle}
-              </h2>
-              <p className="mt-1 text-body text-ink/85">{strings.dashboard.loginBody}</p>
-            </div>
+            <h2 className="mt-4 font-heading text-h3 text-ink-navy">
+              {strings.dashboard.loginTitle}
+            </h2>
+            <p className="mt-0.5 font-heading text-body text-accent-text">
+              {strings.dashboard.loginTagline}
+            </p>
           </div>
 
-          {!otpSent ? (
-            <div className="mt-4">
-              <label htmlFor="dash-phone" className="text-caption text-muted">
-                {strings.dashboard.phoneLabel}
-              </label>
-              <input
-                id="dash-phone"
-                inputMode="numeric"
-                autoComplete="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
-                placeholder="98765 43210"
-                className="mt-1 w-full rounded-card border-[1.5px] border-hairline bg-chalk-white px-3 py-2.5 font-heading text-body text-ink-navy placeholder:text-muted focus:border-navy-interactive focus:outline-none"
-              />
-              <Button
-                fullWidth
-                className="mt-3"
-                loading={loginBusy}
-                disabled={phone.length !== 10}
-                onClick={() => void handleSendOtp()}
-              >
-                {strings.dashboard.sendCode}
-              </Button>
-            </div>
-          ) : (
-            <div className="mt-4">
-              <label htmlFor="dash-otp" className="text-caption text-muted">
-                {strings.dashboard.otpLabel}
-              </label>
-              <input
-                id="dash-otp"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                className="mt-1 w-full rounded-card border-[1.5px] border-hairline bg-chalk-white px-3 py-2.5 text-center font-mono text-data tracking-[0.4em] text-ink-navy focus:border-navy-interactive focus:outline-none"
-              />
-              <Button
-                fullWidth
-                className="mt-3"
-                loading={loginBusy}
-                disabled={otp.length !== 6}
-                onClick={() => void handleVerifyOtp()}
-              >
-                {strings.dashboard.verify}
-              </Button>
-            </div>
-          )}
+          <div className="p-4">
+            {!otpSent ? (
+              <div>
+                <label htmlFor="dash-phone" className="text-caption text-muted">
+                  {strings.dashboard.phoneLabel}
+                </label>
+                <div className="mt-1 flex items-stretch gap-2">
+                  <span
+                    aria-hidden
+                    data-mono
+                    className="inline-flex min-w-[56px] items-center justify-center rounded-card border-[1.5px] border-hairline bg-mist-navy px-3 font-heading text-body text-ink-navy"
+                  >
+                    +91
+                  </span>
+                  <input
+                    id="dash-phone"
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                    placeholder="98765 43210"
+                    className="min-h-[44px] w-full rounded-card border-[1.5px] border-hairline bg-chalk-white px-3 py-2.5 font-heading text-body text-ink-navy placeholder:text-muted focus:border-navy-interactive focus:outline-none"
+                  />
+                </div>
+                <p className="mt-1.5 text-caption text-muted">
+                  We&apos;ll text a {otpLength}-digit code to verify it&apos;s you.
+                </p>
+                <Button
+                  fullWidth
+                  className="mt-3"
+                  loading={loginBusy}
+                  disabled={phone.length !== 10}
+                  onClick={() => void handleSendOtp()}
+                >
+                  {strings.dashboard.sendCode}
+                </Button>
+              </div>
+            ) : (
+              <div>
+                {/* Sent confirmation — where the code went */}
+                <div
+                  role="status"
+                  className="flex items-center gap-2 rounded-card bg-success-bg px-3 py-2"
+                >
+                  <span
+                    aria-hidden
+                    className="flex h-6 w-6 flex-none items-center justify-center rounded-pill bg-success text-chalk-white"
+                  >
+                    <Check size={13} />
+                  </span>
+                  <p className="text-caption text-ink/85">
+                    Code sent to{" "}
+                    <MonoNumber className="font-semibold text-data text-ink-navy">
+                      +91 {formatPhoneDisplay(phone)}
+                    </MonoNumber>
+                  </p>
+                </div>
 
-          <p className="mt-3 text-center text-caption text-muted">
-            {strings.dashboard.demoHint}
-          </p>
-          {loginError && (
-            <p className="mt-2 text-center text-caption text-error-text" role="alert">
-              {loginError}
+                <label htmlFor="dash-otp" className="mt-4 block text-caption text-muted">
+                  {otpLength}-digit code
+                </label>
+                <input
+                  id="dash-otp"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, otpLength))}
+                  className="mt-1 min-h-[44px] w-full rounded-card border-[1.5px] border-hairline bg-chalk-white px-3 py-2.5 text-center font-mono text-data tracking-[0.4em] text-ink-navy focus:border-navy-interactive focus:outline-none"
+                />
+                <Button
+                  fullWidth
+                  className="mt-3"
+                  loading={loginBusy}
+                  disabled={otp.length !== otpLength}
+                  onClick={() => void handleVerifyOtp()}
+                >
+                  {strings.dashboard.verify}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOtpSent(false);
+                    setOtp("");
+                  }}
+                  className="mt-2 w-full text-center text-caption text-navy-interactive underline"
+                >
+                  Use a different number
+                </button>
+              </div>
+            )}
+
+            {loginError && (
+              <Banner variant="error" className="mt-3">
+                <p className="text-caption">{loginError}</p>
+              </Banner>
+            )}
+
+            {!msg91Enabled && (
+              <p className="mt-3 text-center text-caption text-muted">
+                {strings.dashboard.demoHint}
+              </p>
+            )}
+            <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-caption text-muted">
+              <ShieldCheck size={14} className="text-accent-text" aria-hidden />
+              Your number is used only for your orders
             </p>
-          )}
+          </div>
         </section>
       )}
 
