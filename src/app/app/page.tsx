@@ -48,6 +48,9 @@ function formatPhoneDisplay(phone: string): string {
   return phone.length === 10 ? `${phone.slice(0, 5)} ${phone.slice(5)}` : phone;
 }
 
+/** Seconds before "Resend code" re-enables — matches MSG91's own resend pacing. */
+const RESEND_COOLDOWN_S = 30;
+
 /** users.gender column allows exactly these values (be/app/models/user.py). */
 const GENDER_OPTIONS = [
   { value: "male", label: strings.dashboard.genderMale },
@@ -113,6 +116,18 @@ export default function AppDashboardPage() {
   const [otpSent, setOtpSent] = useState(false);
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [codeResent, setCodeResent] = useState(false);
+
+  // Resend cooldown — one interval while it counts down, none once it hits 0.
+  const coolingDown = resendCooldown > 0;
+  useEffect(() => {
+    if (!coolingDown) return;
+    const timer = window.setInterval(() => {
+      setResendCooldown((s) => Math.max(0, s - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [coolingDown]);
 
   const handleSendOtp = async () => {
     if (phone.length !== 10) return;
@@ -126,6 +141,30 @@ export default function AppDashboardPage() {
         await sendOtp(phone);
       }
       setOtpSent(true);
+      setResendCooldown(RESEND_COOLDOWN_S);
+      setCodeResent(false);
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : strings.dashboard.loginError);
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || loginBusy) return;
+    setLoginBusy(true);
+    setLoginError(null);
+    try {
+      if (msg91Enabled) {
+        await sendOtpViaMsg91(`91${phone}`);
+      } else {
+        await sendOtp(phone);
+      }
+      // The new code supersedes whatever was typed — start clean.
+      setOtp("");
+      setCodeResent(true);
+      setResendCooldown(RESEND_COOLDOWN_S);
+      document.getElementById("dash-otp")?.focus();
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : strings.dashboard.loginError);
     } finally {
@@ -330,15 +369,39 @@ export default function AppDashboardPage() {
                 >
                   {strings.dashboard.verify}
                 </Button>
+
+                {codeResent && (
+                  <p role="status" className="mt-2 text-center text-caption text-success-text">
+                    {strings.dashboard.codeResent}
+                  </p>
+                )}
+
+                {resendCooldown > 0 ? (
+                  <p className="mt-2 text-center text-caption text-muted">
+                    {strings.dashboard.resendCodeIn(resendCooldown)}
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={loginBusy}
+                    onClick={() => void handleResendOtp()}
+                    className="mt-2 w-full text-center text-caption text-navy-interactive underline disabled:no-underline disabled:text-muted"
+                  >
+                    {strings.dashboard.resendCode}
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
                     setOtpSent(false);
                     setOtp("");
+                    setResendCooldown(0);
+                    setCodeResent(false);
                   }}
                   className="mt-2 w-full text-center text-caption text-navy-interactive underline"
                 >
-                  Use a different number
+                  {strings.dashboard.useDifferentNumber}
                 </button>
               </div>
             )}
