@@ -23,6 +23,7 @@ import { Suspense } from "react";
 import { ScreenShell } from "@/components/layout/ScreenShell";
 import { Button } from "@/components/ui/Button";
 import { Banner } from "@/components/ui/Banner";
+import { normalizePhoneInput } from "@/lib/phone";
 import { useAuthStore } from "@/lib/auth-store";
 import { useBookingStore } from "@/lib/booking-store";
 import { strings } from "@/lib/strings";
@@ -32,7 +33,7 @@ import { msg91Enabled, otpLength, sendOtpViaMsg91, verifyOtpViaMsg91 } from "@/l
 function OtpContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const phoneFromQuery = searchParams.get("phone") ?? "";
+  const phoneFromQuery = normalizePhoneInput(searchParams.get("phone") ?? "");
 
   const verifyOtp = useAuthStore((s) => s.verifyOtp);
   const verifyOtpWidget = useAuthStore((s) => s.verifyOtpWidget);
@@ -65,6 +66,17 @@ function OtpContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phoneFromQuery, authHydrated, authToken]);
+
+  // Auto-send the moment the typed number becomes a valid 10-digit mobile —
+  // the step flip to "otp" is the once-guard, and paste/autofill land here
+  // too via normalization. Auth flags stay in deps so a number typed while
+  // the anonymous token was still fetching sends once it arrives.
+  useEffect(() => {
+    if (step === "phone" && /^[6-9]\d{9}$/.test(phone) && authHydrated && authToken) {
+      handleSendOtp(phone);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phone, step, authHydrated, authToken]);
 
   // Focus OTP input when step changes
   useEffect(() => {
@@ -184,10 +196,9 @@ function OtpContent() {
                 type="tel"
                 inputMode="numeric"
                 autoComplete="tel-national"
-                maxLength={10}
                 className="w-full rounded-card border border-hairline-strong bg-chalk-white px-3 py-2.5 min-h-[44px] text-body focus-visible:outline-none"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
+                onChange={(e) => setPhone(normalizePhoneInput(e.target.value))}
                 onKeyDown={(e) => e.key === "Enter" && handleSendOtp()}
               />
             </div>

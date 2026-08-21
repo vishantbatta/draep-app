@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/icons";
 import { libraryApi, ordersApi } from "@/lib/api";
 import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
+import { normalizePhoneInput } from "@/lib/phone";
 import { msg91Enabled, otpLength, sendOtpViaMsg91, verifyOtpViaMsg91 } from "@/lib/msg91";
 import { useBookingStore } from "@/lib/booking-store";
 import { displayOrderNumber, formatDate, slotVisitLabel } from "@/lib/order-display";
@@ -142,12 +143,25 @@ export default function AppDashboardPage() {
       setOtpSent(true);
       setResendCooldown(RESEND_COOLDOWN_S);
       setCodeResent(false);
+      // The OTP field mounts on this state flip — focus it after commit.
+      window.setTimeout(() => document.getElementById("dash-otp")?.focus(), 0);
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : strings.dashboard.loginError);
     } finally {
       setLoginBusy(false);
     }
   };
+
+  // Auto-send the moment the typed number becomes a valid 10-digit mobile
+  // (the card then morphs into the OTP entry — that swap is the once-guard).
+  // Fires on paste/autofill too, since normalization lands in one change.
+  // The button stays for retries after a failed send or a re-edited number.
+  useEffect(() => {
+    if (/^[6-9]\d{9}$/.test(phone) && !otpSent && !loginBusy) {
+      void handleSendOtp();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phone, otpSent]);
 
   const handleResendOtp = async () => {
     if (resendCooldown > 0 || loginBusy) return;
@@ -306,7 +320,7 @@ export default function AppDashboardPage() {
                     inputMode="numeric"
                     autoComplete="tel"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                    onChange={(e) => setPhone(normalizePhoneInput(e.target.value))}
                     placeholder="98765 43210"
                     className="min-h-[44px] w-full rounded-card border-[1.5px] border-hairline bg-chalk-white px-3 py-2.5 font-heading text-body text-ink-navy placeholder:text-muted focus:border-navy-interactive focus:outline-none"
                   />
