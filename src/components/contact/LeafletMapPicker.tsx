@@ -69,9 +69,16 @@ export interface LeafletMapPickerProps {
    * Set to `undefined` or omit to disable.
    */
   flyTo?: { lat: number; lng: number; nonce: number };
+  /**
+   * Height/aspect override for the map container, e.g. "h-44" for a compact
+   * map inside a bottom sheet. Defaults to the full "aspect-[4/3]" card.
+   * When it changes we call map.invalidateSize() — Leaflet doesn't observe
+   * its own container.
+   */
+  mapClassName?: string;
 }
 
-export function LeafletMapPicker({ lat, lng, onPinChange, flyTo }: LeafletMapPickerProps) {
+export function LeafletMapPicker({ lat, lng, onPinChange, flyTo, mapClassName }: LeafletMapPickerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // React-side UI state only — never fed back into Leaflet.
@@ -300,6 +307,13 @@ export function LeafletMapPicker({ lat, lng, onPinChange, flyTo }: LeafletMapPic
     onPinChangeRef.current(next[0], next[1]);
   }, [flyTo]);
 
+  // Container height can be toggled from outside (compact ↔ full). Leaflet
+  // doesn't observe its own container, so re-measure when the class changes.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => mapRef.current?.invalidateSize());
+    return () => cancelAnimationFrame(id);
+  }, [mapClassName]);
+
   // ─── Use my location ──────────────────────────────────────────────────────
   const useMyLocation = () => {
     // Stray-click guard: if we just finished dragging the marker, the browser
@@ -347,7 +361,9 @@ export function LeafletMapPicker({ lat, lng, onPinChange, flyTo }: LeafletMapPic
 
   return (
     <div>
-      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-card border border-hairline-strong">
+      <div
+        className={`relative w-full overflow-hidden rounded-card border border-hairline-strong ${mapClassName ?? "aspect-[4/3]"}`}
+      >
         {/* Leaflet mounts inside this div. React never touches the children. */}
         <div ref={containerRef} className="h-full w-full" style={{ background: "#083068" }} />
 

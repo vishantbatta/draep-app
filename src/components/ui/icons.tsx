@@ -119,6 +119,42 @@ export function Minus(props: IconProps) {
   );
 }
 
+export function Trash(props: IconProps) {
+  return (
+    <svg {...svg(props)}>
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
+export function User(props: IconProps) {
+  return (
+    <svg {...svg(props)}>
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
+export function Maximize2(props: IconProps) {
+  return (
+    <svg {...svg(props)}>
+      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+    </svg>
+  );
+}
+
+export function Minimize2(props: IconProps) {
+  return (
+    <svg {...svg(props)}>
+      <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
+    </svg>
+  );
+}
+
 export function Sparkle(props: IconProps) {
   return (
     <svg {...svg(props)}>

@@ -34,8 +34,18 @@ export interface MapPinPickerProps {
   lng?: number;
   onPinChange: (lat: number, lng: number) => void;
   flyTo?: { lat: number; lng: number; nonce: number };
+  /** Height/aspect override for the map container (see LeafletMapPicker). */
+  mapClassName?: string;
 }
 
-export function MapPinPicker({ lat, lng, onPinChange, flyTo }: MapPinPickerProps) {
-  return <LeafletMapPicker lat={lat} lng={lng} onPinChange={onPinChange} flyTo={flyTo} />;
+export function MapPinPicker({ lat, lng, onPinChange, flyTo, mapClassName }: MapPinPickerProps) {
+  return (
+    <LeafletMapPicker
+      lat={lat}
+      lng={lng}
+      onPinChange={onPinChange}
+      flyTo={flyTo}
+      mapClassName={mapClassName}
+    />
+  );
 }

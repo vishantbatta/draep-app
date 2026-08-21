@@ -6,6 +6,7 @@
  */
 
 export * as authApi from "./auth";
+export * as addressesApi from "./addresses";
 export * as catalogApi from "./catalog";
 export * as libraryApi from "./library";
 export * as ordersApi from "./orders";

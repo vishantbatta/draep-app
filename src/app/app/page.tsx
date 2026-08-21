@@ -31,6 +31,7 @@ import {
   ShieldCheck,
   Sparkle,
   Thread,
+  User,
 } from "@/components/ui/icons";
 import { libraryApi, ordersApi } from "@/lib/api";
 import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
@@ -67,9 +68,7 @@ export default function AppDashboardPage() {
   const sendOtp = useAuthStore((s) => s.sendOtp);
   const verifyOtp = useAuthStore((s) => s.verifyOtp);
   const verifyOtpWidget = useAuthStore((s) => s.verifyOtpWidget);
-  const updateProfile = useAuthStore((s) => s.updateProfile);
-  const logout = useAuthStore((s) => s.logout);
-  const hydrateFromLibraryOrder = useBookingStore((s) => s.hydrateFromLibraryOrder);
+  const updateProfile = useAuthStore((s) => s.updateProfile);  const hydrateFromLibraryOrder = useBookingStore((s) => s.hydrateFromLibraryOrder);
 
   const isLoggedIn = sessionType === "user";
 
@@ -232,10 +231,6 @@ export default function AppDashboardPage() {
     }
   };
 
-  const handleLogout = async () => {
-    await logout();
-  };
-
   /* ── Skeleton while the persisted session rehydrates ─────────────────── */
   if (!hydrated) {
     return (
@@ -265,12 +260,13 @@ export default function AppDashboardPage() {
           )}
         </div>
         {isLoggedIn && (
-          <button
-            onClick={() => void handleLogout()}
-            className="rounded-pill px-3 py-1.5 text-caption font-semibold text-navy-interactive underline"
+          <Link
+            href="/app/account"
+            aria-label={strings.dashboard.account}
+            className="flex h-11 w-11 flex-none items-center justify-center rounded-pill text-ink-navy transition hover:bg-mist-navy"
           >
-            {strings.dashboard.logout}
-          </button>
+            <User size={18} />
+          </Link>
         )}
       </header>
 

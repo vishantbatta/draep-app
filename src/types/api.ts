@@ -36,6 +36,7 @@ export interface UserOut {
   email: string | null;
   gender: string | null;
   is_new_user: boolean;
+  created_at?: string | null; // ISO datetime — Stitch Club member since
 }
 
 export interface OtpVerifyOut {
@@ -50,6 +51,24 @@ export interface SessionOut {
   session_type: "anonymous" | "user";
   user: UserOut | null;
   active_order_id: string | null;
+}
+
+// ─── Addresses (be/app/schemas/address.py) ────────────────────────────────────
+
+export interface AddressCoordinates {
+  lat: number;
+  lng: number;
+}
+
+export interface Address {
+  id: string;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  coordinates: AddressCoordinates | null;
+  created_at?: string | null;
 }
 
 // ─── Catalog (be/app/schemas/catalog.py) ──────────────────────────────────────

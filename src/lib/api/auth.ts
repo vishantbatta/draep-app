@@ -70,10 +70,14 @@ export function getSession(): Promise<SessionOut> {
 
 /**
  * Save the signed-in user's profile — first-login name + gender completion
- * (the OTP login auto-creates the row without them). Requires a user session.
+ * (the OTP login auto-creates the row without them), or a name-only edit
+ * from the account page (gender omitted → backend keeps the stored one).
  */
-export function updateProfile(name: string, gender: string): Promise<UserOut> {
-  return apiPatch<UserOut>("/auth/me", { name, gender });
+export function updateProfile(
+  name: string,
+  gender?: string | null,
+): Promise<UserOut> {
+  return apiPatch<UserOut>("/auth/me", gender ? { name, gender } : { name });
 }
 
 export function logout(): Promise<void> {

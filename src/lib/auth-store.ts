@@ -53,7 +53,7 @@ interface AuthStoreState {
 
   // Session
   refreshSession: () => Promise<SessionOut>;
-  updateProfile: (name: string, gender: string) => Promise<void>;
+  updateProfile: (name: string, gender?: string | null) => Promise<void>;
   logout: () => Promise<void>;
 
   // Internal
@@ -226,8 +226,8 @@ export const useAuthStore = create<AuthStoreState>()(
        * completion). Merges the returned user into the store — `user.name`
        * going non-null is what un-gates the orders dashboard.
        */
-      updateProfile: async (name: string, gender: string) => {
-        const updated = await authApi.updateProfile(name, gender);
+      updateProfile: async (name: string, gender?: string | null) => {
+        const updated = await authApi.updateProfile(name, gender ?? undefined);
         set({ user: { ...get().user, ...updated } });
       },
 
