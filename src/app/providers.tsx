@@ -20,6 +20,8 @@ import { useEffect, useRef } from "react";
 
 import { useAuthStore } from "@/lib/auth-store";
 
+import { InstallPrompt } from "@/components/layout/InstallPrompt";
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const authHydrated = useAuthStore((s) => s.hydrated);
   const bootstrap = useAuthStore((s) => s.bootstrap);
@@ -35,5 +37,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     }
   }, [authHydrated, bootstrap]);
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <InstallPrompt />
+    </>
+  );
 }
