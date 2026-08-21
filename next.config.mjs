@@ -7,6 +7,10 @@ const pwaConfig = {
   skipWaiting: true,
   clientsClaim: true,
   disable: process.env.NODE_ENV === "development",
+  // Next emits `/_next/app-build-manifest.json` but never serves it in
+  // production — precacheing it makes the workbox install fail on its 404,
+  // so the service worker never activates and Chrome never offers an install.
+  buildExcludes: [/app-build-manifest\.json$/],
   fallbacks: {
     document: "/offline",
   },

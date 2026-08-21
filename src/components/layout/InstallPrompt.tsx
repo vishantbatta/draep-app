@@ -1,32 +1,26 @@
 "use client";
 
 /**
- * InstallPrompt — "Download the app" popup on persona home + login pages.
+ * InstallPrompt — store-style install card (app icon, name, tagline, CTA —
+ * like the native App Store / Play Store prompt) above the persona home +
+ * login pages. Renders in flow before the page content, so content shifts
+ * below it (nothing is overlaid) and it scrolls away like a page header.
  *
  * Chrome/Chromium fires `beforeinstallprompt` once the PWA is installable;
- * we defer that event and offer a one-tap install from the popup. Tapping
- * Install shows the native install sheet and adds the WebAPK to the home
- * screen. iOS Safari never fires the event, so the popup never appears
- * there — no iOS tutorial is shown (intentional; ask if that changes).
+ * we defer that event and the banner's Install button offers a one-tap
+ * install (WebAPK to the home screen on Android). iOS Safari never fires
+ * the event, so the banner never appears there — intentional.
  *
- * Frequency: at most once per browser session, ~1.2s after landing on a
- * qualifying page. Dismissing (Install-less close) hides it for 3 days;
- * a completed install hides it forever. Never shown when already running
- * as the installed app.
+ * The banner shows on every qualifying page view until installed. The cross
+ * hides it for the current browser session only. A completed install hides
+ * it forever, and it never shows when already running as the installed app.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
 
-import { BottomSheet } from "@/components/ui/BottomSheet";
-
-/** Chrome-only API — not in the TS DOM lib. */
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-}
-
-// Popup shows on each persona's home + login pages (product decision:
+// Banner shows on each persona's home + login pages (product decision:
 // right after login / on the dashboard they land on). Exact matches only —
 // deeper work screens (e.g. the SC measure flow) never trigger it.
 const TRIGGER_PATHS = new Set([
@@ -38,41 +32,76 @@ const TRIGGER_PATHS = new Set([
 ]);
 
 const INSTALLED_KEY = "draep-install-installed";
-const DISMISSED_KEY = "draep-install-dismissed-at";
-const SHOWN_KEY = "draep-install-shown";
-const DISMISS_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
-const SHOW_DELAY_MS = 1200;
+const HIDDEN_KEY = "draep-install-banner-hidden";
+
+/** Chrome-only API — not in the TS DOM lib. */
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
 
 function isTriggerPath(pathname: string | null): boolean {
   if (!pathname) return false;
   return TRIGGER_PATHS.has(pathname);
 }
 
-function isRunningAsInstalledApp(): boolean {
-  if (typeof window === "undefined") return false;
-  const standalone =
-    typeof navigator !== "undefined" &&
-    (navigator as Navigator & { standalone?: boolean }).standalone === true;
-  return window.matchMedia("(display-mode: standalone)").matches || standalone;
+// Chrome fires `beforeinstallprompt` only once per navigation and may fire it
+// before React hydration runs — a listener attached inside useEffect would
+// miss it forever, leaving the banner unable to show naturally. Capture it
+// from module scope (the moment this chunk executes) so the component can
+// claim it on mount.
+let earlyPrompt: BeforeInstallPromptEvent | null = null;
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    earlyPrompt = e as BeforeInstallPromptEvent;
+  });
 }
 
-export function InstallPrompt() {
+export function InstallPrompt({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const deferredRef = useRef<BeforeInstallPromptEvent | null>(null);
-  const [hasPrompt, setHasPrompt] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [canInstall, setCanInstall] = useState(false);
+  const [preview, setPreview] = useState(false);
+  const [installed, setInstalled] = useState(false);
+  const [standalone, setStandalone] = useState(false);
+  const [hiddenThisSession, setHiddenThisSession] = useState(false);
   const [installing, setInstalling] = useState(false);
 
-  // Capture (and re-capture on refire) the deferred install prompt.
+  // Read persisted state once on mount.
   useEffect(() => {
+    setInstalled(Boolean(localStorage.getItem(INSTALLED_KEY)));
+    setHiddenThisSession(Boolean(sessionStorage.getItem(HIDDEN_KEY)));
+    const standalone =
+      typeof navigator !== "undefined" &&
+      (navigator as Navigator & { standalone?: boolean }).standalone === true;
+    setStandalone(
+      window.matchMedia("(display-mode: standalone)").matches || standalone,
+    );
+  }, []);
+
+  // Design preview: append ?preview=install to any URL to see the banner
+  // without waiting for Chrome's install event (Install tap is a no-op then).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("preview") === "install") setPreview(true);
+  }, []);
+
+  // Capture (and re-capture on refire) the deferred install prompt. If Chrome
+  // already fired it before hydration, claim the module-scope copy instead.
+  useEffect(() => {
+    if (earlyPrompt) {
+      deferredRef.current = earlyPrompt;
+      setCanInstall(true);
+    }
     const onBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       deferredRef.current = e as BeforeInstallPromptEvent;
-      setHasPrompt(true);
+      setCanInstall(true);
     };
     const onInstalled = () => {
       localStorage.setItem(INSTALLED_KEY, "1");
-      setOpen(false);
+      setInstalled(true);
     };
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
     window.addEventListener("appinstalled", onInstalled);
@@ -82,32 +111,16 @@ export function InstallPrompt() {
     };
   }, []);
 
-  // Design preview: append ?preview=install to any URL to see the sheet
-  // without waiting for Chrome's install event (Install tap is a no-op then).
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("preview") === "install") setOpen(true);
-  }, []);
-
-  // Decide whether to show, once per session, on qualifying pages.
-  useEffect(() => {
-    if (!hasPrompt || !isTriggerPath(pathname)) return;
-    if (isRunningAsInstalledApp()) return;
-    if (localStorage.getItem(INSTALLED_KEY)) return;
-    if (sessionStorage.getItem(SHOWN_KEY)) return;
-    const dismissedAt = Number(localStorage.getItem(DISMISSED_KEY) ?? 0);
-    if (dismissedAt && Date.now() - dismissedAt < DISMISS_COOLDOWN_MS) return;
-
-    const t = window.setTimeout(() => {
-      sessionStorage.setItem(SHOWN_KEY, "1");
-      setOpen(true);
-    }, SHOW_DELAY_MS);
-    return () => window.clearTimeout(t);
-  }, [hasPrompt, pathname]);
+  // The cross wins in every mode — including ?preview=install, where it would
+  // otherwise be a no-op because `preview` forces the banner visible.
+  const visible =
+    !hiddenThisSession &&
+    (preview ||
+      (canInstall && isTriggerPath(pathname) && !installed && !standalone));
 
   const dismiss = () => {
-    localStorage.setItem(DISMISSED_KEY, String(Date.now()));
-    setOpen(false);
+    sessionStorage.setItem(HIDDEN_KEY, "1");
+    setHiddenThisSession(true);
   };
 
   const install = async () => {
@@ -119,44 +132,84 @@ export function InstallPrompt() {
       const choice = await ev.userChoice;
       if (choice.outcome === "accepted") {
         localStorage.setItem(INSTALLED_KEY, "1");
+        setInstalled(true);
       }
     } finally {
       deferredRef.current = null;
-      setHasPrompt(false);
+      setCanInstall(false);
       setInstalling(false);
-      setOpen(false);
     }
   };
 
   return (
-    <BottomSheet
-      open={open}
-      onClose={dismiss}
-      title="Get the Draep app"
-      footer={
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={dismiss}
-            disabled={installing}
-            className="tap flex-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy transition disabled:opacity-50"
+    <>
+      <AnimatePresence>
+        {visible && (
+          <motion.div
+            className="w-full px-3 pt-3"
+            initial={{ y: -16, opacity: 0, scale: 0.97 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: -16, opacity: 0, scale: 0.97 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
           >
-            Not now
-          </button>
-          <button
-            type="button"
-            onClick={install}
-            disabled={installing}
-            className="tap flex-1 rounded-pill bg-tape px-4 py-3 font-heading font-semibold text-chalk-white shadow-primary transition disabled:opacity-50"
-          >
-            {installing ? "Installing…" : "Install app"}
-          </button>
-        </div>
-      }
-    >
-      <p className="pb-3 text-body text-ink">
-        It works like a regular app and stays fast even on weak networks.
-      </p>
-    </BottomSheet>
+            {/* Store-style install card. Brand Book: chalk-white card on 12px
+                radius (rounded-xl) with the single navy@8% elevation; tape
+                gradient stays reserved for the CTA. Centered max-w-sm card,
+                not edge-to-edge. */}
+            <div className="mx-auto flex w-full max-w-sm items-center gap-3 rounded-xl border border-mist-navy bg-chalk-white px-3 py-3 shadow-brand">
+              {/* Rounded-square app-icon tile, like an OS icon on a store
+                  card. The logo is a transparent emblem (not full-bleed), so
+                  it sits on Warm Sand inside the tile. */}
+              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-[12px] bg-warm-sand ring-1 ring-mist-navy">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/logo_alpha_icon.png"
+                  alt=""
+                  className="h-9 w-9 object-contain"
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-heading text-sm font-semibold leading-tight text-ink-navy">
+                  Draep
+                </p>
+                <p className="text-caption leading-snug text-ink-navy/60">
+                  Install the app for uninterrupted access
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={install}
+                disabled={installing}
+                className="tap shrink-0 rounded-pill bg-tape px-4 py-2 text-caption font-heading font-semibold text-chalk-white shadow-primary transition disabled:opacity-50"
+              >
+                {installing ? "Installing…" : "Install"}
+              </button>
+              <button
+                type="button"
+                onClick={dismiss}
+                aria-label="Close"
+                disabled={installing}
+                className="tap shrink-0 rounded-full p-1.5 text-ink-navy/40 transition hover:text-ink-navy disabled:opacity-50"
+              >
+                <svg
+                  viewBox="0 0 20 20"
+                  className="h-4 w-4"
+                  fill="none"
+                  aria-hidden
+                >
+                  <path
+                    d="M5 5l10 10M15 5L5 15"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {children}
+    </>
   );
 }

@@ -3,6 +3,7 @@ import { Inter, Poppins, IBM_Plex_Mono } from "next/font/google";
 
 import { strings } from "@/lib/strings";
 import { Providers } from "@/app/providers";
+import { ServiceWorkerRegister } from "@/components/layout/ServiceWorkerRegister";
 import "@/styles/globals.css";
 
 const inter = Inter({
@@ -74,6 +75,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${inter.variable} ${poppins.variable} ${plexMono.variable}`}>
       <body className="min-h-dvh bg-chalk-white text-ink-navy">
+        <ServiceWorkerRegister />
         <Providers>{children}</Providers>
       </body>
     </html>

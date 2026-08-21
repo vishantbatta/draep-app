@@ -6,9 +6,12 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "draep",
     description:
       "Design your custom blouse on the phone. A Style Captain visits your home to measure, then delivers and trials — fixes included.",
-    // No `start_url`: on install, iOS Safari and Android Chrome stamp the page
-    // the user was on (e.g. /admin) as the app's launch URL. Adding start_url
-    // back would force every install to open that URL instead.
+    // `start_url` is required for Chrome to consider the app installable at
+    // all — without it beforeinstallprompt never fires (verified against a
+    // known-installable control site). "/" launches every install at the
+    // persona picker home; iOS Safari ignores start_url and launches the
+    // exact page that was added to the home screen either way.
+    start_url: "/",
     // `scope: "/"` must stay so navigation stays inside the app window.
     scope: "/",
     display: "standalone",
