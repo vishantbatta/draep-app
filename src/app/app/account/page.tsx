@@ -11,6 +11,9 @@
  * Addresses follow the same flow as admin order creation: type like Google
  * Maps → Nominatim suggestions → pick one to prefill the form + drop the
  * map pin → drag the pin to reverse-geocode → edit anything → save.
+ * Opening the sheet also asks for browser location — granted, the pin flies
+ * there and the reverse-geocode prefills the form; denied, the default
+ * flow (search or drag) is untouched.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -77,6 +80,10 @@ function AddressForm({
   const flyNonce = useRef(0);
   const [reverseLoading, setReverseLoading] = useState(false);
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [locating, setLocating] = useState(false);
+  // Set when the user picks a suggestion, so a slow geolocation fix doesn't
+  // fly the pin away from a position they already chose.
+  const userPicked = useRef(false);
 
   const [fields, setFields] = useState({
     address_line_1: "",
@@ -114,6 +121,28 @@ function AddressForm({
     });
     setSaving(false);
     setError(null);
+    setLocating(false);
+    userPicked.current = false;
+
+    // Ask for location once per open. On grant, drive the same flyTo →
+    // onPinChange → reverse-geocode path a suggestion pick uses, so the
+    // form prefills without duplicated logic. A denial or timeout is not
+    // an error — the search/drag flow stands on its own.
+    if (typeof navigator !== "undefined" && navigator.geolocation) {
+      setLocating(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setLocating(false);
+          if (userPicked.current) return;
+          const { latitude, longitude } = pos.coords;
+          setPin({ lat: latitude, lng: longitude });
+          flyNonce.current += 1;
+          setFlyTo({ lat: latitude, lng: longitude, nonce: flyNonce.current });
+        },
+        () => setLocating(false),
+        { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
+      );
+    }
   }, [open]);
 
   const handleSearchChange = (value: string) => {
@@ -134,6 +163,7 @@ function AddressForm({
   };
 
   const pickSuggestion = (r: GeocodeAddressResult) => {
+    userPicked.current = true;
     setSearch(r.label);
     setDropdownOpen(false);
     setResults([]);
@@ -281,8 +311,10 @@ function AddressForm({
         >
           {mapExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
         </button>
-        {reverseLoading && (
-          <p className="mt-1 text-caption text-muted">{strings.account.updatingFromPin}</p>
+        {(locating || reverseLoading) && (
+          <p className="mt-1 text-caption text-muted">
+            {locating ? strings.account.locating : strings.account.updatingFromPin}
+          </p>
         )}
       </div>
 

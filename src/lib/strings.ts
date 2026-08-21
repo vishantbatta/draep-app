@@ -225,6 +225,7 @@ export const strings = {
     searchPlaceholder: "e.g. 5th Avenue, HSR Layout, Bangalore",
     searching: "Searching…",
     updatingFromPin: "Updating address from pin…",
+    locating: "Finding your location…",
     expandMap: "Expand map",
     shrinkMap: "Shrink map",
     line1Label: "Address line 1",
