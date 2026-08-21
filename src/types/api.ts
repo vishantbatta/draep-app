@@ -34,6 +34,7 @@ export interface UserOut {
   country_code: string | null;
   name: string | null;
   email: string | null;
+  gender: string | null;
   is_new_user: boolean;
 }
 

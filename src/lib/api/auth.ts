@@ -3,12 +3,13 @@
  * Mirrors be/app/api/auth.py
  */
 
-import { apiGet, apiPost } from "./client";
+import { apiGet, apiPatch, apiPost } from "./client";
 import type {
   AnonymousSessionOut,
   OtpSendOut,
   OtpVerifyOut,
   SessionOut,
+  UserOut,
 } from "@/types/api";
 
 export function createAnonymousSession(): Promise<AnonymousSessionOut> {
@@ -65,6 +66,14 @@ export function verifyOtpWidget(
 
 export function getSession(): Promise<SessionOut> {
   return apiGet<SessionOut>("/auth/session");
+}
+
+/**
+ * Save the signed-in user's profile — first-login name + gender completion
+ * (the OTP login auto-creates the row without them). Requires a user session.
+ */
+export function updateProfile(name: string, gender: string): Promise<UserOut> {
+  return apiPatch<UserOut>("/auth/me", { name, gender });
 }
 
 export function logout(): Promise<void> {

@@ -22,6 +22,7 @@ import { OrderStatusPills } from "@/components/order/OrderStatus";
 import { ScreenShell } from "@/components/layout/ScreenShell";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
+import { Chip } from "@/components/ui/Chip";
 import { MonoNumber } from "@/components/ui/MonoNumber";
 import {
   Calendar,
@@ -47,6 +48,13 @@ function formatPhoneDisplay(phone: string): string {
   return phone.length === 10 ? `${phone.slice(0, 5)} ${phone.slice(5)}` : phone;
 }
 
+/** users.gender column allows exactly these values (be/app/models/user.py). */
+const GENDER_OPTIONS = [
+  { value: "male", label: strings.dashboard.genderMale },
+  { value: "female", label: strings.dashboard.genderFemale },
+  { value: "other", label: strings.dashboard.genderOther },
+] as const;
+
 export default function AppDashboardPage() {
   const router = useRouter();
   const hydrated = useAuthHydrated();
@@ -56,10 +64,16 @@ export default function AppDashboardPage() {
   const sendOtp = useAuthStore((s) => s.sendOtp);
   const verifyOtp = useAuthStore((s) => s.verifyOtp);
   const verifyOtpWidget = useAuthStore((s) => s.verifyOtpWidget);
+  const updateProfile = useAuthStore((s) => s.updateProfile);
   const logout = useAuthStore((s) => s.logout);
   const hydrateFromLibraryOrder = useBookingStore((s) => s.hydrateFromLibraryOrder);
 
   const isLoggedIn = sessionType === "user";
+
+  // OTP login auto-creates the user row without a name — a signed-in user
+  // with no name is a first-timer who still owes us their profile before
+  // the orders dashboard unlocks.
+  const needsProfile = isLoggedIn && !user?.name;
 
   /* ── Orders list ─────────────────────────────────────────────────────── */
   const [orders, setOrders] = useState<OrderListItem[]>([]);
@@ -85,13 +99,13 @@ export default function AppDashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (hydrated && isLoggedIn) {
+    if (hydrated && isLoggedIn && !needsProfile) {
       void loadOrders(1);
     } else if (hydrated) {
       setOrders([]);
       setLoading(false);
     }
-  }, [hydrated, isLoggedIn, loadOrders]);
+  }, [hydrated, isLoggedIn, needsProfile, loadOrders]);
 
   /* ── Inline login (anonymous → user via OTP) ─────────────────────────── */
   const [phone, setPhone] = useState("");
@@ -137,6 +151,29 @@ export default function AppDashboardPage() {
       setLoginError(err instanceof Error ? err.message : strings.dashboard.loginError);
     } finally {
       setLoginBusy(false);
+    }
+  };
+
+  /* ── First-login profile completion (name + gender) ──────────────────── */
+  const [profileName, setProfileName] = useState("");
+  const [profileGender, setProfileGender] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  const handleSaveProfile = async () => {
+    const name = profileName.trim();
+    if (!name || !profileGender) return;
+    setProfileBusy(true);
+    setProfileError(null);
+    try {
+      await updateProfile(name, profileGender);
+      // user.name set in the store → needsProfile flips false → orders load.
+    } catch (err) {
+      setProfileError(
+        err instanceof Error ? err.message : strings.dashboard.profileError,
+      );
+    } finally {
+      setProfileBusy(false);
     }
   };
 
@@ -325,7 +362,72 @@ export default function AppDashboardPage() {
         </section>
       )}
 
-      {isLoggedIn && (
+      {/* First-time user — collect name + gender before the dashboard */}
+      {needsProfile && (
+        <section className="mt-6 overflow-hidden rounded-card border border-hairline bg-chalk-white shadow-card">
+          <div className="flex flex-col items-center border-b border-hairline bg-warm-sand px-4 py-6 text-center">
+            <span className="inline-block animate-logo-float motion-reduce:animate-none drop-shadow-[0_12px_14px_rgba(168,80,16,0.28)]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo_alpha_icon.png" alt="draep" className="block h-[48px] w-auto" />
+            </span>
+            <h2 className="mt-4 font-heading text-h3 text-ink-navy">
+              {strings.dashboard.profileTitle}
+            </h2>
+            <p className="mt-0.5 font-heading text-body text-accent-text">
+              {strings.dashboard.profileBody}
+            </p>
+          </div>
+
+          <div className="p-4">
+            <label htmlFor="dash-name" className="text-caption text-muted">
+              {strings.dashboard.nameLabel}
+            </label>
+            <input
+              id="dash-name"
+              autoComplete="name"
+              maxLength={160}
+              value={profileName}
+              onChange={(e) => setProfileName(e.target.value.slice(0, 160))}
+              placeholder={strings.dashboard.namePlaceholder}
+              className="mt-1 min-h-[44px] w-full rounded-card border-[1.5px] border-hairline bg-chalk-white px-3 py-2.5 font-heading text-body text-ink-navy placeholder:text-muted focus:border-navy-interactive focus:outline-none"
+            />
+
+            <p aria-hidden className="mt-4 text-caption text-muted">
+              {strings.dashboard.genderLabel}
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-2" role="group" aria-label={strings.dashboard.genderLabel}>
+              {GENDER_OPTIONS.map((option) => (
+                <Chip
+                  key={option.value}
+                  selected={profileGender === option.value}
+                  onClick={() => setProfileGender(option.value)}
+                  ariaLabel={option.label}
+                >
+                  {option.label}
+                </Chip>
+              ))}
+            </div>
+
+            <Button
+              fullWidth
+              className="mt-4"
+              loading={profileBusy}
+              disabled={!profileName.trim() || !profileGender}
+              onClick={() => void handleSaveProfile()}
+            >
+              {strings.dashboard.profileSubmit}
+            </Button>
+
+            {profileError && (
+              <Banner variant="error" className="mt-3">
+                <p className="text-caption">{profileError}</p>
+              </Banner>
+            )}
+          </div>
+        </section>
+      )}
+
+      {isLoggedIn && !needsProfile && (
         <>
           {/* Active draft banner */}
           {activeOrderId && (
