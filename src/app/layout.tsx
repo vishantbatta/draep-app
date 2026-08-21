@@ -47,9 +47,13 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
-    icon: [{ url: "/logo_alpha_icon.png", type: "image/png", sizes: "560x606" }],
-    shortcut: [{ url: "/logo_alpha_icon.png", type: "image/png" }],
-    apple: [{ url: "/logo_alpha_icon.png" }],
+    // Square renders of logo_alpha_icon.png (public/icons/) — iOS requires a
+    // square apple-touch-icon and squashes/letterboxes non-square ones.
+    icon: [
+      { url: "/icons/icon-192x192.png", type: "image/png", sizes: "192x192" },
+    ],
+    shortcut: [{ url: "/icons/icon-192x192.png", type: "image/png" }],
+    apple: [{ url: "/icons/icon-512x512.png" }],
   },
 };
 

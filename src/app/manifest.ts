@@ -16,16 +16,26 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#FDFBF7",
     theme_color: "#083068",
     categories: ["shopping", "lifestyle"],
+    // Chrome only fires beforeinstallprompt (→ install popup) when the manifest
+    // has a SQUARE PNG icon ≥144px with purpose "any". logo_alpha_icon.png is
+    // 560x606 (non-square), so these are square renders of it: transparent
+    // padding for "any", ink-navy fill for "maskable" (launcher crop safe zone).
     icons: [
       {
-        src: "/logo_alpha_icon.png",
-        sizes: "560x606",
+        src: "/icons/icon-192x192.png",
+        sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/logo_alpha_icon.png",
-        sizes: "560x606",
+        src: "/icons/icon-512x512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/icons/maskable-512x512.png",
+        sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
       },
