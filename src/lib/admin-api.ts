@@ -1517,6 +1517,70 @@ export async function fetchJobReadings(jobId: string): Promise<MeasurementReadin
   return rows;
 }
 
+// ─── Admin job checklist (resolver output + saved readings) ─────────────────
+
+/** A saved reading attached to a checklist metric (null = not captured). */
+export interface ChecklistReading {
+  id: string;
+  value_numeric: number | null;
+  value_text: string | null;
+  unit: string | null;
+  captured_at: string | null;
+}
+
+/** One metric on the checklist — expected fields + the saved reading. */
+export interface ChecklistMetric {
+  id: string; // measurement metric id
+  code: string | null;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  descriptions: Record<string, string> | null;
+  unit: string | null;
+  is_required: boolean;
+  priority_order: number | null;
+  /** Which garments/selections pulled a per_job metric into the visit. */
+  required_by?: { garment_order_id: string; entity_labels: string[] }[];
+  /** Saved reading for this scope (base or this garment), if any. */
+  reading?: ChecklistReading | null;
+  /** True when the reading exists but the resolver no longer expects it. */
+  extra?: boolean;
+}
+
+/** A per-garment section — metrics grouped by the owning entity. */
+export interface ChecklistSection {
+  entity: { type: string; id: string | null; label: string };
+  metrics: ChecklistMetric[];
+}
+
+/** One garment instance on the checklist with its per-garment sections. */
+export interface ChecklistGarment {
+  garment_order_id: string;
+  garment_id: string | null;
+  label: string;
+  status?: string | null;
+  sections: ChecklistSection[];
+}
+
+/** Full checklist for a job: base (per-visit) metrics + per-garment sections,
+ *  each metric carrying its saved reading. Mirrors the style-captain capture
+ *  resolver, exposed for the admin order page. */
+export interface AdminJobChecklist {
+  job_id: string;
+  order_id: string | null;
+  job_status: string | null;
+  base: ChecklistMetric[];
+  garments: ChecklistGarment[];
+}
+
+/** Fetch the resolved checklist for a job with saved readings attached. */
+export async function fetchAdminJobChecklist(
+  jobId: string,
+): Promise<AdminJobChecklist> {
+  return adminFetch<AdminJobChecklist>(
+    `/admin/measurement-jobs/${jobId}/checklist`,
+  );
+}
+
 /** A garment order row (the per-order instance of a garment). */
 export interface GarmentOrderInstanceRow {
   id: string;

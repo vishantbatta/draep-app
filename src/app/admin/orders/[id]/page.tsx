@@ -63,6 +63,7 @@ import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
 import { GarmentSelectionSheet } from "@/components/admin/GarmentSelectionSheet";
 import { BottomSheet as ScSheet } from "@/components/style-captain/BottomSheet";
 import { GarmentOrderAssets } from "./GarmentOrderAssets";
+import { MeasurementsSheet } from "./MeasurementsSheet";
 import {
   DesignFromImage,
   aiResultToGarmentOrderItems,
@@ -873,18 +874,13 @@ export default function OrderDetailPage() {
     () => new Set(),
   );
 
-  // ── Manage-Measurements override state ─────────────────────────────────────
-  // Per-job editable measurement map: keyed by jobId → metricId → draft value
+  // ── Manage-Measurements sheets ─────────────────────────────────────────────
+  // One sheet component serves both entry points: the per-job "Manage
+  // Measurements" button (body + every garment) and the per-garment
+  // "Measurements" button on a garment order card (that garment only).
   const [measurementsJobId, setMeasurementsJobId] = useState<string | null>(null);
-  const [metricCatalog, setMetricCatalog] = useState<MeasurementMetricRow[]>([]);
-  const [jobReadings, setJobReadings] = useState<MeasurementReadingRow[]>([]);
-  // Draft readings: metricId → draft (we edit a local copy and Save commits)
-  const [draftReadings, setDraftReadings] = useState<
-    Map<string, { value_numeric: string; value_text: string; unit: string; rowId?: string }>
-  >(new Map());
-  const [metricsLoading, setMetricsLoading] = useState(false);
-  const [savingMeasurements, setSavingMeasurements] = useState(false);
-  const [newMetricId, setNewMetricId] = useState("");
+  // garment-scoped sheet target — reads/writes go to the order's latest job.
+  const [goMeasurements, setGoMeasurements] = useState<string | null>(null);
 
   // ── Inline reschedule state (per-job collapsible slot picker) ───────────────
   const [rescheduleJobId, setRescheduleJobId] = useState<string | null>(null);
@@ -1872,52 +1868,25 @@ export default function OrderDetailPage() {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // ADMIN MEASUREMENT OVERRIDE — open / save inline-editable grid
+  // ADMIN MEASUREMENT SHEETS — open handlers
   // ──────────────────────────────────────────────────────────────────────────
 
-  /** Open the measurements override panel for a specific job. Loads the
-   *  metric catalog and the job's existing readings, then seeds the draft. */
-  async function openMeasurements(jobId: string) {
+  function openMeasurements(jobId: string) {
     setMeasurementsJobId(jobId);
-    setMetricsLoading(true);
-    setDraftReadings(new Map());
-    try {
-      const [metricsList, readingsList] = await Promise.all([
-        metricCatalog.length > 0
-          ? Promise.resolve(metricCatalog)
-          : fetchMeasurementMetrics(),
-        fetchJobReadings(jobId),
-      ]);
-      if (metricCatalog.length === 0) setMetricCatalog(metricsList);
-      setJobReadings(readingsList);
-
-      // Seed draft from existing readings
-      const draft = new Map<
-        string,
-        { value_numeric: string; value_text: string; unit: string; rowId?: string }
-      >();
-      for (const r of readingsList) {
-        if (!r.measurement_metric_id) continue;
-        draft.set(r.measurement_metric_id, {
-          value_numeric: r.value_numeric !== null ? String(r.value_numeric) : "",
-          value_text: r.value_text ?? "",
-          unit: r.unit ?? "",
-          rowId: r.id,
-        });
-      }
-      setDraftReadings(draft);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to load measurements");
-    } finally {
-      setMetricsLoading(false);
-    }
   }
 
   function closeMeasurements() {
     setMeasurementsJobId(null);
-    setDraftReadings(new Map());
-    setNewMetricId("");
   }
+
+  /** Latest job for the order — the write target for the garment-scoped
+   *  "Measurements" button (readings always belong to a job). */
+  const latestJobId =
+    jobs.length > 0
+      ? [...jobs].sort((a, b) =>
+          (b.created_at ?? "").localeCompare(a.created_at ?? ""),
+        )[0].id
+      : null;
 
   // ── Inline reschedule helpers ──────────────────────────────────────────────
   function openReschedule(jobId: string, scheduledAt: string | null) {
@@ -1962,151 +1931,6 @@ export default function OrderDetailPage() {
     const iso = draft?.slot?.start_at ?? null;
     await handleUpdateJob(jobId, { scheduled_at: iso });
     setRescheduleJobId(null);
-  }
-
-  function setDraftField(
-    metricId: string,
-    field: "value_numeric" | "value_text" | "unit",
-    value: string,
-  ) {
-    setDraftReadings((prev) => {
-      const next = new Map(prev);
-      const cur =
-        next.get(metricId) ??
-        { value_numeric: "", value_text: "", unit: "" };
-      next.set(metricId, { ...cur, [field]: value });
-      return next;
-    });
-  }
-
-  function addMetricToDraft(metricId: string) {
-    if (!metricId) return;
-    setDraftReadings((prev) => {
-      const next = new Map(prev);
-      if (!next.has(metricId)) {
-        next.set(metricId, { value_numeric: "", value_text: "", unit: "" });
-      }
-      return next;
-    });
-    setNewMetricId("");
-  }
-
-  function removeMetricFromDraft(metricId: string) {
-    setDraftReadings((prev) => {
-      const next = new Map(prev);
-      next.delete(metricId);
-      return next;
-    });
-  }
-
-  /** Persist all draft readings to the `measurements` table via the generic
-   *  CRUD API. Creates new rows, updates existing ones, and deletes rows
-   *  that were removed from the draft. */
-  async function saveMeasurements() {
-    if (!measurementsJobId) return;
-    setSavingMeasurements(true);
-    try {
-      const jobId = measurementsJobId;
-      // Index existing readings by metric id for diff
-      const existingByMetric = new Map(
-        jobReadings
-          .filter((r) => r.measurement_metric_id)
-          .map((r) => [r.measurement_metric_id as string, r]),
-      );
-
-      // 1. Upsert all draft rows
-      type UpsertResult = {
-        metricId: string;
-        created?: boolean;
-        updated?: boolean;
-        deleted?: boolean;
-      };
-      const upserts: Promise<UpsertResult | null>[] = Array.from(
-        draftReadings.entries(),
-      ).map(async ([metricId, draft]) => {
-        const trimmedNum = draft.value_numeric.trim();
-        const trimmedText = draft.value_text.trim();
-        // Enforce exactly-one-value rule (BE CHECK constraint)
-        const valueNumeric = trimmedNum === "" ? null : Number(trimmedNum);
-        const valueText = trimmedText === "" ? null : trimmedText;
-        // Skip if both empty and no existing row — nothing to write
-        if (valueNumeric === null && valueText === null && !draft.rowId) {
-          return null;
-        }
-        // If both are now null but there IS an existing row → delete it
-        if (valueNumeric === null && valueText === null && draft.rowId) {
-          await deleteTableRow("measurements", draft.rowId);
-          return { metricId, deleted: true as const };
-        }
-        if (valueNumeric === null && valueText === null) return null;
-
-        const payload: Record<string, unknown> = {
-          measurement_job_id: jobId,
-          measurement_metric_id: metricId,
-          value_numeric: valueNumeric,
-          value_text: valueText,
-          unit: draft.unit.trim() || null,
-          captured_at: new Date().toISOString(),
-        };
-
-        if (draft.rowId) {
-          await updateTableRow("measurements", draft.rowId, payload);
-          return { metricId, updated: true as const };
-        } else {
-          await createTableRow("measurements", payload);
-          return { metricId, created: true as const };
-        }
-      });
-      const results = (await Promise.all(upserts)).filter(
-        (r): r is UpsertResult => r !== null,
-      );
-
-      // 2. Delete rows for metrics that were in jobReadings but no longer
-      //    in draftReadings (i.e. the admin removed them)
-      const removedMetrics = Array.from(existingByMetric.entries()).filter(
-        ([mId]) => !draftReadings.has(mId),
-      );
-      await Promise.all(
-        removedMetrics.map(async ([, r]) => {
-          await deleteTableRow("measurements", r.id);
-        }),
-      );
-
-      // 3. Reload job readings + refresh draft
-      const fresh = await fetchJobReadings(jobId);
-      setJobReadings(fresh);
-      const redrafted = new Map<
-        string,
-        { value_numeric: string; value_text: string; unit: string; rowId?: string }
-      >();
-      for (const r of fresh) {
-        if (!r.measurement_metric_id) continue;
-        redrafted.set(r.measurement_metric_id, {
-          value_numeric: r.value_numeric !== null ? String(r.value_numeric) : "",
-          value_text: r.value_text ?? "",
-          unit: r.unit ?? "",
-          rowId: r.id,
-        });
-      }
-      setDraftReadings(redrafted);
-
-      const createdCount = results.filter((r) => r.created).length;
-      const updatedCount = results.filter((r) => r.updated).length;
-      const deletedCount =
-        results.filter((r) => r.deleted).length + removedMetrics.length;
-      const summary = [
-        createdCount > 0 && `${createdCount} created`,
-        updatedCount > 0 && `${updatedCount} updated`,
-        deletedCount > 0 && `${deletedCount} deleted`,
-      ]
-        .filter(Boolean)
-        .join(", ");
-      flash(summary ? `Measurements saved (${summary})` : "No changes");
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to save measurements");
-    } finally {
-      setSavingMeasurements(false);
-    }
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -2758,6 +2582,18 @@ export default function OrderDetailPage() {
                     >
                       {editingGOId === go.id ? "Close selections" : "Edit selections"}
                     </button>
+                    <button
+                      onClick={() => setGoMeasurements(go.id)}
+                      disabled={!latestJobId}
+                      title={
+                        latestJobId
+                          ? "View / edit this garment's measurements (order's latest measurement job)"
+                          : "No measurement job exists for this order yet"
+                      }
+                      className="tap rounded-pill border border-hairline-strong bg-chalk-white px-3.5 py-2 text-xs font-semibold text-ink-navy transition hover:bg-mist-navy/40 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Measurements
+                    </button>
                     {aiPrefill && (
                       <span
                         title="AI reference applied — review the picks in the sheet's Manual select tab"
@@ -3004,205 +2840,31 @@ export default function OrderDetailPage() {
                   </div>
                 )}
 
-                {/* ── Admin measurement override — bottom sheet (same UX as
-                    the design-selection sheet; the overlay is fixed, so its
-                    position in this map is visually irrelevant) ───────── */}
-                {measurementsJobId === job.id && (
-                  <ScSheet
-                    title="Admin Measurement Override"
-                    onClose={closeMeasurements}
-                  >
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                        Admin Measurement Override
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={saveMeasurements}
-                          disabled={
-                            savingMeasurements || metricsLoading
-                          }
-                          className="rounded-md bg-green-700 px-3 py-1 text-xs font-medium text-white transition hover:bg-green-800 disabled:opacity-50"
-                        >
-                          {savingMeasurements ? "Saving…" : "Save"}
-                        </button>
-                        <button
-                          onClick={closeMeasurements}
-                          className="rounded-md border border-hairline-strong px-3 py-1 text-xs text-muted hover:bg-mist-navy"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-muted">
-                      Exactly one of <code>value_numeric</code> or{" "}
-                      <code>value_text</code> must be set per row (DB CHECK
-                      constraint). Blank both to delete.
-                    </div>
-
-                    {metricsLoading ? (
-                      <div className="py-3 text-xs text-muted">
-                        Loading metrics…
-                      </div>
-                    ) : metricCatalog.length === 0 ? (
-                      <div className="py-3 text-xs text-muted">
-                        No measurement metrics found in catalog.
-                      </div>
-                    ) : (
-                      <>
-                        {/* Draft grid */}
-                        <div className="mt-2 overflow-x-auto">
-                          <table className="w-full min-w-[600px] text-left text-xs">
-                            <thead>
-                              <tr className="border-b border-hairline text-[10px] uppercase tracking-wide text-muted">
-                                <th className="py-2 pr-2 font-medium">Metric</th>
-                                <th className="py-2 pr-2 font-medium">Numeric</th>
-                                <th className="py-2 pr-2 font-medium">Text</th>
-                                <th className="py-2 pr-2 font-medium">Unit</th>
-                                <th className="py-2"></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {Array.from(draftReadings.entries()).map(
-                                ([metricId, draft]) => {
-                                  const metric = metricCatalog.find(
-                                    (m) => m.id === metricId,
-                                  );
-                                  const label =
-                                    metric?.labels?.en ??
-                                    metric?.code ??
-                                    truncateId(metricId);
-                                  return (
-                                    <tr
-                                      key={metricId}
-                                      className="border-b border-hairline last:border-0"
-                                    >
-                                      <td className="py-2 pr-2 text-ink">
-                                        {label}
-                                      </td>
-                                      <td className="py-2 pr-2">
-                                        <input
-                                          type="number"
-                                          step="any"
-                                          value={draft.value_numeric}
-                                          onChange={(e) =>
-                                            setDraftField(
-                                              metricId,
-                                              "value_numeric",
-                                              e.target.value,
-                                            )
-                                          }
-                                          className="w-24 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-xs focus:border-ink-navy focus:outline-none"
-                                        />
-                                      </td>
-                                      <td className="py-2 pr-2">
-                                        <input
-                                          type="text"
-                                          value={draft.value_text}
-                                          onChange={(e) =>
-                                            setDraftField(
-                                              metricId,
-                                              "value_text",
-                                              e.target.value,
-                                            )
-                                          }
-                                          className="w-32 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-xs focus:border-ink-navy focus:outline-none"
-                                        />
-                                      </td>
-                                      <td className="py-2 pr-2">
-                                        <input
-                                          type="text"
-                                          value={draft.unit}
-                                          onChange={(e) =>
-                                            setDraftField(
-                                              metricId,
-                                              "unit",
-                                              e.target.value,
-                                            )
-                                          }
-                                          className="w-16 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-xs focus:border-ink-navy focus:outline-none"
-                                        />
-                                      </td>
-                                      <td className="py-2">
-                                        <button
-                                          onClick={() =>
-                                            removeMetricFromDraft(metricId)
-                                          }
-                                          title="Remove"
-                                          className="flex h-6 w-6 items-center justify-center rounded text-red-500 transition hover:bg-red-50"
-                                        >
-                                          <svg
-                                            className="h-3.5 w-3.5"
-                                            viewBox="0 0 16 16"
-                                            fill="none"
-                                          >
-                                            <path
-                                              d="M3 5h10M6 5V3.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V5M5 5l.5 8a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1l.5-8"
-                                              stroke="currentColor"
-                                              strokeWidth="1.3"
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                            />
-                                          </svg>
-                                        </button>
-                                      </td>
-                                    </tr>
-                                  );
-                                },
-                              )}
-                              {draftReadings.size === 0 && (
-                                <tr>
-                                  <td
-                                    colSpan={5}
-                                    className="py-3 text-center text-muted"
-                                  >
-                                    No metrics yet — add one below.
-                                  </td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Add metric row */}
-                        <div className="mt-2 flex items-center gap-2">
-                          <select
-                            value={newMetricId}
-                            onChange={(e) => setNewMetricId(e.target.value)}
-                            className="flex-1 rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-xs focus:border-ink-navy focus:outline-none"
-                          >
-                            <option value="">— Add metric to override —</option>
-                            {metricCatalog
-                              .filter(
-                                (m) =>
-                                  !draftReadings.has(m.id) &&
-                                  !jobReadings.some(
-                                    (r) => r.measurement_metric_id === m.id,
-                                  ),
-                              )
-                              .map((m) => (
-                                <option key={m.id} value={m.id}>
-                                  {m.labels?.en ?? m.code ?? truncateId(m.id)}
-                                </option>
-                              ))}
-                          </select>
-                          <button
-                            onClick={() => addMetricToDraft(newMetricId)}
-                            disabled={!newMetricId}
-                            className="rounded-md bg-ink-navy px-3 py-1 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
-                          >
-                            + Add
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </ScSheet>
-                )}
+                {/* Admin measurement editor lives at the end of the
+                    page tree (fixed overlay) — MeasurementsSheet instance. */}
               </div>
             ))}
           </div>
         )}
       </section>
+
+      {/* ── Measurement editor sheets (fixed overlays) ─────────────────────
+          One per entry point: the job's "Manage Measurements" button (body
+          + every garment) and the garment card's "Measurements" button
+          (that garment only, reading/writing the order's latest job). */}
+      <MeasurementsSheet
+        open={!!measurementsJobId}
+        jobId={measurementsJobId ?? ""}
+        onClose={closeMeasurements}
+        onSaved={(msg) => flash(msg)}
+      />
+      <MeasurementsSheet
+        open={!!goMeasurements && !!latestJobId}
+        jobId={latestJobId ?? ""}
+        garmentOrderId={goMeasurements}
+        onClose={() => setGoMeasurements(null)}
+        onSaved={(msg) => flash(msg)}
+      />
 
       {/* ─── Price Breakdown ──────────────────────────────────────────────
           Both cards derive their totals ADDITIVELY from the visible lines so
