@@ -402,7 +402,7 @@ export function GarmentOrderAssets({
               />
             </svg>
             <div className="text-center text-xs text-muted">
-              Painting the design from this garment's selections…
+              Painting the design from this garment&apos;s selections…
               <div className="mt-0.5 text-[10px] opacity-70">
                 ~15-30s · every selection is included in the prompt
               </div>
