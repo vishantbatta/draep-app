@@ -60,7 +60,6 @@ import {
   type StyleSelectionGroup,
 } from "@/lib/job-pdf";
 import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
-import { buildUpiPayUrl, UPI_VPA } from "@/lib/upi";
 import { GarmentSelectionSheet } from "@/components/admin/GarmentSelectionSheet";
 import { BottomSheet as ScSheet } from "@/components/style-captain/BottomSheet";
 import { GarmentOrderAssets } from "./GarmentOrderAssets";
@@ -304,6 +303,236 @@ function formatDate(v: string | null | undefined): string {
 
 function truncateId(id: string): string {
   return id.slice(0, 8);
+}
+
+// ─── Quote image — shareable PNG of the full price breakdown ─────────────────
+
+const QUOTE_NAVY = "#083068";
+const QUOTE_MUTED = "rgba(8, 48, 104, 0.55)";
+const QUOTE_HAIRLINE = "rgba(8, 48, 104, 0.15)";
+const QUOTE_TAPE = "#F89010";
+const QUOTE_TAPE_DARK = "#A85010";
+
+interface QuoteLine {
+  label: string;
+  amount: number; // signed rupees (discounts negative)
+}
+interface QuoteGarment {
+  label: string;
+  total: number;
+  lines: QuoteLine[];
+}
+
+/** Draw a simple customer-shareable quote: one block per garment with its
+ *  priced lines, order-level adjustments, and the grand total. Rendered at
+ *  2× scale for crisp text. Returns a PNG blob for clipboard copy/download. */
+async function renderQuoteImage(input: {
+  orderNumber: string;
+  dateText: string;
+  garments: QuoteGarment[];
+  orderAdjustments: QuoteLine[];
+  total: number;
+  paid: number;
+  balanceDue: number;
+}): Promise<Blob> {
+  const W = 760;
+  const PAD = 44;
+  const SANS = '"Poppins","Inter",system-ui,sans-serif';
+  const MONO = '"IBM Plex Mono",ui-monospace,Menlo,monospace';
+  const money = (v: number) => (v < 0 ? "−" : "") + formatPrice(Math.abs(v));
+
+  // Wait for next/font webfonts so the canvas uses the brand faces (canvas
+  // silently falls back to system fonts if they aren't ready).
+  try {
+    await document.fonts.ready;
+  } catch {
+    // older engines — system fonts are fine
+  }
+
+  const measure = document.createElement("canvas").getContext("2d")!;
+  function fit(text: string, font: string, max: number): string {
+    measure.font = font;
+    if (measure.measureText(text).width <= max) return text;
+    let t = text;
+    while (t.length > 1 && measure.measureText(t + "…").width > max) {
+      t = t.slice(0, -1);
+    }
+    return t + "…";
+  }
+
+  type Row =
+    | { k: "garment"; label: string; price: string }
+    | { k: "line"; label: string; price: string }
+    | { k: "sect"; label: string }
+    | { k: "divider" }
+    | { k: "total"; label: string; price: string }
+    | { k: "sub"; label: string; price: string; strong?: boolean };
+
+  const rows: Row[] = [];
+  input.garments.forEach((g, i) => {
+    if (i > 0) rows.push({ k: "divider" });
+    rows.push({ k: "garment", label: g.label, price: money(g.total) });
+    for (const ln of g.lines) {
+      rows.push({ k: "line", label: ln.label, price: money(ln.amount) });
+    }
+  });
+  if (input.orderAdjustments.length > 0) {
+    rows.push({ k: "divider" });
+    rows.push({ k: "sect", label: "Order adjustments" });
+    for (const ln of input.orderAdjustments) {
+      rows.push({ k: "line", label: ln.label, price: money(ln.amount) });
+    }
+  }
+  rows.push({ k: "total", label: "Total", price: money(input.total) });
+  if (input.paid > 0) {
+    rows.push({ k: "sub", label: "Paid", price: "− " + money(input.paid) });
+    rows.push({
+      k: "sub",
+      label: "Balance due",
+      price: money(input.balanceDue),
+      strong: true,
+    });
+  }
+
+  const ROW_H: Record<Row["k"], number> = {
+    garment: 36,
+    line: 26,
+    sect: 34,
+    divider: 30,
+    total: 64,
+    sub: 30,
+  };
+  const HEADER_H = 118;
+  const FOOTER_H = 48;
+  const H =
+    HEADER_H + rows.reduce((s, r) => s + ROW_H[r.k], 0) + FOOTER_H;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W * 2;
+  canvas.height = H * 2;
+  const ctx = canvas.getContext("2d")!;
+  ctx.scale(2, 2);
+
+  // Card background
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, W, H);
+
+  // Header — wordmark left, order number + date right
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = QUOTE_NAVY;
+  ctx.font = `700 30px ${SANS}`;
+  ctx.fillText("DRAEP", PAD, 56);
+  ctx.fillStyle = QUOTE_MUTED;
+  ctx.font = `400 13px ${SANS}`;
+  ctx.fillText("Price quote", PAD, 76);
+
+  ctx.textAlign = "right";
+  ctx.fillStyle = QUOTE_NAVY;
+  ctx.font = `600 13px ${MONO}`;
+  ctx.fillText(input.orderNumber, W - PAD, 52);
+  ctx.fillStyle = QUOTE_MUTED;
+  ctx.font = `400 12px ${SANS}`;
+  ctx.fillText(input.dateText, W - PAD, 70);
+  ctx.textAlign = "left";
+
+  ctx.strokeStyle = QUOTE_HAIRLINE;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD, HEADER_H - 22);
+  ctx.lineTo(W - PAD, HEADER_H - 22);
+  ctx.stroke();
+
+  const PRICE_X = W - PAD;
+  const LABEL_MAX = W - PAD * 2 - 150;
+  let y = HEADER_H;
+  for (const r of rows) {
+    if (r.k === "divider") {
+      y += 8;
+      ctx.strokeStyle = QUOTE_HAIRLINE;
+      ctx.beginPath();
+      ctx.moveTo(PAD, y);
+      ctx.lineTo(W - PAD, y);
+      ctx.stroke();
+      y += ROW_H.divider - 8;
+      continue;
+    }
+    if (r.k === "total") {
+      // Tape-gradient accent rule above the grand total (Brand Book: the
+      // tape gradient is reserved for the grand-total accent only).
+      const grad = ctx.createLinearGradient(PAD, 0, W - PAD, 0);
+      grad.addColorStop(0, QUOTE_TAPE);
+      grad.addColorStop(1, QUOTE_TAPE_DARK);
+      ctx.fillStyle = grad;
+      ctx.fillRect(PAD, y + 8, W - PAD * 2, 3);
+      ctx.fillStyle = QUOTE_NAVY;
+      ctx.font = `700 18px ${SANS}`;
+      ctx.textAlign = "left";
+      ctx.fillText(r.label, PAD, y + 40);
+      ctx.font = `700 22px ${MONO}`;
+      ctx.textAlign = "right";
+      ctx.fillText(r.price, PRICE_X, y + 41);
+      ctx.textAlign = "left";
+      y += ROW_H.total;
+      continue;
+    }
+    if (r.k === "garment") {
+      ctx.fillStyle = QUOTE_NAVY;
+      ctx.font = `600 17px ${SANS}`;
+      ctx.fillText(fit(r.label, `600 17px ${SANS}`, LABEL_MAX), PAD, y - 8);
+      ctx.font = `600 17px ${MONO}`;
+      ctx.textAlign = "right";
+      ctx.fillText(r.price, PRICE_X, y - 8);
+      ctx.textAlign = "left";
+      y += ROW_H.garment;
+      continue;
+    }
+    if (r.k === "sect") {
+      ctx.fillStyle = QUOTE_MUTED;
+      ctx.font = `600 11px ${SANS}`;
+      ctx.fillText(r.label.toUpperCase(), PAD, y - 8);
+      y += ROW_H.sect;
+      continue;
+    }
+    // "line" | "sub"
+    const sub = r.k === "sub" ? r : null;
+    ctx.fillStyle = sub?.strong ? QUOTE_NAVY : QUOTE_MUTED;
+    const font = sub
+      ? `${sub.strong ? "600 15px" : "400 14px"} ${SANS}`
+      : `400 13.5px ${SANS}`;
+    ctx.font = font;
+    ctx.fillText(fit(r.label, font, LABEL_MAX), PAD + 14, y - 8);
+    ctx.fillStyle = QUOTE_NAVY;
+    ctx.font = sub
+      ? `${sub.strong ? "600 15px" : "400 14px"} ${MONO}`
+      : `400 13.5px ${MONO}`;
+    ctx.textAlign = "right";
+    ctx.fillText(r.price, PRICE_X, y - 8);
+    ctx.textAlign = "left";
+    y += sub ? ROW_H.sub : ROW_H.line;
+  }
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("Could not encode PNG"))),
+      "image/png",
+    );
+  });
+}
+
+/** Copy a PNG blob to the clipboard; resolves false when the browser
+ *  doesn't support image clipboard writes (caller should download instead). */
+async function copyPngToClipboard(blob: Blob): Promise<boolean> {
+  try {
+    if (!navigator.clipboard || typeof ClipboardItem === "undefined") {
+      return false;
+    }
+    await navigator.clipboard.write([
+      new ClipboardItem({ "image/png": blob }),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Resolve a captain's display name from the loaded captains list by id. */
@@ -624,12 +853,8 @@ export default function OrderDetailPage() {
   const [pdfProgress, setPdfProgress] = useState<string | null>(null);
   // ── Invoice generation state (single client-side PDF, tax-inclusive total) ─
   const [invoiceLoading, setInvoiceLoading] = useState(false);
-  // UPI payment QR sheet (same link the invoice QR carries).
-  const [upiQrOpen, setUpiQrOpen] = useState(false);
-  const [upiQrBusy, setUpiQrBusy] = useState(false);
-  const [upiQrImg, setUpiQrImg] = useState<string | null>(null);
-  const [upiQrUrl, setUpiQrUrl] = useState<string | null>(null);
-  const [upiQrAmount, setUpiQrAmount] = useState<number>(0);
+  // Copy-quote image builder (canvas render + clipboard write).
+  const [quoteBusy, setQuoteBusy] = useState(false);
   // Customization sheet (section toggles). Defaults to all-on so the first
   // download matches the pre-customization report; the user turns OFF what
   // they don't want. `pdfSheetOpen` gates the bottom sheet itself.
@@ -758,7 +983,22 @@ export default function OrderDetailPage() {
         fetchTransactionsForOrder(orderId),
         fetchOrderAdjustments(orderId),
       ]);
+      // Items must land in the SAME render as their garment orders: the
+      // selections sheet seeds once from them on open, so a card that
+      // renders before its items exist seeds catalog defaults — and a
+      // "Save changes" would overwrite the real rows. Per-GO catch keeps
+      // one failed fetch from blocking the rest (that GO just reads empty).
+      const itemEntries = await Promise.all(
+        gos.map(async (go) => {
+          try {
+            return [go.id, await fetchGarmentOrderItems(go.id)] as const;
+          } catch {
+            return [go.id, [] as GarmentOrderItemRow[]] as const;
+          }
+        }),
+      );
       setGarmentOrders(gos);
+      setItemsByGO(new Map(itemEntries)); // batched with the line above
       setJobs(mj);
       setTransactions(tx);
       setAdjustments(adj);
@@ -774,10 +1014,11 @@ export default function OrderDetailPage() {
   }, [loadAll]);
 
   // ── Load items for garment orders ──────────────────────────────────────────
-  // Items are needed both when a GO is expanded (its item table) AND in the
-  // Price Breakdown section, which renders every GO's items. So fetch eagerly
-  // for ALL garment orders once they're loaded — not only expanded ones — so
-  // the breakdown never sits on "Loading items…".
+  // Backstop only: loadAll() now fetches every GO's items in the same render
+  // batch as the GOs themselves, and handleCreateGarmentOrder seeds new GOs
+  // with []. This fills in any GO that still reaches state without items
+  // (e.g. a future path adding rows directly), so the breakdown and the
+  // selections sheet never sit on missing data.
   useEffect(() => {
     for (const go of garmentOrders) {
       if (!itemsByGO.has(go.id)) {
@@ -958,6 +1199,14 @@ export default function OrderDetailPage() {
         status: "pending",
       });
       setGarmentOrders((prev) => [created, ...prev]);
+      // A brand-new GO has no saved items — seed the empty list so the
+      // auto-opened sheet reads as "loaded" (defaults are the correct seed
+      // here) rather than triggering the still-loading gate below.
+      setItemsByGO((prev) => {
+        const next = new Map(prev);
+        next.set(created.id, []);
+        return next;
+      });
       // Auto-open the selections sheet so the admin can style the garment
       setEditingGOId(created.id);
       // reset form
@@ -1551,32 +1800,74 @@ export default function OrderDetailPage() {
     }
   }
 
-  /** Show a UPI payment QR for the outstanding balance (falls back to the
-   *  grand total when already paid) — the same link embedded in the invoice
-   *  PDF's QR, so a customer can scan and pay from either. */
-  async function handleShowUpiQr() {
-    if (!order) return;
-    setUpiQrOpen(true);
-    setUpiQrBusy(true);
+  /** Copy the full price breakdown (every garment + adjustments + total) as a
+   *  simple PNG image — for pasting straight into WhatsApp/email. Falls back
+   *  to downloading the PNG when the browser blocks image clipboard writes. */
+  async function handleCopyQuote() {
+    if (!order || quoteBusy) return;
+    setQuoteBusy(true);
     try {
-      const due = computeBalanceDue(transactions, liveTotal);
-      const amount = due > 0.5 ? due : liveTotal;
-      const url = buildUpiPayUrl(amount, order.order_number ?? truncateId(order.id));
-      setUpiQrUrl(url);
-      setUpiQrAmount(amount);
-      const { toDataURL } = await import("qrcode");
-      setUpiQrImg(
-        await toDataURL(url, {
-          margin: 1,
-          width: 480,
-          errorCorrectionLevel: "M",
+      const garments: QuoteGarment[] = garmentOrders.map((go) => ({
+        label: garmentDisplayLabel(go.garment_id),
+        total: effectiveGarmentTotal(
+          go,
+          itemsByGO.get(go.id),
+          garmentMap.get(go.garment_id)?.base_price ?? null,
+          adjustments,
+        ),
+        lines: [
+          ...buildGarmentBreakdown(
+            go,
+            itemsByGO.get(go.id),
+            garmentMap.get(go.garment_id)?.base_price ?? null,
+          ).map((ln) => ({ label: ln.label, amount: ln.amount })),
+          ...adjustments
+            .filter((a) => a.garment_order_id === go.id)
+            .map((a) => ({
+              label: `${a.type === "discount" ? "Discount" : "Fee"}: ${adjustmentLabel(a.label)}`,
+              amount: a.amount ?? 0,
+            })),
+        ],
+      }));
+      const orderAdjustments = adjustments
+        .filter((a) => a.garment_order_id === null)
+        .map((a) => ({
+          label: `${a.type === "discount" ? "Discount" : "Fee"}: ${adjustmentLabel(a.label)}`,
+          amount: a.amount ?? 0,
+        }));
+      const paid = transactions
+        .filter((t) => t.type === "payment" && t.status === "captured")
+        .reduce((s, t) => s + (t.amount ?? 0), 0);
+
+      const blob = await renderQuoteImage({
+        orderNumber: order.order_number ?? `#${truncateId(order.id)}`,
+        dateText: new Date().toLocaleDateString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
         }),
-      );
+        garments,
+        orderAdjustments,
+        total: liveTotal,
+        paid,
+        balanceDue: computeBalanceDue(transactions, liveTotal),
+      });
+
+      if (await copyPngToClipboard(blob)) {
+        flash("Quote image copied — paste it anywhere");
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `quote-${order.order_number ?? truncateId(order.id)}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+      flash("Clipboard blocked — quote image downloaded instead");
     } catch (e) {
-      setUpiQrOpen(false);
-      alert(e instanceof Error ? e.message : "Failed to build UPI QR");
+      alert(e instanceof Error ? e.message : "Failed to build quote image");
     } finally {
-      setUpiQrBusy(false);
+      setQuoteBusy(false);
     }
   }
 
@@ -2453,7 +2744,13 @@ export default function OrderDetailPage() {
                       onClick={() =>
                         setEditingGOId((cur) => (cur === go.id ? null : go.id))
                       }
-                      className={`tap rounded-pill px-3.5 py-2 text-xs font-semibold transition ${
+                      disabled={items === undefined}
+                      title={
+                        items === undefined
+                          ? "Saved selections are still loading…"
+                          : undefined
+                      }
+                      className={`tap rounded-pill px-3.5 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                         editingGOId === go.id
                           ? "border border-hairline-strong bg-chalk-white text-ink-navy hover:bg-mist-navy/40"
                           : "bg-ink-navy text-chalk-white hover:bg-ink-navy/90"
@@ -2927,12 +3224,12 @@ export default function OrderDetailPage() {
           </h2>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleShowUpiQr}
-              disabled={upiQrBusy}
-              title="Show a UPI payment QR for the balance due"
+              onClick={handleCopyQuote}
+              disabled={quoteBusy}
+              title="Copy the full price breakdown as an image (paste into WhatsApp / email)"
               className="rounded-lg border border-hairline-strong px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-mist-navy/40 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              ▣ UPI QR
+              {quoteBusy ? "Building…" : "▣ Copy Quote"}
             </button>
             <button
               onClick={handleCopyInvoiceUrl}
@@ -3301,57 +3598,6 @@ export default function OrderDetailPage() {
           customerPhone={customer?.phone}
         />
       )}
-
-      {/* ─── UPI payment QR sheet ──────────────────────────────────────────── */}
-      <BottomSheet
-        open={upiQrOpen}
-        onClose={() => setUpiQrOpen(false)}
-        title="UPI Payment"
-      >
-        <div className="flex flex-col items-center gap-4 py-2">
-          {upiQrImg ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={upiQrImg}
-              alt="UPI payment QR"
-              className="h-56 w-56 rounded-xl border border-hairline bg-white p-2"
-            />
-          ) : (
-            <div className="flex h-56 w-56 items-center justify-center rounded-xl border border-hairline text-xs text-muted">
-              {upiQrBusy ? "Building QR…" : "QR unavailable"}
-            </div>
-          )}
-          <div className="text-center">
-            <div className="font-mono text-lg font-semibold text-ink">
-              {formatPrice(upiQrAmount)}
-            </div>
-            <div className="text-[11px] text-muted">
-              Scan with any UPI app &bull; {UPI_VPA}
-            </div>
-          </div>
-          {upiQrUrl && (
-            <div className="w-full">
-              <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
-                Payment link
-              </label>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 truncate rounded bg-mist-navy/40 px-2 py-1 text-[11px] text-ink">
-                  {upiQrUrl}
-                </code>
-                <button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(upiQrUrl).catch(() => {});
-                    flash("UPI link copied");
-                  }}
-                  className="shrink-0 rounded border border-hairline px-2 py-1 text-[11px] text-ink hover:bg-mist-navy"
-                >
-                  Copy
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </BottomSheet>
 
       {/* ─── PDF customization sheet ─────────────────────────────────────────
           Opens when "Download PDF" is clicked. The user toggles which sections

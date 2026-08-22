@@ -57,6 +57,10 @@ export function GarmentOrderAssets({
   const [lightbox, setLightbox] = useState<{ src: string; index: number } | null>(
     null,
   );
+  // Hover arms this gallery as the paste target — the order page renders one
+  // gallery per garment order, so the pointer picks which garment a pasted
+  // screenshot belongs to.
+  const [hovered, setHovered] = useState(false);
 
   // While the fullscreen viewer is open: close on Escape and lock page scroll.
   useEffect(() => {
@@ -72,6 +76,25 @@ export function GarmentOrderAssets({
       document.body.style.overflow = prevOverflow;
     };
   }, [lightbox]);
+
+  // Paste-to-upload while hovering: screenshots arrive on the clipboard as
+  // image files and flow through the same validation + upload path as picked
+  // files. Text pastes are left alone for the browser to handle.
+  useEffect(() => {
+    if (!hovered) return;
+    function onPaste(e: ClipboardEvent) {
+      const files = e.clipboardData?.files;
+      if (!files || files.length === 0) return;
+      const hasImage = Array.from(files).some((f) =>
+        f.type.startsWith("image/"),
+      );
+      if (!hasImage) return;
+      e.preventDefault();
+      void handleFiles(files);
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  });
 
   // Keep raw (stored) URLs for onDetach — resolveAssetUrl rewrites absolute
   // backend URLs to same-origin ones, which would no longer match the row.
@@ -123,12 +146,27 @@ export function GarmentOrderAssets({
   }
 
   return (
-    <div className="mb-3">
+    <div
+      className="mb-3"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
           Design Inspiration ({items.length})
         </div>
         <div className="flex items-center gap-2">
+          {hovered && (
+            <span
+              className="text-[10px] text-muted"
+              suppressHydrationWarning
+            >
+              {typeof navigator !== "undefined" &&
+              /Mac|iP/.test(navigator.platform)
+                ? "⌘V to paste"
+                : "Ctrl+V to paste"}
+            </span>
+          )}
           {uploading && (
             <span className="text-[10px] text-muted">Uploading…</span>
           )}
