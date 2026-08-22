@@ -39,7 +39,7 @@ const SELLER = {
 const GST_RATE = 0.05;
 
 /** Default HSN/SAC shown on every line. No per-garment HSN exists today. */
-const HSN_SAC = "009988";
+const HSN_SAC = "998822";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
