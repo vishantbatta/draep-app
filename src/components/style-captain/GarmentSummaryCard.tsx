@@ -62,6 +62,10 @@ const GIST_PHRASES: Record<
     additionally: string;
     /** List joiner for the final pair (" and "). */
     and: string;
+    /** Wraps a placement list — English prefixes "on ", SOV languages
+     *  postfix ("back पर"). */
+    onPre: string;
+    onPost: string;
     /** " is added" */
     addedOne: string;
     /** " are added" */
@@ -75,6 +79,8 @@ const GIST_PHRASES: Record<
     period: ".",
     additionally: "Additionally, ",
     and: " and ",
+    onPre: "on ",
+    onPost: "",
     addedOne: " is added",
     addedMany: " are added",
   },
@@ -85,6 +91,8 @@ const GIST_PHRASES: Record<
     period: "।",
     additionally: "इसके अलावा, ",
     and: " और ",
+    onPre: "",
+    onPost: " पर",
     addedOne: " जोड़ा गया है",
     addedMany: " जोड़े गए हैं",
   },
@@ -95,6 +103,8 @@ const GIST_PHRASES: Record<
     period: ".",
     additionally: "ಜೊತೆಗೆ, ",
     and: " ಮತ್ತು ",
+    onPre: "",
+    onPost: " ಮೇಲೆ",
     addedOne: " ಸೇರಿಸಲಾಗಿದೆ",
     addedMany: " ಸೇರಿಸಲಾಗಿದೆ",
   },
@@ -105,6 +115,8 @@ const GIST_PHRASES: Record<
     period: ".",
     additionally: "மேலும், ",
     and: " மற்றும் ",
+    onPre: "",
+    onPost: " மேல்",
     addedOne: " சேர்க்கப்பட்டுள்ளது",
     addedMany: " சேர்க்கப்பட்டுள்ளன",
   },
@@ -115,16 +127,20 @@ const GIST_PHRASES: Record<
     period: ".",
     additionally: "అదనంగా, ",
     and: " మరియు ",
+    onPre: "",
+    onPost: " మీద",
     addedOne: " జోడించబడింది",
     addedMany: " జోడించబడ్డాయి",
   },
 };
 
 /** Sentence-style selection gist, e.g. "The Blouse design is as follows:
- *  Blouse cut is Simple cut. … Additionally, Lining / Astar and Key Hole
- *  are added." Each variation item renders "{component} is {type}
- *  {variation}." and add-ons collect into one trailing sentence. Built in
- *  the active language. */
+ *  Blouse cut is Simple cut. … Additionally, 2 Lining / Astar (Full) and
+ *  Key Hole Round Small on back, left sleeve and right sleeve are added."
+ *  Each variation item renders "{component} is {type} {variation}." and
+ *  add-ons collect into one trailing sentence — identical add-ons merged
+ *  with a count, placements aggregated into an "on …" list. Built in the
+ *  active language. */
 export function garmentGist(
   garmentOrder: Pick<SCGarmentOrder, "garment_labels" | "selections">,
   lang: string,
@@ -137,7 +153,13 @@ export function garmentGist(
 
   const ph = GIST_PHRASES[lang] ?? GIST_PHRASES.en;
   const sentences: string[] = [];
-  const addons: string[] = [];
+  // Identical add-ons (same label + same non-placement characteristics)
+  // merge into one spoken entry with a count prefix, and their placements
+  // collect into a single "on back, left sleeve and right sleeve" list.
+  const addonGroups = new Map<
+    string,
+    { label: string; axes: string[]; placements: string[]; count: number }
+  >();
   for (const sel of garmentOrder.selections ?? []) {
     if (sel.type === "variation") {
       const compLabel = briefLabel(sel.component, lang);
@@ -152,8 +174,62 @@ export function garmentGist(
     } else if (sel.type === "add_on") {
       const label =
         briefLabel(sel.addon, lang) || briefLabel(sel.addon_variation, lang);
-      if (label) addons.push(label);
+      if (!label) continue;
+      const av = sel.addon_variation;
+      const axes = [
+        av?.style,
+        av?.shape,
+        av?.type,
+        av?.size,
+        av?.color,
+      ]
+        .filter((v): v is string => Boolean(v && v.trim()))
+        .map((v) => v.charAt(0).toUpperCase() + v.slice(1));
+      const uniqueAxes = [...new Set(axes)];
+      const itemPlacements = (sel.placement ?? []).filter(
+        (p): p is string => Boolean(p && p.trim()),
+      );
+      const placements =
+        itemPlacements.length > 0
+          ? itemPlacements
+          : av?.placement
+            ? [av.placement]
+            : [];
+      const key = `${label}|${uniqueAxes.join("|")}`;
+      const group = addonGroups.get(key);
+      if (group) {
+        group.count += 1;
+        for (const p of placements) {
+          if (!group.placements.includes(p)) group.placements.push(p);
+        }
+      } else {
+        addonGroups.set(key, {
+          label,
+          axes: uniqueAxes,
+          placements: [...placements],
+          count: 1,
+        });
+      }
     }
+  }
+
+  const joinList = (items: string[]): string =>
+    items.length <= 1
+      ? items.join("")
+      : items.slice(0, -1).join(", ") + ph.and + items[items.length - 1];
+
+  const addons: string[] = [];
+  for (const g of addonGroups.values()) {
+    // Count prefix only when merging duplicated rows beyond what the
+    // placement list already conveys ("2 Lining / Astar (Full)" vs
+    // "Key Hole … on back and front").
+    const prefix =
+      g.count > 1 && g.count > g.placements.length ? `${g.count} ` : "";
+    addons.push(
+      g.placements.length > 0
+        ? `${prefix}${g.label}${g.axes.length > 0 ? ` ${g.axes.join(" ")}` : ""} ${ph.onPre}${joinList(g.placements.map((p) => p.toLowerCase()))}${ph.onPost}`
+        : `${prefix}${g.label}${g.axes.length > 0 ? ` (${g.axes.join(", ")})` : ""}`,
+    );
   }
 
   const parts: string[] = [];
@@ -227,7 +303,7 @@ export function GarmentSummaryCard({
               <img
                 src={url}
                 alt={label}
-                className="h-full w-full object-cover"
+                className="h-full w-full object-contain"
                 loading="lazy"
               />
             </button>

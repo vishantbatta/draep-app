@@ -168,6 +168,19 @@ export interface SCAvailableAddon {
   variations: SCAddonVariationOption[];
 }
 
+/** The add-on variation selected on an item — a superset of the brief with
+ *  the price-matrix axis fields, so the gist can speak the add-on's
+ *  characteristics (placement/style/shape/size/type/color). */
+export interface SCSelectedAddonVariation extends SCEntityBrief {
+  price: number | null;
+  placement: string | null;
+  style: string | null;
+  shape: string | null;
+  size: string | null;
+  type: string | null;
+  color: string | null;
+}
+
 /** One garment_orders_items row, serialized with catalog briefs + options.
  *  On variation entries `options` are sibling variations; on add_on entries
  *  the shape differs (no type_required/types) — use the addon UI instead. */
@@ -178,7 +191,7 @@ export interface SCSelection {
   variation: SCEntityBrief | null;
   variation_type: SCEntityBrief | null;
   addon: SCEntityBrief | null;
-  addon_variation: SCEntityBrief | null;
+  addon_variation: SCSelectedAddonVariation | null;
   placement: string[] | null;
   price: number | null;
   source: string | null;
@@ -533,6 +546,18 @@ export async function scRemoveAddonItem(
   return scFetch<{ ok: boolean; item_id: string }>(
     `/style-captain/garment-orders/${garmentOrderId}/items/${itemId}`,
     { method: "DELETE" },
+  );
+}
+
+/** Add a garment instance to an open job's order mid-visit. The backend
+ *  seeds it with the garment's default selections; reload the job after. */
+export async function scAddGarmentToJob(
+  jobId: string,
+  garmentId: string,
+): Promise<{ garment_order_id: string }> {
+  return scFetch<{ garment_order_id: string }>(
+    `/style-captain/jobs/${jobId}/garments`,
+    { method: "POST", body: JSON.stringify({ garment_id: garmentId }) },
   );
 }
 

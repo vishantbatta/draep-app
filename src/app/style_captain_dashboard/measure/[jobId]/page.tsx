@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  scAddGarmentToJob,
   scCompleteJob,
   scCreateMaterial,
   scDeleteMaterial,
+  scFetchCatalogueGarments,
   scFetchJob,
   scFetchMetrics,
   scSaveMeasurements,
@@ -14,6 +16,7 @@ import {
   scUploadPhotos,
   scValidateJob,
   type MeasurementPayload,
+  type SCGarmentBrief,
   type SCGarmentOrder,
   type SCGarmentOrderMaterial,
   type SCJob,
@@ -67,11 +70,12 @@ import type {
 //   "start" (order overview: garment cards + body metrics needed)
 //   Section 1 = Base (body) measurements
 //     "capture" → step through base metrics → "checkpoint" (review)
-//   Section 2 = Per-garment measurements
+//   Section 2 = Per-garment loop
 //     "garment-start" (per-garment gist + editable selections)
-//     → "garment-metrics" (step-through + per-garment review)
+//     → "garment-materials" (that garment's cloth/addon materials)
+//     → "garment-metrics" (step-through + per-garment review)  ×n
 //     → "overall-review" (every garment stacked + THE validation run)
-//   → "garment" (cloth/addon materials) → "notes" (final + complete)
+//   → "notes" (final + complete)
 
 type Phase =
   | "start"
@@ -79,8 +83,8 @@ type Phase =
   | "checkpoint"
   | "garment-start"
   | "garment-metrics"
+  | "garment-materials"
   | "overall-review"
-  | "garment"
   | "notes"
   | "success";
 
@@ -136,6 +140,9 @@ export default function MeasureJobPage() {
     garmentOrderId: string;
     focusComponentId?: string | null;
   } | null>(null);
+  // Add-garment flow (order start + overall review): pick the garment type,
+  // then the edit-selections sheet opens for the new, defaults-seeded row.
+  const [addingGarment, setAddingGarment] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
 
@@ -263,7 +270,8 @@ export default function MeasureJobPage() {
           setStep(Math.max(firstUnfilledIdx, 0));
           setPhase("capture");
         } else {
-          // Base done — find the first garment that isn't complete
+          // Base done — find the first garment that isn't complete. A garment
+          // is complete when its metrics are captured AND cloth is recorded.
           const isGarmentFilled = (goid: string) =>
             allGarmentMetrics
               .filter((x) => x.goid === goid)
@@ -274,26 +282,42 @@ export default function MeasureJobPage() {
                   (d.valueNumeric !== null || (d.valueText ?? "").trim() !== "")
                 );
               });
+          const hasCloth = (goid: string) =>
+            j.garment_orders.some(
+              (go) =>
+                go.id === goid &&
+                go.materials.some((mat) => mat.type === "cloth"),
+            );
           const firstIncompleteIdx = cl.garments.findIndex(
-            (g) => !isGarmentFilled(g.garment_order_id),
+            (g) =>
+              !isGarmentFilled(g.garment_order_id) ||
+              !hasCloth(g.garment_order_id),
           );
           if (!hasGarmentMetrics || firstIncompleteIdx === -1) {
-            // All readings in — the validated overall review
+            // All readings + cloth in — the validated overall review
             setPhase("overall-review");
           } else {
             const goid = cl.garments[firstIncompleteIdx].garment_order_id;
-            const anyFilled = allGarmentMetrics
-              .filter((x) => x.goid === goid)
-              .some((x) => {
-                const d = initial[garmentDraftKey(x.goid, x.metric.id)];
-                return (
-                  d &&
-                  (d.valueNumeric !== null || (d.valueText ?? "").trim() !== "")
-                );
-              });
+            const clothDone = hasCloth(goid);
             setActiveGarmentIdx(firstIncompleteIdx);
             setGarmentStep(0);
-            setPhase(anyFilled ? "garment-metrics" : "garment-start");
+            if (!clothDone) {
+              // Cloth not recorded yet — materials come first in this
+              // garment's loop (start → materials → metrics).
+              setPhase("garment-materials");
+            } else {
+              const anyFilled = allGarmentMetrics
+                .filter((x) => x.goid === goid)
+                .some((x) => {
+                  const d = initial[garmentDraftKey(x.goid, x.metric.id)];
+                  return (
+                    d &&
+                    (d.valueNumeric !== null ||
+                      (d.valueText ?? "").trim() !== "")
+                  );
+                });
+              setPhase(anyFilled ? "garment-metrics" : "garment-start");
+            }
           }
         }
         setHasInitialized(true);
@@ -501,12 +525,12 @@ export default function MeasureJobPage() {
       void handleComplete(true);
       return;
     }
-    setPhase("garment");
+    setPhase("notes");
   }
 
-  /** Persist every filled per-garment draft, then hand off to the overall
-   *  review — validation runs there (once, across base + every instance)
-   *  rather than at the last garment's checkpoint. */
+  /** Persist every filled per-garment draft, then close THIS garment's loop
+   *  (start → materials → metrics): the next garment opens on its start
+   *  screen, and after the last one the validated overall review takes over. */
   async function saveGarmentsAndAdvance() {
     if (!job) return;
     setSaving(true);
@@ -536,7 +560,14 @@ export default function MeasureJobPage() {
       if (byKey.size > 0) {
         await scSaveMeasurements(job.id, [...byKey.values()]);
       }
-      setPhase("overall-review");
+      const garments = checklist?.garments ?? [];
+      if (activeGarmentIdx < garments.length - 1) {
+        setActiveGarmentIdx(activeGarmentIdx + 1);
+        setGarmentStep(0);
+        setPhase("garment-start");
+      } else {
+        setPhase("overall-review");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save readings");
     } finally {
@@ -842,6 +873,7 @@ export default function MeasureJobPage() {
           job={job}
           metrics={metrics}
           labels={garmentLabels}
+          onAddGarment={() => setAddingGarment(true)}
           onStart={beginBody}
         />
       ) : phase === "capture" && currentMetric && currentDraft ? (
@@ -929,13 +961,17 @@ export default function MeasureJobPage() {
             }
             onStart={() => {
               setGarmentStep(0);
-              setPhase("garment-metrics");
+              setPhase("garment-materials");
             }}
             onBack={() => {
-              // Walk back through the previous garment's start screen, or
+              // Walk back into the previous garment's metrics review, or
               // the body checkpoint when this is the first garment.
-              if (activeGarmentIdx > 0) setActiveGarmentIdx(activeGarmentIdx - 1);
-              else setPhase("checkpoint");
+              if (activeGarmentIdx > 0) {
+                setActiveGarmentIdx(activeGarmentIdx - 1);
+                setPhase("garment-metrics");
+              } else {
+                setPhase("checkpoint");
+              }
             }}
           />
         ) : (
@@ -956,11 +992,6 @@ export default function MeasureJobPage() {
             setGarmentStep(0);
             setActiveGarmentIdx(idx);
           }}
-          onEnterGarment={(idx) => {
-            setGarmentStep(0);
-            setActiveGarmentIdx(idx);
-            setPhase("garment-start");
-          }}
           onGarmentStepChange={setGarmentStep}
           onUpdateDraft={updateDraftById}
           onSaveSilently={saveStepSilently}
@@ -968,7 +999,7 @@ export default function MeasureJobPage() {
           onEditSelections={(garmentOrderId, focusComponentId) =>
             setEditingSelections({ garmentOrderId, focusComponentId })
           }
-          onBack={() => setPhase("garment-start")}
+          onBack={() => setPhase("garment-materials")}
           onContinue={saveGarmentsAndAdvance}
         />
       ) : phase === "overall-review" ? (
@@ -987,19 +1018,22 @@ export default function MeasureJobPage() {
             setGarmentStep(stepIdx);
             setPhase("garment-metrics");
           }}
+          onAddGarment={() => setAddingGarment(true)}
           onBack={() => {
+            // Back into the last garment's metrics.
             const lastIdx = Math.max((checklist?.garments.length ?? 1) - 1, 0);
             setActiveGarmentIdx(lastIdx);
             setPhase("garment-metrics");
           }}
-          onContinue={() => setPhase("garment")}
-        />
-      ) : phase === "garment" ? (
-        <GarmentPhase
-          job={job}
-          onReload={load}
-          onBack={() => setPhase("overall-review")}
           onContinue={() => setPhase("notes")}
+        />
+      ) : phase === "garment-materials" ? (
+        <GarmentMaterialsPhase
+          job={job}
+          activeGarmentIdx={activeGarmentIdx}
+          onReload={load}
+          onBack={() => setPhase("garment-start")}
+          onContinue={() => setPhase("garment-metrics")}
         />
       ) : (
         // phase === "notes"
@@ -1009,7 +1043,7 @@ export default function MeasureJobPage() {
           voiceNoteUrl={voiceNoteUrl}
           onVoiceNoteChange={setVoiceNoteUrl}
           saving={saving}
-          onBack={() => setPhase("garment")}
+          onBack={() => setPhase("overall-review")}
           onComplete={() => void handleComplete()}
           job={job}
           metrics={metrics}
@@ -1059,6 +1093,28 @@ export default function MeasureJobPage() {
           onRevalidate={revalidate}
           onAcknowledgeWarnings={proceedAfterWarningAck}
           onClose={() => setShowValidationSheet(false)}
+        />
+      )}
+
+      {/* ─── Add-garment bottom sheet (order start + overall review) ──── */}
+      {addingGarment && job && (
+        <AddGarmentSheet
+          onClose={() => setAddingGarment(false)}
+          onPick={async (garmentId) => {
+            try {
+              const res = await scAddGarmentToJob(job.id, garmentId);
+              setAddingGarment(false);
+              // Re-derive job + checklist so the new garment's sections,
+              // drafts and review rows exist, then land in the edit
+              // selections sheet for the freshly seeded instance.
+              await load();
+              setEditingSelections({ garmentOrderId: res.garment_order_id });
+            } catch (err) {
+              setError(
+                err instanceof Error ? err.message : "Failed to add garment",
+              );
+            }
+          }}
         />
       )}
 
@@ -1210,7 +1266,6 @@ function GarmentMetricsStage({
   submitting,
   selectionsByGarment,
   onActiveGarmentChange,
-  onEnterGarment,
   onGarmentStepChange,
   onUpdateDraft,
   onSaveSilently,
@@ -1227,9 +1282,6 @@ function GarmentMetricsStage({
   submitting: boolean;
   selectionsByGarment: Record<string, SCSelection[]>;
   onActiveGarmentChange: (idx: number) => void;
-  /** Review "Next garment" — opens the next garment's start screen (spec:
-   *  every garment gets its own gist + edit entry before measuring). */
-  onEnterGarment: (idx: number) => void;
   onGarmentStepChange: (idx: number) => void;
   onUpdateDraft: (draftKey: string, next: MetricDraft) => void;
   onSaveSilently: (draft: MetricDraft | undefined, garmentOrderId?: string) => void;
@@ -1284,7 +1336,8 @@ function GarmentMetricsStage({
             Garment measurements
           </p>
           <p className="mt-1 text-caption text-muted">
-            No garment-specific metrics for this order — capturing materials next.
+            No garment-specific metrics for this order — nothing to capture
+            for this garment.
           </p>
         </div>
         <div className="flex gap-2">
@@ -1357,14 +1410,7 @@ function GarmentMetricsStage({
             onGarmentStepChange(idx);
           }}
           onBack={() => setReviewing(false)}
-          onContinue={
-            activeGarmentIdx < garments.length - 1
-              ? () => {
-                  setReviewing(false);
-                  onEnterGarment(activeGarmentIdx + 1);
-                }
-              : onContinue
-          }
+          onContinue={onContinue}
           isLastGarment={activeGarmentIdx >= garments.length - 1}
         />
       ) : current && currentDraft && active ? (
@@ -1751,11 +1797,13 @@ function JobStartScreen({
   job,
   metrics,
   labels,
+  onAddGarment,
   onStart,
 }: {
   job: SCJob;
   metrics: SCMetric[];
   labels: Record<string, string>;
+  onAddGarment: () => void;
   onStart: () => void;
 }) {
   const [activeLang, setActiveLang] = useState("en");
@@ -1802,6 +1850,14 @@ function JobStartScreen({
           garmentOrder={go}
         />
       ))}
+
+      {/* Mid-visit garment add — same sheet flow as edit selections. */}
+      <button
+        onClick={onAddGarment}
+        className="tap flex w-full items-center justify-center gap-2 rounded-card border border-dashed border-hairline-strong bg-chalk-white/50 px-4 py-3 text-caption font-medium text-ink-navy"
+      >
+        + Add garment
+      </button>
 
       {/* ─── Body measurements needed ───────────────────────────────────── */}
       {metrics.length > 0 && (
@@ -1870,6 +1926,74 @@ function JobStartScreen({
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Add-garment sheet (order start + overall review) ───────────────────────
+
+/** First step of the mid-visit garment add: pick the catalog garment type.
+ *  On pick, the parent creates the garment order (defaults seeded by the
+ *  backend) and opens the edit-selections sheet for it. */
+function AddGarmentSheet({
+  onClose,
+  onPick,
+}: {
+  onClose: () => void;
+  onPick: (garmentId: string) => void;
+}) {
+  const [garments, setGarments] = useState<SCGarmentBrief[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [addingId, setAddingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    scFetchCatalogueGarments()
+      .then((rows) => {
+        if (!cancelled) setGarments(rows);
+      })
+      .catch((err) => {
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : "Failed to load garments");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <BottomSheet title="Add garment" onClose={onClose}>
+      <div className="space-y-2">
+        {error && (
+          <div className="rounded-card border border-error-border bg-error-bg px-4 py-3 text-caption text-error-text">
+            {error}
+          </div>
+        )}
+        {garments === null && !error && (
+          <p className="px-1 py-4 text-center text-caption text-muted">
+            Loading garments…
+          </p>
+        )}
+        {garments?.map((g) => (
+          <button
+            key={g.id}
+            onClick={() => {
+              if (addingId) return;
+              setAddingId(g.id);
+              onPick(g.id);
+            }}
+            disabled={addingId !== null}
+            className="tap flex w-full items-center justify-between gap-3 rounded-card border border-hairline bg-chalk-white px-4 py-3 text-left disabled:opacity-50"
+          >
+            <span className="min-w-0 flex-1 text-body font-medium text-ink-navy">
+              {pickLabel(g.labels, g.slug ?? "Garment")}
+            </span>
+            <span className="text-caption text-muted">
+              {addingId === g.id ? "Adding…" : "＋"}
+            </span>
+          </button>
+        ))}
+      </div>
+    </BottomSheet>
   );
 }
 
@@ -1985,7 +2109,7 @@ function GarmentStartScreen({
             No measurements for this garment
           </p>
           <p className="mt-1 text-caption text-muted">
-            Continue to the overall review.
+            Capture the cloth &amp; materials, then continue.
           </p>
         </div>
       )}
@@ -2003,7 +2127,7 @@ function GarmentStartScreen({
             onClick={onStart}
             className="tap flex-[2] rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary"
           >
-            {metricCount > 0 ? "Start measuring →" : "Continue →"}
+            Cloth &amp; materials →
           </button>
         </div>
       </div>
@@ -2016,7 +2140,7 @@ function GarmentStartScreen({
 /** Every garment's readings stacked in one place, with THE validation run:
  *  the engine fires on mount (and after edits) — pass unlocks Continue,
  *  advisories are acknowledged in the existing ValidationSheet, criticals
- *  must be fixed before materials. */
+ *  must be fixed before completion. */
 function OverallReviewScreen({
   garments,
   drafts,
@@ -2028,6 +2152,7 @@ function OverallReviewScreen({
   onOpenValidation,
   onEditMetric,
   onJumpToGarment,
+  onAddGarment,
   onBack,
   onContinue,
 }: {
@@ -2041,6 +2166,7 @@ function OverallReviewScreen({
   onOpenValidation: () => void;
   onEditMetric: (draftKey: string) => void;
   onJumpToGarment: (garmentIdx: number, stepIdx: number) => void;
+  onAddGarment: () => void;
   onBack: () => void;
   onContinue: () => void;
 }) {
@@ -2256,6 +2382,14 @@ function OverallReviewScreen({
         })
       )}
 
+      {/* Mid-visit garment add — same sheet flow as edit selections. */}
+      <button
+        onClick={onAddGarment}
+        className="tap flex w-full items-center justify-center gap-2 rounded-card border border-dashed border-hairline-strong bg-chalk-white/50 px-4 py-3 text-caption font-medium text-ink-navy"
+      >
+        + Add garment
+      </button>
+
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
       <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
@@ -2283,7 +2417,7 @@ function OverallReviewScreen({
                 ? "Checking…"
                 : status === "block"
                   ? "Fix critical issues"
-                  : "Continue → materials"}
+                  : "Continue → notes"}
             </button>
           )}
         </div>
@@ -3519,7 +3653,7 @@ function CompletedView({
   );
 }
 
-// ─── Garment phase (Section 2) ──────────────────────────────────────────────
+// ─── Garment materials phase (Section 2, per garment) ───────────────────────
 
 // Same-origin via Next.js proxy (next.config.mjs rewrites). No CORS.
 const BE_ORIGIN = (process.env.NEXT_PUBLIC_API_URL ?? "/api/v1")
@@ -3535,18 +3669,25 @@ function garmentLabel(go: SCJob["garment_orders"][number]): string {
     : go.garment_slug ?? "Garment";
 }
 
-function GarmentPhase({
+/** Cloth & materials for ONE garment — the step right after that garment's
+ *  start screen and before its metrics. Continue moves to this garment's
+ *  metric capture. */
+function GarmentMaterialsPhase({
   job,
+  activeGarmentIdx,
   onReload,
   onBack,
   onContinue,
 }: {
   job: SCJob;
+  activeGarmentIdx: number;
   onReload: () => void;
   onBack: () => void;
   onContinue: () => void;
 }) {
-  if (job.garment_orders.length === 0) {
+  const active = job.garment_orders[activeGarmentIdx];
+
+  if (!active) {
     return (
       <div className="space-y-4">
         <div>
@@ -3557,39 +3698,20 @@ function GarmentPhase({
             Cloth &amp; materials
           </h1>
           <p className="mt-1 text-body text-muted">
-            No garment instances on this job.
+            No garment instance at this position.
           </p>
         </div>
-        <div className="rounded-card border border-dashed border-hairline-strong bg-chalk-white/50 px-6 py-10 text-center">
-          <p className="text-body font-medium text-ink-navy">
-            {job.order_id
-              ? "The order has no garment_orders yet."
-              : "This is a walk-in job without a linked order."}
-          </p>
-        </div>
-        <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
-          <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
-            <button
-              onClick={onBack}
-              className="tap flex-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy"
-            >
-              Back
-            </button>
-            <button
-              onClick={onContinue}
-              className="tap flex-[2] rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary"
-            >
-              Continue to review →
-            </button>
-          </div>
-        </div>
+        <button
+          onClick={onContinue}
+          className="tap w-full rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary"
+        >
+          Continue to metrics →
+        </button>
       </div>
     );
   }
 
-  const allHaveCloth = job.garment_orders.every(
-    (go) => go.materials.some((m) => m.type === "cloth"),
-  );
+  const hasCloth = active.materials.some((m) => m.type === "cloth");
 
   return (
     <div className="space-y-4">
@@ -3601,26 +3723,25 @@ function GarmentPhase({
           Cloth &amp; materials
         </h1>
         <p className="mt-1 text-body text-muted">
-          Capture at least one cloth piece per garment. The first cloth piece
-          name auto-fills with the garment name.
+          Garment {activeGarmentIdx + 1} of {job.garment_orders.length} ·{" "}
+          {garmentLabel(active)} — capture at least one cloth piece. The first
+          cloth piece name auto-fills with the garment name.
         </p>
       </div>
 
       <div className="space-y-3">
-        {job.garment_orders.map((go, idx) => (
-          <GarmentOrderCard
-            key={go.id}
-            jobId={job.id}
-            garmentOrder={go}
-            garmentIndex={idx + 1}
-            garmentTotal={job.garment_orders.length}
-            onReload={onReload}
-          />
-        ))}
+        <GarmentOrderCard
+          key={active.id}
+          jobId={job.id}
+          garmentOrder={active}
+          garmentIndex={activeGarmentIdx + 1}
+          garmentTotal={job.garment_orders.length}
+          onReload={onReload}
+        />
       </div>
 
       <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
-        {allHaveCloth ? (
+        {hasCloth ? (
           <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
             <button
               onClick={onBack}
@@ -3632,13 +3753,13 @@ function GarmentPhase({
               onClick={onContinue}
               className="tap flex-[2] rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary"
             >
-              Continue to review →
+              Continue → measurements
             </button>
           </div>
         ) : (
           <div className="mx-auto max-w-[480px] space-y-2">
             <p className="text-center text-caption text-muted">
-              Add at least one cloth piece for each garment to continue.
+              Add at least one cloth piece for this garment to continue.
             </p>
             <button
               onClick={onBack}
@@ -3992,15 +4113,14 @@ function MaterialForm({
   );
   const [color, setColor] = useState(initial?.color ?? "");
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const [length, setLength] = useState(
-    initial?.length?.toString() ?? "",
-  );
-  const [breadth, setBreadth] = useState(
-    initial?.breadth?.toString() ?? "",
-  );
-  const [unit, setUnit] = useState<"m" | "in" | "cm">(
-    initial?.unit === "in" ? "in" : initial?.unit === "cm" ? "cm" : "m",
-  );
+  // Cloth dimensions are captured in inches only. Materials saved before this
+  // (unit m/cm) are converted on open so the numbers stay correct.
+  const legacyToInches =
+    initial?.unit === "m" ? 39.3701 : initial?.unit === "cm" ? 0.393701 : 1;
+  const asInches = (v: number | null | undefined): string =>
+    v == null ? "" : String(Math.round(v * legacyToInches * 10) / 10);
+  const [length, setLength] = useState(asInches(initial?.length));
+  const [breadth, setBreadth] = useState(asInches(initial?.breadth));
   const [assetUrls, setAssetUrls] = useState<string[]>(
     initial?.asset_urls ?? [],
   );
@@ -4059,7 +4179,7 @@ function MaterialForm({
         color: color.trim(),
         length: len,
         breadth: brd,
-        unit,
+        unit: "in",
         asset_urls: assetUrls,
       };
       void onSubmit(payload);
@@ -4154,12 +4274,12 @@ function MaterialForm({
         </button>
       </div>
 
-      {/* Cloth dimensions */}
+      {/* Cloth dimensions — inches only */}
       {type === "cloth" && (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="mb-1 block text-[11px] font-medium text-ink-navy">
-              Length
+              Length (in)
             </label>
             <input
               type="number"
@@ -4173,7 +4293,7 @@ function MaterialForm({
           </div>
           <div>
             <label className="mb-1 block text-[11px] font-medium text-ink-navy">
-              Breadth
+              Breadth (in)
             </label>
             <input
               type="number"
@@ -4184,20 +4304,6 @@ function MaterialForm({
               placeholder="44"
               className="w-full rounded-card border border-hairline-strong bg-chalk-white px-3 py-2 text-body text-ink outline-none focus:border-accent-text focus:ring-2 focus:ring-accent-text/30"
             />
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] font-medium text-ink-navy">
-              Unit
-            </label>
-            <select
-              value={unit}
-              onChange={(e) => setUnit(e.target.value as "m" | "in" | "cm")}
-              className="w-full rounded-card border border-hairline-strong bg-chalk-white px-3 py-2 text-body text-ink outline-none focus:border-accent-text focus:ring-2 focus:ring-accent-text/30"
-            >
-              <option value="m">m</option>
-              <option value="in">in</option>
-              <option value="cm">cm</option>
-            </select>
           </div>
         </div>
       )}
