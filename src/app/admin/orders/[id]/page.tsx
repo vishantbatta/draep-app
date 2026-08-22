@@ -30,6 +30,7 @@ import {
   createOrderAdjustment,
   updateOrderAdjustment,
   deleteOrderAdjustment,
+  fetchGarmentTree,
   formatOrderSlot,
   type OrderRow,
   type GarmentOrderRow,
@@ -46,6 +47,7 @@ import {
   type MeasurementReadingRow,
   type BodyMeasurementWithMetric,
   type GarmentMeasurementGroup,
+  type GarmentTree,
   type AddressRow,
   type AdminSlotOption,
   type OrderAdjustmentRow,
@@ -58,6 +60,7 @@ import {
   downloadMeasurementJobPdf,
   type PdfSectionOptions,
   type StyleSelectionGroup,
+  type StyleItemDetail,
 } from "@/lib/job-pdf";
 import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
 import { GarmentSelectionSheet } from "@/components/admin/GarmentSelectionSheet";
@@ -1669,10 +1672,15 @@ export default function OrderDetailPage() {
         }),
       );
 
-      // Body measurements paired with readings
+      // Body measurements paired with readings — BASE rows only (NULL
+      // garment_order_id). Garment-scoped readings belong to their garment's
+      // per-garment measurements table (2.3), not the order-level guide.
+      const metricById = new Map(metricsList.map((m) => [m.id, m]));
       const body: BodyMeasurementWithMetric[] = (() => {
         const byMetricId = new Map(
-          readingsList.map((r) => [r.measurement_metric_id, r]),
+          readingsList
+            .filter((r) => !r.garment_order_id)
+            .map((r) => [r.measurement_metric_id, r]),
         );
         return metricsList.map((metric) => ({
           metric,
@@ -1697,9 +1705,11 @@ export default function OrderDetailPage() {
         };
       });
 
-      // Garment measurement groups (materials) — match the PDF shape. The
-      // resolved display label feeds the material page's "GARMENT: …" header
-      // (garmentLabels.en is that builder's preferred name source).
+      // Garment measurement groups (materials + garment-scoped readings) —
+      // match the PDF shape. The resolved display label feeds the section's
+      // "GARMENT n: …" header (garmentLabels.en is that builder's preferred
+      // name source). Readings with this row's garment_order_id feed the
+      // per-garment measurements table (2.3).
       const garments: GarmentMeasurementGroup[] = pdfGoRows.map((row) => ({
         garmentOrderId: row.id,
         garmentId: row.garment_id,
@@ -1708,7 +1718,75 @@ export default function OrderDetailPage() {
         status: row.status,
         userNote: row.user_note,
         materials: materialsList.filter((m) => m.garment_order_id === row.id),
+        readings: readingsList
+          .filter((r) => r.garment_order_id === row.id)
+          .map((r) => ({
+            metric:
+              metricById.get(r.measurement_metric_id ?? "") ?? {
+                // Unresolvable metric (deleted since capture): minimal stub
+                // so the row still renders its recorded value.
+                id: r.measurement_metric_id ?? "",
+                code: null,
+                slug: null,
+                labels: null,
+                descriptions: null,
+                asset_urls: null,
+                unit: null,
+                priority_order: null,
+              },
+            reading: r,
+          })),
       }));
+
+      // Multilingual catalogue details for the design-selection cards — one
+      // garment tree per unique garment (public endpoint), then a per-item
+      // component/choice lookup. Failures degrade gracefully: cards fall
+      // back to the label snapshots stamped at checkout.
+      setPdfProgress("Loading design catalogue…");
+      const treeByGarmentId = new Map<string, GarmentTree>();
+      await Promise.all(
+        [...new Set(pdfGoRows.map((r) => r.garment_id).filter((id): id is string => Boolean(id)))].map(
+          async (gid) => {
+            try {
+              treeByGarmentId.set(gid, await fetchGarmentTree(gid));
+            } catch { /* cards fall back to label snapshots */ }
+          },
+        ),
+      );
+
+      const styleItemDetails = (row: GarmentOrderRow): StyleItemDetail[] =>
+        (itemsByGOId.get(row.id) ?? []).map((it) => {
+          const tree = row.garment_id ? treeByGarmentId.get(row.garment_id) : null;
+          if (it.type === "add_on") {
+            const addon = tree?.addons.find((a) => a.id === it.addon_id) ?? null;
+            const addonVariation =
+              addon?.variations.find((v) => v.id === it.addon_variation_id) ?? null;
+            return {
+              componentLabels: addon?.labels ?? null,
+              componentDescriptions: addon?.descriptions ?? null,
+              choiceLabels: addonVariation?.labels ?? null,
+              choiceDescriptions: addonVariation?.descriptions ?? null,
+            };
+          }
+          const components = tree?.components ?? [];
+          const component =
+            components.find((c) => c.id === it.garment_style_component_id) ?? null;
+          const variation =
+            component?.variations.find((v) => v.id === it.variation_id) ??
+            components.flatMap((c) => c.variations).find((v) => v.id === it.variation_id) ??
+            null;
+          const variationType =
+            variation?.variation_types.find((t) => t.id === it.variation_type_id) ?? null;
+          // The choice is the most specific entity picked: variation_type
+          // when present, else the variation itself.
+          const choice = variationType ?? variation;
+          return {
+            componentLabels: component?.labels ?? null,
+            componentDescriptions: component?.descriptions ?? null,
+            choiceLabels: choice?.labels ?? null,
+            choiceDescriptions: choice?.descriptions ?? null,
+          };
+        });
 
       // Style selections per garment order
       const styleGroups: StyleSelectionGroup[] = pdfGoRows.map((row) => ({
@@ -1718,6 +1796,7 @@ export default function OrderDetailPage() {
           (row.garment_id ? garmentMap.get(row.garment_id)?.base_price : null) ??
           null,
         items: itemsByGOId.get(row.id) ?? [],
+        itemDetails: styleItemDetails(row),
         assetsShared: row.assets_shared,
       }));
 
