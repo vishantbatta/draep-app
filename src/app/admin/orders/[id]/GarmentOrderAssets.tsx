@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { BottomSheet } from "@/components/ui/BottomSheet";
 import {
+  aiGenerateInspiration,
   resolveAssetUrl,
   uploadDesignImage,
+  type AiImageResult,
   type GarmentOrderRow,
 } from "@/lib/admin-api";
 
@@ -61,6 +64,68 @@ export function GarmentOrderAssets({
   // gallery per garment order, so the pointer picks which garment a pasted
   // screenshot belongs to.
   const [hovered, setHovered] = useState(false);
+
+  // ── AI-generated inspiration ────────────────────────────────────────────
+  // The whole flow (first render → preview → regenerate with comment) lives
+  // in a bottom sheet; the button in the gallery header opens it. One render
+  // per call: the backend builds the prompt from this GO's saved selections
+  // (+ the comment as extra direction on Regenerate) and returns the image
+  // URL. Nothing touches assets_shared until "Save".
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiPreview, setAiPreview] = useState<AiImageResult | null>(null);
+  const [aiComment, setAiComment] = useState("");
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  function openAiSheet() {
+    setAiOpen(true);
+    // First open kicks off the render; reopens (with a preview already in
+    // hand, or one still in flight) just show it instead of burning a call.
+    if (!aiPreview && !aiBusy) void generateAi();
+  }
+
+  function closeAiSheet() {
+    // Block dismissal mid-save — the attach is in flight and its result
+    // (gallery update) should land before the sheet goes away.
+    if (aiSaving) return;
+    setAiOpen(false);
+  }
+
+  async function generateAi() {
+    if (aiBusy) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const res = await aiGenerateInspiration({
+        garment_order_id: go.id,
+        comment: aiComment.trim() || null,
+      });
+      setAiPreview(res);
+    } catch (e) {
+      setAiError(
+        e instanceof Error ? e.message : "AI generation failed. Try again.",
+      );
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function saveAi() {
+    if (!aiPreview || aiSaving) return;
+    setAiSaving(true);
+    setAiError(null);
+    try {
+      await onAttach(go.id, [aiPreview.url]);
+      setAiPreview(null);
+      setAiComment("");
+      setAiOpen(false);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setAiSaving(false);
+    }
+  }
 
   // While the fullscreen viewer is open: close on Escape and lock page scroll.
   useEffect(() => {
@@ -171,6 +236,40 @@ export function GarmentOrderAssets({
             <span className="text-[10px] text-muted">Uploading…</span>
           )}
           <button
+            onClick={openAiSheet}
+            title="Generate a design inspiration image from this garment's saved selections"
+            className="flex items-center gap-1 rounded-md border border-accent-text/40 bg-chalk-white px-2 py-1 text-xs font-medium text-accent-text transition hover:bg-mist-navy/40 disabled:cursor-wait disabled:opacity-60"
+          >
+            {aiBusy ? (
+              <>
+                <svg
+                  className="h-3 w-3 animate-spin"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                >
+                  <circle
+                    cx="8"
+                    cy="8"
+                    r="6.5"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeDasharray="10 30"
+                  />
+                  <path
+                    d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                Generating…
+              </>
+            ) : (
+              "✦ Generate using AI"
+            )}
+          </button>
+          <button
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
             className="rounded-md border border-hairline-strong bg-chalk-white px-2 py-1 text-xs font-medium text-ink-navy hover:border-ink-navy disabled:opacity-50"
@@ -229,6 +328,148 @@ export function GarmentOrderAssets({
           No design inspiration yet — add reference images for this garment.
         </div>
       )}
+
+      {/* AI generation bottom sheet — skeleton → preview → Regenerate | Save.
+          Nothing is written to assets_shared until "Save inspiration". */}
+      <BottomSheet
+        open={aiOpen}
+        onClose={closeAiSheet}
+        title="AI Design Inspiration"
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[10px] text-muted">
+              {aiPreview
+                ? aiBusy
+                  ? "Regenerating with your comment…"
+                  : "Not saved yet — Save adds it to this garment's inspiration."
+                : "Rendering from this garment's saved selections…"}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void generateAi()}
+                disabled={!aiPreview || aiBusy || aiSaving}
+                className="rounded-lg border border-hairline-strong bg-chalk-white px-4 py-2 text-xs font-medium text-ink-navy transition hover:border-ink-navy disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {aiBusy ? "Regenerating…" : "↻ Regenerate"}
+              </button>
+              <button
+                onClick={() => void saveAi()}
+                disabled={!aiPreview || aiBusy || aiSaving}
+                className="rounded-lg bg-tape px-4 py-2 text-xs font-semibold text-chalk-white shadow-primary transition hover:bg-tape/90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {aiSaving ? "Saving…" : "Save inspiration"}
+              </button>
+            </div>
+          </div>
+        }
+      >
+        {aiError && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700">
+            <div className="font-medium">Generation failed</div>
+            <div className="mt-0.5">{aiError}</div>
+            <button
+              onClick={() => void generateAi()}
+              disabled={aiBusy}
+              className="mt-2 rounded-md border border-red-300 bg-white px-3 py-1.5 text-[11px] font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {/* First render — skeleton while no image exists yet */}
+        {!aiPreview && (
+          <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-hairline-strong bg-mist-navy/20">
+            <svg
+              className="h-7 w-7 animate-spin text-accent-text"
+              viewBox="0 0 16 16"
+              fill="none"
+            >
+              <circle
+                cx="8"
+                cy="8"
+                r="6.5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeDasharray="10 30"
+              />
+              <path
+                d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+            <div className="text-center text-xs text-muted">
+              Painting the design from this garment's selections…
+              <div className="mt-0.5 text-[10px] opacity-70">
+                ~15-30s · every selection is included in the prompt
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Preview — image, direction input, prompt */}
+        {aiPreview && (
+          <div className="space-y-3 pb-2">
+            <div className="relative mx-auto w-fit">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={resolveAssetUrl(aiPreview.url) ?? aiPreview.url}
+                alt="AI-generated design inspiration preview"
+                className="mx-auto max-h-[46dvh] rounded-xl border border-hairline-strong bg-chalk-white object-contain shadow-primary"
+              />
+              {aiBusy && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-chalk-white/70">
+                  <svg
+                    className="h-7 w-7 animate-spin text-accent-text"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                  >
+                    <circle
+                      cx="8"
+                      cy="8"
+                      r="6.5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeDasharray="10 30"
+                    />
+                    <path
+                      d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">
+                What should change?
+              </label>
+              <input
+                type="text"
+                value={aiComment}
+                onChange={(e) => setAiComment(e.target.value)}
+                placeholder="e.g. darker fabric, deeper neckline, gold piping…"
+                aria-label="Regeneration direction"
+                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm text-ink focus:border-ink-navy focus:outline-none"
+              />
+            </div>
+            <details>
+              <summary className="cursor-pointer font-mono text-[10px] text-muted">
+                Prompt used
+              </summary>
+              <p className="mt-1 max-h-36 overflow-y-auto whitespace-pre-wrap rounded-md border border-hairline bg-chalk-white px-2 py-1.5 text-[10px] leading-relaxed text-ink">
+                {aiPreview.prompt}
+              </p>
+            </details>
+          </div>
+        )}
+      </BottomSheet>
 
       {error && (
         <div className="mt-1 text-[10px] text-red-600">{error}</div>

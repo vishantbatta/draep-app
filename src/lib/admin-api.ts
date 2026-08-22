@@ -2371,6 +2371,22 @@ export async function aiGenerateImage(input: AiContentInput): Promise<AiImageRes
   });
 }
 
+/**
+ * POST /admin/ai-content/inspiration
+ * Render one AI design-inspiration image for a garment order's saved
+ * selections (titles + descriptions, catalog house style), with an optional
+ * designer comment as extra direction (the Regenerate button sends it).
+ */
+export async function aiGenerateInspiration(input: {
+  garment_order_id: string;
+  comment?: string | null;
+}): Promise<AiImageResult> {
+  return adminFetch<AiImageResult>("/admin/ai-content/inspiration", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 // ─── SOP Video Generator ──────────────────────────────────────────────────────
 
 export type SopVideoLang = "english" | "hindi" | "kannada";
