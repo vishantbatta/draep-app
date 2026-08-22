@@ -673,7 +673,12 @@ export default function MeasureJobPage() {
       // Map metrics + measurements: BASE readings only (garment_order_id
       // NULL) for the body pages — per-garment readings render on their own
       // garment's page (doc §10: base section + one section per garment).
-      const baseMetricList: SCMetric[] = checklist?.base ?? metrics;
+      // Legacy jobs (no order → empty checklist) have no base list at all;
+      // fall back to the full priority-ordered catalog. Rows without a
+      // captured base reading are dropped later, so only real readings
+      // render body pages.
+      const baseMetricList: SCMetric[] =
+        checklist?.base && checklist.base.length > 0 ? checklist.base : scMetrics;
       const metricRowById = new Map<string, MeasurementMetricRow>();
       const toMetricRow = (m: SCMetric): MeasurementMetricRow => {
         const existing = metricRowById.get(m.id);
@@ -739,9 +744,25 @@ export default function MeasureJobPage() {
           for (const s of cl_garment?.sections ?? []) {
             for (const m of s.metrics) cl_metrics.set(m.id, m);
           }
-          const readings: BodyMeasurementWithMetric[] = (
-            garmentReadingsByGo.get(go.id) ?? []
-          ).map((r) => ({
+          // The API returns readings captured_at-DESC; restore the
+          // checklist's section order (the priority order the wizard
+          // captures in). Legacy readings outside the sections keep their
+          // relative order at the end.
+          const sectionRank = new Map<string, number>();
+          let ri = 0;
+          for (const s of cl_garment?.sections ?? []) {
+            for (const m of s.metrics) sectionRank.set(m.id, ri++);
+          }
+          const sectionRankOf = (mid: string | null) =>
+            mid !== null
+              ? (sectionRank.get(mid) ?? Number.MAX_SAFE_INTEGER)
+              : Number.MAX_SAFE_INTEGER;
+          const goReadings = [...(garmentReadingsByGo.get(go.id) ?? [])].sort(
+            (a, b) =>
+              sectionRankOf(a.measurement_metric_id) -
+              sectionRankOf(b.measurement_metric_id),
+          );
+          const readings: BodyMeasurementWithMetric[] = goReadings.map((r) => ({
             metric: cl_metrics.get(r.measurement_metric_id as string)
               ? toMetricRow(cl_metrics.get(r.measurement_metric_id as string)!)
               : toMetricRow({ id: r.measurement_metric_id as string, code: null, slug: null, labels: null, descriptions: null, asset_urls: null, unit: r.unit }),
@@ -855,6 +876,7 @@ export default function MeasureJobPage() {
         <CompletedView
           job={job}
           metrics={allMetrics}
+          checklist={checklist}
           onReload={load}
           onDownloadPdf={(onProgress) =>
             handleDownloadPdf(job, allMetrics, onProgress)
@@ -1234,6 +1256,41 @@ function flattenGarmentSections(
     }
   }
   return out;
+}
+
+/** Order captured readings to match the wizard's checklist order (base
+ *  metrics first, then each garment's section metrics). Readings outside
+ *  the checklist — legacy jobs measured before it existed, or orphans —
+ *  fall back to the priority-ordered flat catalog; anything still
+ *  unmatched keeps its relative order at the end. */
+function orderMeasurementsByChecklist(
+  measurements: SCJob["measurements"],
+  checklist: SCChecklist | null,
+  fallbackMetrics: SCMetric[] = [],
+): SCJob["measurements"] {
+  const rank = new Map<string, number>();
+  let i = 0;
+  const base = "b";
+  if (checklist) {
+    for (const m of checklist.base) rank.set(`${base}:${m.id}`, i++);
+    for (const g of checklist.garments) {
+      for (const s of g.sections) {
+        for (const m of s.metrics) {
+          rank.set(`${g.garment_order_id}:${m.id}`, i++);
+        }
+      }
+    }
+  }
+  // The flat catalog is priority-ordered (same ordering the checklist
+  // resolver uses); it covers legacy jobs whose checklist is empty.
+  for (const m of fallbackMetrics) {
+    if (!rank.has(`${base}:${m.id}`)) rank.set(`${base}:${m.id}`, i++);
+  }
+  if (rank.size === 0) return measurements;
+  const at = (m: SCJob["measurements"][number]) =>
+    rank.get(`${m.garment_order_id ?? base}:${m.measurement_metric_id}`) ??
+    Number.MAX_SAFE_INTEGER;
+  return [...measurements].sort((a, b) => at(a) - at(b));
 }
 
 /** Display labels per garment instance — repeated garments get numbered
@@ -3439,12 +3496,14 @@ function SuccessScreen({
 function CompletedView({
   job,
   metrics,
+  checklist,
   onReload,
   onDownloadPdf,
   onEdit,
 }: {
   job: SCJob;
   metrics: SCMetric[];
+  checklist: SCChecklist | null;
   onReload: () => void;
   onDownloadPdf: (onProgress?: PdfProgressFn) => Promise<void>;
   onEdit: () => void;
@@ -3452,6 +3511,13 @@ function CompletedView({
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState(false);
+  // Checklist priority order (base first, then garment sections) — the
+  // same order the wizard captures in.
+  const orderedReadings = orderMeasurementsByChecklist(
+    job.measurements,
+    checklist,
+    metrics,
+  );
 
   async function handleDownload() {
     setPdfLoading(true);
@@ -3591,7 +3657,7 @@ function CompletedView({
             Captured readings
           </p>
           <ul className="divide-y divide-hairline">
-            {job.measurements.map((m) => {
+            {orderedReadings.map((m) => {
               const metric = metrics.find(
                 (x) => x.id === m.measurement_metric_id,
               );
