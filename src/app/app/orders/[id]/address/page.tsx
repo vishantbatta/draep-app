@@ -8,7 +8,8 @@
  * order's contact: the endpoint checks serviceability, saves the address to
  * the customer's saved addresses, and attaches it to the order (address_id)
  * — the same save + attach the admin dashboard performs. On success we land
- * back on the order with the dummy "order placed" state (?placed=1).
+ * back on the order, where the address bar now shows the deliver-to card
+ * and Continue moves on to slot selection.
  */
 
 import Link from "next/link";
@@ -61,7 +62,7 @@ export default function OrderAddressPage() {
             });
             return null;
           }}
-          onSaved={() => router.replace(`/app/orders/${id}?placed=1`)}
+          onSaved={() => router.replace(`/app/orders/${id}`)}
         />
       </div>
     </ScreenShell>

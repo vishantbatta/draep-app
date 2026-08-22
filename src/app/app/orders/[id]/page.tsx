@@ -10,18 +10,20 @@
  * generator the /invoice page uses, fetched from the same public invoice
  * endpoint.
  *
- * Every order ends in a pinned address bar whose state follows the address
- * only, never the order status: attached (or a saved) address → deliver-to
- * card + Continue; no address at all → "Add delivery address" routes to
- * /app/orders/{id}/address, which saves the address AND attaches it (PUT
- * /orders/{id}/contact). Continue attaches a saved pick (PUT
- * /orders/{id}/address) and shows the dummy "order placed" state. Placed
- * orders also get invoice actions above the bar.
+ * Every order ends in a pinned bottom bar whose state follows the address
+ * and the visit, never the order status: attached (or a saved) address →
+ * deliver-to card + Continue; no address at all → "Add delivery address"
+ * routes to /app/orders/{id}/address, which saves the address AND attaches
+ * it (PUT /orders/{id}/contact). Continue with no visit yet opens the
+ * slot sheet — Select books the measurement visit (POST /orders/{id}/
+ * booking; reschedules via PATCH when one exists) — after which the CTA
+ * becomes "Pay ₹<balance> to Book". Placed orders also get invoice
+ * actions above the bar.
  */
 
 import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import { OrderStatusRows, StatusPill } from "@/components/order/OrderStatus";
 import { ScreenShell } from "@/components/layout/ScreenShell";
@@ -49,6 +51,8 @@ import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
 import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
 import { AddressForm } from "@/components/contact/AddressForm";
+import { SlotSheet } from "@/components/order/SlotSheet";
+import type { Booking } from "@/types/booking";
 import type {
   Address,
   CustomerOrderDetail,
@@ -137,7 +141,6 @@ export default function OrderDetailPage() {
 function OrderDetailContent() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [detail, setDetail] = useState<CustomerOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -147,22 +150,18 @@ function OrderDetailContent() {
   const [invoiceBusy, setInvoiceBusy] = useState(false);
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
 
-  /* ── Address finish flow: deliver-to card + Continue + placed state ───── */
-  const [placed, setPlaced] = useState(false);
+  /* ── Address + slot finish flow: deliver-to card → Continue → slot sheet,
+     then the Pay-to-Book CTA once a visit is booked ────────────────────── */
   const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
   const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState<string | null>(null);
+  const [slotOpen, setSlotOpen] = useState(false);
 
   /* ── Address picker + add-address sheets (Change button) ──────────────── */
   const [pickerOpen, setPickerOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [pickingId, setPickingId] = useState<string | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
-
-  // ?placed=1 — landing back after saving an address on the full-page form.
-  useEffect(() => {
-    if (searchParams.get("placed") === "1") setPlaced(true);
-  }, [searchParams]);
 
   // Saved addresses feed the deliver-to card when the order has none
   // attached. Non-fatal — on failure the card just stays hidden and
@@ -259,34 +258,6 @@ function OrderDetailContent() {
     );
   }
 
-  /* ── Dummy "order placed" state — shown after Continue completes ────── */
-  if (placed) {
-    return (
-      <ScreenShell className="px-4 pt-6">
-        <div className="flex min-h-[70dvh] flex-col items-center justify-center text-center">
-          <span
-            aria-hidden
-            className="flex h-20 w-20 items-center justify-center rounded-pill bg-success-bg text-success-text"
-          >
-            <Check size={36} />
-          </span>
-          <h1 className="mt-6 font-heading text-h1 text-ink-navy">
-            {strings.orderDetail.placedTitle}
-          </h1>
-          <p className="mt-1 text-caption text-muted">
-            <MonoNumber>{displayOrderNumber(detail.order_number, detail.id)}</MonoNumber>
-          </p>
-          <p className="mt-3 max-w-[34ch] text-body text-ink/85">
-            {strings.orderDetail.placedBody}
-          </p>
-          <Button fullWidth className="mt-8" onClick={() => router.push("/app")}>
-            {strings.orderDetail.viewOrders}
-          </Button>
-        </div>
-      </ScreenShell>
-    );
-  }
-
   /* ── Detail ──────────────────────────────────────────────────────────── */
   const isDraft = detail.fulfillment_status === "draft";
   // The slot drives the visit time; orders booked before slots were linked
@@ -344,6 +315,30 @@ function OrderDetailContent() {
         }
       : null;
 
+  /* ── Booked visit — drives the slot sheet mode and the Pay CTA ───────── */
+  const activeJob =
+    detail.measurement_jobs.find(
+      (j) =>
+        j.status === "scheduled" ||
+        j.status === "in_progress" ||
+        j.status === "needs_reassignment",
+    ) ?? null;
+  const hasActiveVisit = activeJob !== null;
+  // The sheet only needs the scheduled instant to preselect the day and to
+  // know it must PATCH (reschedule) instead of POST.
+  const currentBooking: Booking | null =
+    activeJob?.scheduled_at != null
+      ? {
+          job_id: activeJob.id,
+          captain_id: "",
+          captain_name: activeJob.captain_name,
+          scheduled_at: activeJob.scheduled_at,
+          status: activeJob.status ?? "scheduled",
+        }
+      : null;
+  const payAmount =
+    detail.balance_due > 0 ? detail.balance_due : (detail.total_price ?? 0);
+
   const handleContinue = async () => {
     if (placing) return;
     if (!deliverTo) {
@@ -351,15 +346,20 @@ function OrderDetailContent() {
       router.push(`/app/orders/${id}/address`);
       return;
     }
-    if (attached || !deliverTo.id) {
-      setPlaced(true);
+    if (hasActiveVisit) {
+      // Pay-to-book — payment wiring lands here in the next step.
       return;
     }
+    if (attached || !deliverTo.id) {
+      setSlotOpen(true);
+      return;
+    }
+    // Saved pick not attached yet — attach it, then straight into slot picking.
     setPlacing(true);
     setPlaceError(null);
     try {
       await ordersApi.attachOrderAddress(id, deliverTo.id);
-      setPlaced(true);
+      setSlotOpen(true);
     } catch (err) {
       setPlaceError(err instanceof Error ? err.message : strings.orderDetail.attachError);
     } finally {
@@ -697,8 +697,21 @@ function OrderDetailContent() {
           disabled={placing}
           onClick={() => void handleContinue()}
         >
-          {deliverTo ? strings.orderDetail.continueCta : strings.orderDetail.addAddressCta}
+          {!deliverTo
+            ? strings.orderDetail.addAddressCta
+            : hasActiveVisit
+              ? strings.orderDetail.payToBook(formatPrice(payAmount))
+              : strings.orderDetail.continueCta}
         </Button>
+        {hasActiveVisit && deliverTo && (
+          <button
+            type="button"
+            onClick={() => setSlotOpen(true)}
+            className="mt-2 w-full py-1 text-center text-caption font-semibold text-navy-interactive underline"
+          >
+            {strings.orderDetail.changeSlot}
+          </button>
+        )}
       </div>
 
       {/* Address picker — Change opens this; rows attach on tap */}
@@ -805,6 +818,24 @@ function OrderDetailContent() {
           }}
         />
       </BottomSheet>
+
+      {/* Slot picker — Continue (or Change slot) opens this; Select books
+          (or reschedules) the measurement visit, then the CTA becomes
+          "Pay ₹<balance> to Book" once the refreshed detail lands */}
+      <SlotSheet
+        open={slotOpen}
+        onClose={() => setSlotOpen(false)}
+        orderId={id}
+        currentBooking={currentBooking}
+        onBooked={() => {
+          setSlotOpen(false);
+          void refreshDetail();
+        }}
+        onAlreadyBooked={() => {
+          setSlotOpen(false);
+          void refreshDetail();
+        }}
+      />
     </ScreenShell>
   );
 }
