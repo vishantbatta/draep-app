@@ -426,7 +426,8 @@ export function GarmentSelectionSheet({
                 variationId: it.addon_variation_id ?? null,
               })),
             };
-          } else {
+          } else if (seedRows.length === 0) {
+            // Fresh garment, nothing saved yet — apply catalog defaults.
             const isPlacementBased = effectivePlacements(addon).length > 0;
             nextAddons[addon.id] = {
               addonId: addon.id,
@@ -440,6 +441,14 @@ export function GarmentSelectionSheet({
                       },
                     ]
                   : [],
+            };
+          } else {
+            // A saved set exists but has no row for this add-on — the user
+            // left it off, so is_default_on must not re-enable it.
+            nextAddons[addon.id] = {
+              addonId: addon.id,
+              enabled: false,
+              slots: [],
             };
           }
         }
