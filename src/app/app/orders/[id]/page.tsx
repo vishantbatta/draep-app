@@ -10,20 +10,35 @@
  * generator the /invoice page uses, fetched from the same public invoice
  * endpoint.
  *
- * Draft orders are supported too: labels resolve live and the invoice action
- * becomes "Continue designing".
+ * Every order ends in a pinned address bar whose state follows the address
+ * only, never the order status: attached (or a saved) address → deliver-to
+ * card + Continue; no address at all → "Add delivery address" routes to
+ * /app/orders/{id}/address, which saves the address AND attaches it (PUT
+ * /orders/{id}/contact). Continue attaches a saved pick (PUT
+ * /orders/{id}/address) and shows the dummy "order placed" state. Placed
+ * orders also get invoice actions above the bar.
  */
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { OrderStatusRows, StatusPill } from "@/components/order/OrderStatus";
 import { ScreenShell } from "@/components/layout/ScreenShell";
+import { Banner } from "@/components/ui/Banner";
+import { BottomSheet } from "@/components/ui/BottomSheet";
 import { Button } from "@/components/ui/Button";
 import { MonoNumber } from "@/components/ui/MonoNumber";
-import { ArrowLeft, Calendar, ChatBubble, MapPin, Thread } from "@/components/ui/icons";
-import { ApiError, ordersApi } from "@/lib/api";
+import {
+  ArrowLeft,
+  Calendar,
+  ChatBubble,
+  Check,
+  MapPin,
+  Plus,
+  Thread,
+} from "@/components/ui/icons";
+import { ApiError, addressesApi, ordersApi } from "@/lib/api";
 import {
   displayOrderNumber,
   formatDate,
@@ -33,7 +48,9 @@ import {
 import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
 import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
+import { AddressForm } from "@/components/contact/AddressForm";
 import type {
+  Address,
   CustomerOrderDetail,
   OrderDetailItem,
 } from "@/types/api";
@@ -108,8 +125,19 @@ function JobRow({ label, children }: { label: string; children: ReactNode }) {
 /* ============================================================ */
 
 export default function OrderDetailPage() {
+  // useSearchParams (?placed=1) needs a Suspense boundary during prerender;
+  // the content below renders its own loading skeleton, so null suffices.
+  return (
+    <Suspense fallback={null}>
+      <OrderDetailContent />
+    </Suspense>
+  );
+}
+
+function OrderDetailContent() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [detail, setDetail] = useState<CustomerOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -118,6 +146,40 @@ export default function OrderDetailPage() {
 
   const [invoiceBusy, setInvoiceBusy] = useState(false);
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
+
+  /* ── Address finish flow: deliver-to card + Continue + placed state ───── */
+  const [placed, setPlaced] = useState(false);
+  const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
+  const [placing, setPlacing] = useState(false);
+  const [placeError, setPlaceError] = useState<string | null>(null);
+
+  /* ── Address picker + add-address sheets (Change button) ──────────────── */
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [pickingId, setPickingId] = useState<string | null>(null);
+  const [pickError, setPickError] = useState<string | null>(null);
+
+  // ?placed=1 — landing back after saving an address on the full-page form.
+  useEffect(() => {
+    if (searchParams.get("placed") === "1") setPlaced(true);
+  }, [searchParams]);
+
+  // Saved addresses feed the deliver-to card when the order has none
+  // attached. Non-fatal — on failure the card just stays hidden and
+  // Continue routes to the add-address page instead.
+  useEffect(() => {
+    if (!detail) return;
+    let cancelled = false;
+    addressesApi
+      .listAddresses()
+      .then((list) => {
+        if (!cancelled) setSavedAddresses(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [detail]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -197,6 +259,34 @@ export default function OrderDetailPage() {
     );
   }
 
+  /* ── Dummy "order placed" state — shown after Continue completes ────── */
+  if (placed) {
+    return (
+      <ScreenShell className="px-4 pt-6">
+        <div className="flex min-h-[70dvh] flex-col items-center justify-center text-center">
+          <span
+            aria-hidden
+            className="flex h-20 w-20 items-center justify-center rounded-pill bg-success-bg text-success-text"
+          >
+            <Check size={36} />
+          </span>
+          <h1 className="mt-6 font-heading text-h1 text-ink-navy">
+            {strings.orderDetail.placedTitle}
+          </h1>
+          <p className="mt-1 text-caption text-muted">
+            <MonoNumber>{displayOrderNumber(detail.order_number, detail.id)}</MonoNumber>
+          </p>
+          <p className="mt-3 max-w-[34ch] text-body text-ink/85">
+            {strings.orderDetail.placedBody}
+          </p>
+          <Button fullWidth className="mt-8" onClick={() => router.push("/app")}>
+            {strings.orderDetail.viewOrders}
+          </Button>
+        </div>
+      </ScreenShell>
+    );
+  }
+
   /* ── Detail ──────────────────────────────────────────────────────────── */
   const isDraft = detail.fulfillment_status === "draft";
   // The slot drives the visit time; orders booked before slots were linked
@@ -224,6 +314,86 @@ export default function OrderDetailPage() {
       (t.type === "payment" && t.status === "captured") ||
       (t.type === "refund" && (t.status === "captured" || t.status === "refunded")),
   );
+
+  /* ── Deliver-to card: the attached address, else the first saved one ──── */
+  const attached = Boolean(addressLine1);
+  // The contact payload carries the attached address row's id — the picker
+  // marks that row as the current selection.
+  const attachedAddressId = typeof contact?.id === "string" ? contact.id : null;
+  const savedPick = savedAddresses[0] ?? null;
+  const deliverTo = attached
+    ? {
+        id: null as string | null,
+        line1: addressLine1 ?? "",
+        line2: typeof contact?.address_line_2 === "string" ? contact.address_line_2 : null,
+        cityLine: [
+          cityLine,
+          typeof contact?.state === "string" ? contact.state : null,
+        ]
+          .filter(Boolean)
+          .join(", "),
+      }
+    : savedPick?.address_line_1
+      ? {
+          id: savedPick.id,
+          line1: savedPick.address_line_1,
+          line2: savedPick.address_line_2,
+          cityLine: [savedPick.city, savedPick.state, savedPick.pincode]
+            .filter(Boolean)
+            .join(", "),
+        }
+      : null;
+
+  const handleContinue = async () => {
+    if (placing) return;
+    if (!deliverTo) {
+      // No address anywhere yet — the full-page form saves one and attaches it.
+      router.push(`/app/orders/${id}/address`);
+      return;
+    }
+    if (attached || !deliverTo.id) {
+      setPlaced(true);
+      return;
+    }
+    setPlacing(true);
+    setPlaceError(null);
+    try {
+      await ordersApi.attachOrderAddress(id, deliverTo.id);
+      setPlaced(true);
+    } catch (err) {
+      setPlaceError(err instanceof Error ? err.message : strings.orderDetail.attachError);
+    } finally {
+      setPlacing(false);
+    }
+  };
+
+  /* ── Address picker sheet ──────────────────────────────────────────────── */
+  const refreshDetail = async () => {
+    try {
+      setDetail(await ordersApi.getOrderDetail(id));
+    } catch {
+      // picker already shows its own error; keep the current detail
+    }
+  };
+
+  const handlePick = async (addrId: string) => {
+    if (pickingId) return;
+    if (addrId === attachedAddressId) {
+      setPickerOpen(false);
+      return;
+    }
+    setPickingId(addrId);
+    setPickError(null);
+    try {
+      await ordersApi.attachOrderAddress(id, addrId);
+      setPickerOpen(false);
+      await refreshDetail();
+    } catch (err) {
+      setPickError(err instanceof Error ? err.message : strings.orderDetail.attachError);
+    } finally {
+      setPickingId(null);
+    }
+  };
 
   return (
     <ScreenShell className="px-4 pt-6">
@@ -450,12 +620,8 @@ export default function OrderDetailPage() {
         </section>
       )}
 
-      {/* Actions */}
-      {isDraft ? (
-        <Button fullWidth className="mt-5" onClick={() => router.push("/review")}>
-          {strings.orderDetail.continueDraft}
-        </Button>
-      ) : (
+      {/* Invoice actions — placed orders */}
+      {!isDraft && (
         <div className="mt-5 space-y-2">
           <Button
             fullWidth
@@ -480,6 +646,165 @@ export default function OrderDetailPage() {
           )}
         </div>
       )}
+
+      {/* Address bar — pinned to the viewport bottom. Its state follows the
+          attached/saved address only, never the order status. */}
+      <div className="sticky bottom-0 z-20 -mx-4 -mb-6 mt-5 border-t border-hairline bg-chalk-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-6px_16px_-8px_rgba(23,42,72,0.25)]">
+        {/* Deliver-to card — food-app style, above the Continue button */}
+        {deliverTo && (
+          <div className="rounded-card border border-hairline bg-chalk-white p-4">
+            <div className="flex items-start gap-3">
+              <span
+                aria-hidden
+                className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-pill bg-warm-sand text-accent-text"
+              >
+                <MapPin size={16} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-caption font-semibold text-muted">
+                  {strings.orderDetail.deliverTo}
+                </p>
+                <p className="mt-0.5 text-body font-medium text-ink-navy">
+                  {deliverTo.line1}
+                </p>
+                {(deliverTo.line2 || deliverTo.cityLine) && (
+                  <p className="text-caption text-muted">
+                    {[deliverTo.line2, deliverTo.cityLine].filter(Boolean).join(", ")}
+                  </p>
+                )}
+              </div>
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(true)}
+                  className="flex-none rounded-pill px-2 py-1 text-caption font-semibold text-navy-interactive transition hover:bg-mist-navy"
+                >
+                  {strings.orderDetail.changeAddress}
+                </button>
+            </div>
+          </div>
+        )}
+
+        {placeError && (
+          <Banner variant="error" className="mt-3">
+            <p className="text-caption">{placeError}</p>
+          </Banner>
+        )}
+
+        <Button
+          fullWidth
+          className="mt-3"
+          loading={placing}
+          disabled={placing}
+          onClick={() => void handleContinue()}
+        >
+          {deliverTo ? strings.orderDetail.continueCta : strings.orderDetail.addAddressCta}
+        </Button>
+      </div>
+
+      {/* Address picker — Change opens this; rows attach on tap */}
+      <BottomSheet
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        title={strings.orderDetail.addressPageTitle}
+      >
+        <div className="pb-2">
+          {savedAddresses.map((addr) => {
+            const selected = addr.id === attachedAddressId;
+            const picking = pickingId === addr.id;
+            return (
+              <button
+                key={addr.id}
+                type="button"
+                disabled={pickingId !== null}
+                onClick={() => void handlePick(addr.id)}
+                className={`mt-3 flex w-full items-start gap-3 rounded-card border-[1.5px] p-4 text-left transition ${
+                  selected
+                    ? "border-navy-interactive bg-mist-navy/50"
+                    : "border-hairline bg-chalk-white hover:bg-mist-navy/30"
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className={`mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-pill ${
+                    selected
+                      ? "bg-navy-interactive text-chalk-white"
+                      : "bg-warm-sand text-accent-text"
+                  }`}
+                >
+                  {selected ? <Check size={16} /> : <MapPin size={16} />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-body font-medium text-ink-navy">
+                    {addr.address_line_1}
+                  </p>
+                  {addr.address_line_2 && (
+                    <p className="text-caption text-muted">{addr.address_line_2}</p>
+                  )}
+                  <p className="mt-0.5 text-caption text-muted">
+                    {[addr.city, addr.state, addr.pincode].filter(Boolean).join(", ")}
+                  </p>
+                </div>
+                {picking && (
+                  <span className="flex-none text-caption text-muted">
+                    {strings.orderDetail.selecting}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+
+          {pickError && (
+            <Banner variant="error" className="mt-3">
+              <p className="text-caption">{pickError}</p>
+            </Banner>
+          )}
+
+          {/* Add new address — opens the add sheet stacked above this one */}
+          <button
+            type="button"
+            onClick={() => setAddOpen(true)}
+            className="mt-3 flex w-full items-center gap-3 rounded-card border border-dashed border-hairline-strong bg-chalk-white/70 p-4 text-left transition hover:bg-mist-navy/40"
+          >
+            <span
+              aria-hidden
+              className="flex h-9 w-9 flex-none items-center justify-center rounded-pill bg-mist-navy text-ink-navy"
+            >
+              <Plus size={16} />
+            </span>
+            <p className="text-body font-medium text-navy-interactive">
+              {strings.orderDetail.addNewAddress}
+            </p>
+          </button>
+        </div>
+      </BottomSheet>
+
+      {/* Add address — the same shared form as the account page; saving
+          returns to the picker, which now lists the new address */}
+      <BottomSheet
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title={strings.account.addAddressTitle}
+      >
+        <AddressForm
+          active={addOpen}
+          saveAddress={(fields, pin) =>
+            addressesApi.createAddress({
+              address_line_1: fields.address_line_1,
+              address_line_2: fields.address_line_2 || null,
+              city: fields.city,
+              state: fields.state,
+              pincode: fields.pincode,
+              coordinates: pin,
+            })
+          }
+          onSaved={(addr) => {
+            if (addr) {
+              setSavedAddresses((list) => [...list, addr]);
+              setAddOpen(false);
+            }
+          }}
+        />
+      </BottomSheet>
     </ScreenShell>
   );
 }

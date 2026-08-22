@@ -65,7 +65,8 @@ export default function AppDashboardPage() {
   const hydrated = useAuthHydrated();
   const sessionType = useAuthStore((s) => s.sessionType);
   const user = useAuthStore((s) => s.user);
-  const activeOrderId = useAuthStore((s) => s.activeOrderId);
+  // Hidden along with the active-draft banner below.
+  // const activeOrderId = useAuthStore((s) => s.activeOrderId);
   const sendOtp = useAuthStore((s) => s.sendOtp);
   const verifyOtp = useAuthStore((s) => s.verifyOtp);
   const verifyOtpWidget = useAuthStore((s) => s.verifyOtpWidget);
@@ -502,7 +503,8 @@ export default function AppDashboardPage() {
 
       {isLoggedIn && !needsProfile && (
         <>
-          {/* Active draft banner */}
+          {/* Active draft banner — hidden for now, re-enable by uncommenting
+              (and the activeOrderId selector near the top of the component).
           {activeOrderId && (
             <section className="mt-6 flex items-center gap-3 rounded-card border border-hairline bg-mist-navy p-4 shadow-card">
               <span
@@ -524,6 +526,7 @@ export default function AppDashboardPage() {
               </Button>
             </section>
           )}
+          */}
 
           {/* Orders */}
           <section className="mt-6">

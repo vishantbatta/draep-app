@@ -119,3 +119,15 @@ export function removeAddon(
     query: placement ? { placement } : undefined,
   });
 }
+
+// PUT /orders/{order_id}/address — attach an existing saved address to the
+// draft order (same address_id set the admin dashboard performs; no new
+// address row is created).
+export function attachOrderAddress(
+  orderId: string,
+  addressId: string,
+): Promise<OrderOut> {
+  return apiPut<OrderOut>(`/orders/${orderId}/address`, {
+    address_id: addressId,
+  });
+}
