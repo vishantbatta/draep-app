@@ -24,9 +24,10 @@
  *     2.3 Per-garment measurements table (image | titles | descriptions | value)
  *     2.4 Cloth & materials
  *   Then — the embedded tax invoice (reuses the invoice-pdf.ts template;
- *   see `JobPdfInput.invoice`), then the order-level body measurements:
- *   the job's BASE readings only (garment-scoped ones live in each
- *   garment's 2.3 table), rendered in the same table format as 2.3.
+ *   see `JobPdfInput.invoice`; pricing appears ONLY here), then the
+ *   order-level body measurements: the job's BASE readings only
+ *   (garment-scoped ones live in each garment's 2.3 table), one full
+ *   page per metric with a large guide image.
  */
 
 import type {
@@ -98,8 +99,8 @@ export interface StyleSelectionGroup {
  *
  *   customerDetails    → enriches the Cover page (phone / email / address)
  *   measurementDetails → the per-garment measurement tables (2.3) AND the
- *                        order-level Body Measurements table (this job's
- *                        base readings, same table format as 2.3)
+ *                        order-level Body Measurements guide pages (this
+ *                        job's base readings, one per page)
  *   designDetails      → the per-garment Style Selections table (2.1) and
  *                        Design Inspiration images (2.2)
  *   fabricDetails      → the per-garment Cloth & Materials section (2.4)
@@ -165,6 +166,20 @@ function fmtDateTime(v: string | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Format a reading value, falling back to "—" when missing. */
+function fmtValue(
+  reading: BodyMeasurementWithMetric["reading"],
+  metric: BodyMeasurementWithMetric["metric"],
+): string {
+  if (!reading) return "—";
+  if (reading.value_numeric !== null && reading.value_numeric !== undefined) {
+    const u = reading.unit ?? metric.unit ?? "";
+    return `${reading.value_numeric}${u ? ` ${u}` : ""}`;
+  }
+  if (reading.value_text) return esc(reading.value_text);
+  return "—";
 }
 
 /**
@@ -391,6 +406,64 @@ function itemLabelText(it: GarmentOrderItemRow): string {
   return placement ? `${type} (${placement})` : type;
 }
 
+/** One body-measurement per page — large image so a tailor can read it clearly. */
+function bodyMeasurementsPage(
+  rows: BodyMeasurementWithMetric[],
+  pageNum: number,
+  totalPages: number,
+): string {
+  const blocks = rows
+    .map(({ metric, reading }) => {
+      const labels = metric.labels ?? {};
+      const descriptions = metric.descriptions ?? {};
+      const imageUrl = absUrl(metric.asset_urls?.[0] ?? null);
+
+      return `
+        <div class="metric-row">
+          <div class="metric-image">
+            ${
+              imageUrl
+                ? `<img src="${imageUrl}"
+                        data-pdf-src="${esc(metric.asset_urls?.[0] ?? "")}"
+                        alt="${esc(labels.en ?? metric.code ?? "metric")}" />`
+                : `<div class="img-placeholder">No image</div>`
+            }
+          </div>
+          <div class="metric-body">
+            <div class="metric-headline">
+              <div class="metric-names">
+                <div class="name name-en">${esc(labels.en ?? metric.code ?? "—")}</div>
+                ${labels.hi ? `<div class="name name-hi">${esc(labels.hi)}</div>` : ""}
+                ${labels.kn ? `<div class="name name-kn">${esc(labels.kn)}</div>` : ""}
+              </div>
+              <div class="metric-value">
+                <div class="value-label">${upper("Value")}</div>
+                <div class="value-text">${fmtValue(reading, metric)}</div>
+              </div>
+            </div>
+            <div class="metric-desc">
+              ${descriptions.en ? `<div>${esc(descriptions.en)}</div>` : ""}
+              ${descriptions.hi ? `<div class="desc-hi">${esc(descriptions.hi)}</div>` : ""}
+              ${descriptions.kn ? `<div class="desc-kn">${esc(descriptions.kn)}</div>` : ""}
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <section class="page body-page">
+      <header class="page-header">
+        <h2>Body Measurements</h2>
+        <div class="page-num">Page ${pageNum} of ${totalPages}</div>
+      </header>
+      ${blocks}
+      <footer class="report-footer">DRAEP Measurement Report • Page ${pageNum} of ${totalPages}</footer>
+    </section>
+  `;
+}
+
 // ─── Per-garment section: style selections · inspiration · measurements · cloth ──
 //
 // ONE section per garment order, flowing across as many A4 pages as its
@@ -413,17 +486,6 @@ function itemLabelText(it: GarmentOrderItemRow): string {
 
 /** Languages rendered for titles/descriptions, in display order. */
 const STYLE_LANGS = ["en", "hi", "kn"] as const;
-
-const rupeeFormat = new Intl.NumberFormat("en-IN", {
-  style: "currency",
-  currency: "INR",
-  maximumFractionDigits: 0,
-});
-
-/** ₹ amount for the style-table price tag (items are whole rupees). */
-function fmtRupees(n: number): string {
-  return rupeeFormat.format(n);
-}
 
 /** .page vertical geometry from PRINT_CSS: 1123px, 60px top + 68px bottom padding. */
 const GS_PAGE_CONTENT_H = 1123 - 60 - 68;
@@ -463,14 +525,6 @@ interface GarmentSectionInput {
   /** 1-based display number ("GARMENT 1: …"), assigned after empty sections
    *  are dropped so numbering never skips. */
   number: number;
-  /** <h2> override for non-garment sections reusing this flow (the
-   *  order-level body measurements table). */
-  headerTitle?: string;
-  /** Skip the style-hero chrome — non-garment sections have no GO hero. */
-  hideHero?: boolean;
-  /** Prebuilt blocks — when set the planner uses them verbatim and ignores
-   *  group/style (see the body measurements section in the orchestrator). */
-  prebuiltBlocks?: GarmentSectionBlock[];
 }
 
 /** A planned page: which blocks land on it, and which rows/pieces of each. */
@@ -484,10 +538,6 @@ interface GarmentSectionMeasured {
   blocks: GarmentSectionBlock[];
   pages: GsPageEntry[][];
 }
-
-/** Pagination key of the order-level body-measurements section (an id-space
- *  of its own so it can never collide with a garment_order id). */
-const BODY_SECTION_KEY = "__body_measurements__";
 
 // ── Shared helpers for titles / native names / descriptions ────────────────
 
@@ -537,7 +587,8 @@ const STYLE_TABLE_THEAD = `
   </thead>`;
 
 /** One <tr>: component (+native, blurb, add-on badge) | choice (+native,
- *  price, placement) | per-language choice descriptions. */
+ *  placement) | per-language choice descriptions. Item prices are NOT shown
+ *  here — pricing appears only in the optional invoice section. */
 function styleSelectionRow(
   it: GarmentOrderItemRow,
   detail: StyleItemDetail | undefined,
@@ -567,7 +618,6 @@ function styleSelectionRow(
       <td class="gs-td gs-td-choice">
         <div class="gs-choice">${esc(choiceEn || "—")}</div>
         ${choiceNative ? `<div class="gs-native">${esc(choiceNative)}</div>` : ""}
-        ${it.price != null && it.price !== 0 ? `<div class="gs-price">${esc(fmtRupees(it.price))}</div>` : ""}
         ${placement ? `<div class="gs-placement">${upper("Placement")}: ${esc(placement)}</div>` : ""}
       </td>
       <td class="gs-td gs-td-desc">
@@ -590,8 +640,8 @@ const MEAS_TABLE_THEAD = `
   </thead>`;
 
 /** One <tr>: metric image | titles (en + native) | descriptions (per
- *  language) | big value. Used by BOTH the garment measurement tables (2.3)
- *  and the order-level body measurements section. */
+ *  language) | big value — the compact row used by the garment
+ *  measurement tables (2.3). */
 function garmentMeasurementRow(r: BodyMeasurementWithMetric): string {
   const labels = r.metric.labels ?? {};
   const descriptions = r.metric.descriptions ?? {};
@@ -794,20 +844,13 @@ function buildGarmentSectionBlocks(
 
 /** Hero + header + footer chrome shared by the probe and the emitter —
  *  identical markup ⇒ identical measured heights. */
-const gsHeaderHtml = (section: GarmentSectionInput, pageNum: number, totalPages: number): string => {
-  const title =
-    section.headerTitle != null
-      ? esc(section.headerTitle)
-      : `${upper("Garment")} ${section.number}: ${esc(garmentSectionLabel(section.group, section.style))}`;
-  return `
+const gsHeaderHtml = (section: GarmentSectionInput, pageNum: number, totalPages: number): string => `
   <header class="page-header">
-    <h2>${title}</h2>
+    <h2>${upper("Garment")} ${section.number}: ${esc(garmentSectionLabel(section.group, section.style))}</h2>
     <div class="page-num">Page ${pageNum} of ${totalPages}</div>
   </header>`;
-};
 
 const gsHeroHtml = (section: GarmentSectionInput, continued: boolean): string => {
-  if (section.hideHero) return "";
   const g = section.group;
   const style = section.style;
   const counts = (() => {
@@ -867,7 +910,7 @@ async function measureGarmentSections(
 ): Promise<Map<string, GarmentSectionMeasured>> {
   const built = sections.map((s) => ({
     section: s,
-    blocks: s.prebuiltBlocks ?? buildGarmentSectionBlocks(s.group, s.style, opts),
+    blocks: buildGarmentSectionBlocks(s.group, s.style, opts),
   }));
 
   const holder = document.createElement("div");
@@ -1065,7 +1108,6 @@ function garmentSectionPages(
   // Unmeasured fallback (never hit on the normal path): everything on one page.
   const blocks =
     measured?.blocks ??
-    section.prebuiltBlocks ??
     buildGarmentSectionBlocks(section.group, section.style, ALL_SECTIONS);
   const pages =
     measured?.pages ??
@@ -1102,7 +1144,7 @@ function garmentSectionPages(
         })
         .join("");
       return `
-        <section class="page ${section.hideHero ? "body-page" : "garment-page"}">
+        <section class="page garment-page">
           ${gsHeaderHtml(section, current, totalPageCount)}
           ${gsHeroHtml(section, pi > 0)}
           ${body}
@@ -1129,8 +1171,8 @@ export interface JobPdfInput {
   garmentMeasurements: GarmentMeasurementGroup[];
   /**
    * Optional per-garment-order style selections (component → variation →
-   * variation_type, add-ons, prices). When provided, a "Style Selections"
-   * page is rendered for each garment order.
+   * variation_type, add-ons; prices are NOT rendered). When provided, a
+   * "Style Selections" page is rendered for each garment order.
    */
   styleSelections?: StyleSelectionGroup[];
   /**
@@ -1262,63 +1304,29 @@ export async function downloadMeasurementJobPdf(
     .filter((s) => buildGarmentSectionBlocks(s.group, s.style, opts).length > 0)
     .map((s, i) => ({ ...s, number: i + 1 }));
 
-  // 3. Order-level (body) measurements — ONLY the base readings actually
-  // taken for this order's job: garment-scoped readings live in their
-  // garment's 2.3 table, and un-measured catalogue metrics are omitted
-  // entirely. Rendered in the SAME table format as 2.3 by reusing the
-  // garment-section flow with prebuilt blocks and no hero.
-  const bodyRows = bodyMeasurements.filter((r) => r.reading);
-  const bodySection: GarmentSectionInput | null =
-    opts.measurementDetails && bodyRows.length > 0
-      ? {
-          key: BODY_SECTION_KEY,
-          group: {
-            garmentOrderId: BODY_SECTION_KEY,
-            garmentId: null,
-            garmentSlug: null,
-            garmentLabels: null,
-            status: null,
-            userNote: null,
-            materials: [],
-            readings: [],
-          },
-          style: null,
-          number: 0,
-          headerTitle: "Body Measurements",
-          hideHero: true,
-          prebuiltBlocks: [
-            {
-              label: "",
-              kind: "table",
-              thead: MEAS_TABLE_THEAD,
-              rows: bodyRows.map(garmentMeasurementRow),
-            },
-          ],
-        }
-      : null;
-
-  // Garment + body sections flow across A4 pages — real block heights are
-  // measured in an offscreen probe BEFORE the page-count math so the "Page N
-  // of T" footers and the invoice/body offsets account for every
-  // continuation page.
-  onProgress?.(0, 1, "Laying out report sections…");
-  const sectionsToMeasure = [
-    ...garmentSections,
-    ...(bodySection ? [bodySection] : []),
-  ];
+  // Garment sections flow across A4 pages — real block heights are measured
+  // in an offscreen probe BEFORE the page-count math so the "Page N of T"
+  // footers and the invoice/body offsets account for every continuation page.
+  onProgress?.(0, 1, "Laying out garment sections…");
   const sectionMeasured =
-    sectionsToMeasure.length > 0
-      ? await measureGarmentSections(sectionsToMeasure, opts)
+    garmentSections.length > 0
+      ? await measureGarmentSections(garmentSections, opts)
       : new Map<string, GarmentSectionMeasured>();
   const sectionPagesOf = (s: GarmentSectionInput): number =>
     sectionMeasured.get(s.key)?.pages.length ?? 1;
 
   // A disabled section contributes 0 pages; an enabled one contributes its
-  // natural page count. An order whose garments produce no enabled content
-  // gets no garment pages at all — and a job with no base readings gets no
-  // body-measurements pages.
+  // natural page count. Body measurements render one metric per page, ONLY
+  // the base readings actually taken for this order's job (garment-scoped
+  // readings live in their garment's 2.3 table; un-measured catalogue
+  // metrics are omitted), so a job with no base readings gets no body pages.
+  const bodyRows = bodyMeasurements.filter((r) => r.reading);
+  const bodyPerPage = 1;
   const garmentPages = garmentSections.reduce((sum, s) => sum + sectionPagesOf(s), 0);
-  const bodyPages = bodySection ? sectionPagesOf(bodySection) : 0;
+  const bodyPages =
+    opts.measurementDetails && bodyRows.length > 0
+      ? Math.ceil(bodyRows.length / bodyPerPage)
+      : 0;
   const invoicePages = opts.invoice && invoice ? 1 : 0;
 
   const totalPages = 1 /* cover */ + garmentPages + invoicePages + bodyPages;
@@ -1349,18 +1357,13 @@ export async function downloadMeasurementJobPdf(
     pageNum += out.pages;
   }
 
-  // Body pages flow through the same emitter as garment sections (header on
-  // every page, <thead> re-printed on continuation pages).
+  // Body pages: one metric per page (large guide image for the tailor).
   const bodySections: string[] = [];
-  if (bodySection) {
-    bodySections.push(
-      garmentSectionPages(
-        bodySection,
-        sectionMeasured.get(bodySection.key) ?? null,
-        bodyStart,
-        totalPages,
-      ).html,
-    );
+  if (opts.measurementDetails && bodyRows.length > 0) {
+    for (let i = 0; i < bodyPages; i++) {
+      const slice = bodyRows.slice(i * bodyPerPage, (i + 1) * bodyPerPage);
+      bodySections.push(bodyMeasurementsPage(slice, bodyStart + i, totalPages));
+    }
   }
 
   const fullHtml = `<!doctype html>
@@ -2030,7 +2033,7 @@ const PRINT_CSS = `
     line-height: 1;
   }
 
-  /* Section pages (garment + body) — header row on every page */
+  /* Body measurement pages: 1 metric per page, large image for tailor */
   .body-page .page-header,
   .garment-page .page-header {
     display: flex;
@@ -2041,6 +2044,92 @@ const PRINT_CSS = `
   .page-num {
     font-size: 9pt;
     color: #64748b;
+  }
+
+  .metric-row {
+    display: flex;
+    flex-direction: column;
+    gap: 14pt;
+    border: 1px solid #e2e8f0;
+    border-radius: 8pt;
+    padding: 14pt;
+    margin-bottom: 14pt;
+    break-inside: avoid;
+  }
+  .metric-image {
+    width: 100%;
+    /* No fixed height — the image sets the box height so its aspect ratio is
+       preserved exactly. max-height keeps it within one A4 page. */
+    max-height: 510pt;      /* ~18cm — fits below the header/value row */
+    border: 1px solid #e2e8f0;
+    border-radius: 6pt;
+    overflow: hidden;
+    background: #f8fafc;
+  }
+  .metric-image img,
+  .metric-image canvas {
+    /* Fill the card width; height follows the image's natural aspect ratio. */
+    width: 100%;
+    height: auto;
+    max-height: 510pt;
+    object-fit: contain;
+    display: block;
+  }
+  .img-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10pt;
+    color: #94a3b8;
+  }
+  .metric-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10pt;
+  }
+  .metric-headline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16pt;
+  }
+  .metric-names { min-width: 0; }
+  .name { font-size: 13pt; line-height: 1.3; }
+  .name-en { font-weight: 700; color: #0f172a; }
+  .name-hi { color: #1e293b; font-size: 12pt; }
+  .name-kn { color: #1e293b; font-size: 12pt; }
+  .metric-desc {
+    font-size: 10pt;
+    color: #475569;
+    line-height: 1.4;
+  }
+  .metric-desc div { margin-bottom: 2pt; }
+  .desc-hi, .desc-kn { color: #64748b; }
+
+  .metric-value {
+    text-align: center;
+    border-left: 1px dashed #cbd5e1;
+    padding-left: 18pt;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .value-label {
+    font-size: 9pt;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
+    color: #94a3b8;
+    letter-spacing: 1pt;
+    margin-bottom: 4pt;
+  }
+  .value-text {
+    font-size: 22pt;
+    font-weight: 700;
+    color: #0f172a;
   }
 
   /* Garment sections — cloth & materials (2.4) */
@@ -2333,20 +2422,13 @@ const PRINT_CSS = `
     margin-top: 4pt;
   }
 
-  /* Selected-titles cell: the chosen variation + price / placement. */
+  /* Selected-titles cell: the chosen variation + placement. */
   .gs-choice {
     font-size: 11.5pt;
     font-weight: 700;
     color: #0f172a;
     line-height: 1.3;
     word-break: break-word;
-  }
-  .gs-price {
-    font-size: 9.5pt;
-    font-weight: 700;
-    color: #0f172a;
-    margin-top: 2pt;
-    font-variant-numeric: tabular-nums;
   }
   .gs-placement {
     font-size: 8.5pt;

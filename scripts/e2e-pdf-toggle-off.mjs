@@ -62,11 +62,16 @@ const KEEP = {
         .filter((l) => l.textContent.includes("GARMENT MEASUREMENTS")).length],
   ],
 };
-if (!MARKERS[TOGGLE_TITLE]) {
+if (!MARKERS[TOGGLE_TITLE] && TOGGLE_TITLE !== "Invoice") {
   console.error(`No markers defined for toggle "${TOGGLE_TITLE}"`);
   process.exit(2);
 }
+/** "Invoice" is special: its page is spliced outside the holder, so presence
+ *  is asserted via the footer total (holder pages + 1 when ON, exact when
+ *  OFF) rather than DOM markers. */
+const isInvoice = TOGGLE_TITLE === "Invoice";
 const count = (h, fns) => Object.fromEntries(fns.map(([d, f]) => [d, f(h)]));
+const markerFns = isInvoice ? [] : MARKERS[TOGGLE_TITLE];
 
 const browser = await chromium.launch();
 const context = await browser.newContext();
@@ -95,7 +100,7 @@ const baseline = await page.evaluate(
       markers: Object.fromEntries(fns.map(([d, s]) => [d, eval(s)(h)])),
     };
   },
-  MARKERS[TOGGLE_TITLE].map(([d, f]) => [d, f.toString()]),
+  markerFns.map(([d, f]) => [d, f.toString()]),
 );
 
 // Reopen the sheet and uncheck the toggle, then regenerate.
@@ -147,7 +152,7 @@ const gated = await page.evaluate(
     };
   },
   {
-    mFns: MARKERS[TOGGLE_TITLE].map(([d, f]) => [d, f.toString()]),
+    mFns: markerFns.map(([d, f]) => [d, f.toString()]),
     kFns: (KEEP[TOGGLE_TITLE] ?? []).map(([d, f]) => [d, f.toString()]),
   },
 );
@@ -161,7 +166,7 @@ for (const [d, n] of Object.entries(gated.markers))
   if (n !== 0) failures.push(`${TOGGLE_TITLE} OFF: still ${n} × ${d}`);
 for (const [d, n] of Object.entries(gated.keep))
   if (!(n > 0)) failures.push(`${TOGGLE_TITLE} OFF: ${d} vanished (should stay)`);
-if (gated.pageCount >= baseline.pages)
+if (!isInvoice && gated.pageCount >= baseline.pages)
   failures.push(
     `${TOGGLE_TITLE} OFF: page count did not shrink (${gated.pageCount} vs ${baseline.pages})`,
   );
@@ -170,11 +175,12 @@ if (gated.footerTotals.length !== 1)
 else {
   // The invoice renders from a separate container and jsPDF splices it in
   // mid-document, so the holder has pageCount elements while the footer
-  // total ALSO counts the 1 invoice page (invoice toggle ON here).
-  const expectedTotal = gated.pageCount + 1;
+  // total counts the invoice page too — UNLESS the invoice toggle is OFF,
+  // when the footer total must equal the holder page count exactly.
+  const expectedTotal = gated.pageCount + (isInvoice ? 0 : 1);
   if (Number(gated.footerTotals[0]) !== expectedTotal)
     failures.push(
-      `footer total ${gated.footerTotals[0]} != expected ${expectedTotal} (holder ${gated.pageCount} + invoice 1)`,
+      `footer total ${gated.footerTotals[0]} != expected ${expectedTotal} (holder ${gated.pageCount}${isInvoice ? ", no invoice" : " + invoice 1"})`,
     );
 }
 

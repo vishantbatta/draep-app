@@ -1,8 +1,9 @@
-/** Body-measurements section check: with all toggles ON, the order-level
- *  table must contain EXACTLY this job's base readings (garment-scoped ones
- *  stay in their garment's table), in the same 4-column gs-table format as
- *  the garment measurement tables, with correct pagination + footers.
- *  EXPECTED_BASE_ROWS is asserted against the DOM row count. */
+/** Body-measurements section check (full-page format): with all toggles ON,
+ *  the order-level section renders ONE metric per page (large guide image
+ *  card) and contains EXACTLY this job's base readings — garment-scoped ones
+ *  stay in their garment's table. Also asserts NO ₹ pricing anywhere in the
+ *  report holder (prices live only in the separately-spliced invoice).
+ *  EXPECTED_BASE_ROWS is asserted against the DOM card count. */
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 
@@ -54,7 +55,6 @@ const report = await page.evaluate(() => {
     };
   });
   const bodyPages = Array.from(holder.querySelectorAll(".body-page"));
-  const garmentPages = Array.from(holder.querySelectorAll(".garment-page"));
   const footers = allPages.map((f) =>
     f.querySelector("footer")?.textContent?.replace(/\s+/g, " ").trim(),
   );
@@ -68,32 +68,34 @@ const report = await page.evaluate(() => {
       header:
         pg.querySelector("header h2")?.textContent?.replace(/\s+/g, " ").trim() ??
         null,
-      hero: pg.querySelector(".style-hero") !== null,
-      thead: Array.from(pg.querySelectorAll(".gs-table thead th")).map((th) =>
-        th.textContent.trim(),
-      ),
-      rows: pg.querySelectorAll(".gs-table tbody tr").length,
-      sampleValues: Array.from(pg.querySelectorAll(".gs-mval"))
-        .slice(0, 6)
-        .map((v) => v.textContent.trim()),
+      cards: pg.querySelectorAll(".metric-row").length,
+      title: pg.querySelector(".name-en")?.textContent?.trim() ?? null,
+      value: pg.querySelector(".value-text")?.textContent?.trim() ?? null,
+      hasImage: pg.querySelector(".metric-image img, .metric-image canvas") !== null,
+      hasGsTable: pg.querySelector(".gs-table") !== null,
       footer:
         pg.querySelector("footer")?.textContent?.replace(/\s+/g, " ").trim() ??
         null,
     })),
-    bodyRowCount: bodyPages.reduce(
-      (n, p) => n + p.querySelectorAll(".gs-table tbody tr").length,
+    bodyCardCount: bodyPages.reduce(
+      (n, p) => n + p.querySelectorAll(".metric-row").length,
       0,
     ),
-    garmentMeasRows: garmentPages.reduce(
-      (n, p) =>
-        n +
-        Array.from(p.querySelectorAll(".gs-table"))
-          .filter((t) =>
-            t.querySelector("thead")?.textContent?.includes("Measurement"),
-          )
-          .reduce((m, t) => m + t.querySelectorAll("tbody tr").length, 0),
-      0,
-    ),
+    garmentMeasRows: Array.from(holder.querySelectorAll(".garment-page"))
+      .reduce(
+        (n, p) =>
+          n +
+          Array.from(p.querySelectorAll(".gs-table"))
+            .filter((t) =>
+              t.querySelector("thead")?.textContent?.includes("Measurement"),
+            )
+            .reduce((m, t) => m + t.querySelectorAll("tbody tr").length, 0),
+        0,
+      ),
+    rupeeHits: Array.from(
+      holder.querySelectorAll(".gs-price"),
+    ).length,
+    rupeeTextHits: (holder.textContent?.match(/₹/g) ?? []).length,
     footerTotals: [
       ...new Set(
         footers
@@ -105,7 +107,7 @@ const report = await page.evaluate(() => {
 });
 console.log(JSON.stringify(report, null, 2));
 
-// Screenshots of the body pages (holder pulled on-screen, rest hidden).
+// Screenshots of first + last body page (holder pulled on-screen).
 await page.evaluate(() => {
   const holder = document.querySelector("[data-pdf-holder]");
   holder.style.left = "0";
@@ -116,37 +118,46 @@ await page.evaluate(() => {
   }
 });
 const bodyCount = await page.locator(".body-page").count();
-for (let i = 0; i < bodyCount; i++) {
+const shots = [0, bodyCount - 1];
+for (const i of shots) {
   await page
     .locator(".body-page")
     .nth(i)
     .screenshot({ path: `/tmp/pdf-body-page-${i + 1}.png` });
 }
-console.log("body page screenshots saved:", bodyCount);
+console.log("body page screenshots saved:", bodyCount, "pages");
 
 const failures = [];
-if (report.bodyRowCount !== EXPECTED_BASE_ROWS)
+if (report.bodyCardCount !== EXPECTED_BASE_ROWS)
   failures.push(
-    `body rows ${report.bodyRowCount} != expected base readings ${EXPECTED_BASE_ROWS}`,
+    `body cards ${report.bodyCardCount} != expected base readings ${EXPECTED_BASE_ROWS}`,
   );
-const theadOk = report.bodyPages.every((p) =>
-  JSON.stringify(p.thead) ===
-  JSON.stringify(["Measurement", "Titles", "Descriptions", "Value"]),
-);
-if (!theadOk) failures.push(`body thead mismatch: ${JSON.stringify(report.bodyPages.map((p) => p.thead))}`);
-if (report.bodyPages.some((p) => p.hero))
-  failures.push("body pages should have no style-hero");
+if (report.bodyPages.some((p) => p.cards !== 1))
+  failures.push("body pages must hold exactly ONE metric card each");
+if (report.bodyPages.some((p) => !p.hasImage))
+  failures.push("a body page is missing its guide image");
+if (report.bodyPages.some((p) => p.hasGsTable))
+  failures.push("body pages unexpectedly contain a gs-table");
+if (report.bodyPages.some((p) => p.header !== "Body Measurements"))
+  failures.push("body page header wrong");
+if (report.rupeeHits !== 0 || report.rupeeTextHits !== 0)
+  failures.push(
+    `pricing leaked into the report: gs-price=${report.rupeeHits}, ₹ chars=${report.rupeeTextHits}`,
+  );
 if (report.badGeometry.length > 0)
   failures.push(`geometry: ${JSON.stringify(report.badGeometry)}`);
 const expectedTotal = report.totalHolderPages + 1; // + spliced invoice
-if (report.footerTotals.length !== 1 || Number(report.footerTotals[0]) !== expectedTotal)
+if (
+  report.footerTotals.length !== 1 ||
+  Number(report.footerTotals[0]) !== expectedTotal
+)
   failures.push(
     `footer totals ${report.footerTotals.join(",")} != expected ${expectedTotal} (holder ${report.totalHolderPages} + invoice 1)`,
   );
 
 console.log(
   failures.length === 0
-    ? `\nBODY SECTION: OK (${report.bodyRowCount} rows = job's base readings; format matches garment tables; ${report.bodyPages.length} page(s); footers "of ${report.footerTotals[0]}")`
+    ? `\nBODY SECTION: OK (${report.bodyCardCount} full-page cards = job's base readings; no ₹ in report; footers "of ${report.footerTotals[0]}")`
     : `\nBODY SECTION: FAIL\n  - ${failures.join("\n  - ")}`,
 );
 await browser.close();
