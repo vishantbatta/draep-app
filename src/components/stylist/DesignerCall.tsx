@@ -992,7 +992,12 @@ function PresentationStage({
     }
   }, [designs.length]);
 
-  const design = designs[Math.min(activeIdx, designs.length - 1)];
+  // The stage can mount with zero designs (pending first) — activeIdx starts
+  // at -1 then, so clamp before indexing or the first arriving design crashes.
+  const design =
+    designs.length > 0
+      ? designs[Math.min(Math.max(activeIdx, 0), designs.length - 1)]
+      : undefined;
   const hasImage = designs.length > 0;
   const loading = pendingCount > 0;
 
@@ -1058,7 +1063,7 @@ function PresentationStage({
         className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
         style={{ background: "#04102B" }}
       >
-        {hasImage ? (
+        {design ? (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -1112,7 +1117,7 @@ function PresentationStage({
       </div>
 
       {/* ─── Caption bar — solid, always readable ─── */}
-      {hasImage && design?.description && (
+      {design?.description && (
         <div
           className="shrink-0 px-4 py-2"
           style={{ background: "#071F44", borderTop: "1px solid rgba(255,255,255,0.14)" }}
@@ -1128,7 +1133,7 @@ function PresentationStage({
 
       {/* ─── Fullscreen viewer ─── */}
       <AnimatePresence>
-        {fullscreen && (
+        {fullscreen && design && (
           <motion.div
             className="fixed inset-0 z-[300] flex flex-col items-center justify-center gap-4 bg-black/95 px-4 py-8 backdrop-blur-md"
             initial={{ opacity: 0 }}
