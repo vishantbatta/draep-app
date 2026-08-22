@@ -3,13 +3,13 @@
  * page's "UPI QR" sheet.
  *
  * Produces an NPCI-style `upi://pay` deep link, e.g.
- *   upi://pay?pa=9662104002%40kotak&cu=INR&pn=Draep&am=3999.00&tn=Order%2312333
+ *   upi://pay?pa=draep%40kotak&cu=INR&pn=Draep&am=3999.00&tn=Order%2312333
  *
  * Params: pa = payee VPA, cu = currency, pn = payee name,
  *         am = amount in rupees (2 decimals), tn = transaction note.
  */
 
-export const UPI_VPA = "9662104002@kotak";
+export const UPI_VPA = "draep@kotak";
 export const UPI_PAYEE_NAME = "Draep";
 
 /** Build the QR payload. `amountRupees` should be what the customer still
