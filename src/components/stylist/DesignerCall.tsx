@@ -1147,16 +1147,58 @@ function PresentationStage({
                   className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-3 px-6"
                   style={{ background: "rgba(4,16,43,0.82)", backdropFilter: "blur(3px)" }}
                 >
-                  {/* Wiggling pencil — hand-sketching feel */}
-                  <motion.span
-                    aria-hidden
-                    className="flex h-14 w-14 items-center justify-center rounded-full text-draep-orange"
-                    style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)" }}
-                    animate={{ rotate: [-7, 7, -7] }}
-                    transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
-                  >
-                    <PencilIcon />
-                  </motion.span>
+                  {/* Line-art being drawn, stroke by stroke — hanger, then the
+                      dress silhouette, then hem detail lines; a pencil rides
+                      along the strokes like a hand sketching in real time */}
+                  <div className="relative flex items-center justify-center">
+                    <svg viewBox="0 0 120 96" className="h-28 w-36" aria-hidden>
+                      {/* Hanger — hook + triangle */}
+                      <motion.path
+                        d="M60 6a7 7 0 1 1 .1 0M60 13L32 30h56L60 13"
+                        fill="none"
+                        stroke="rgba(255,255,255,0.75)"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        initial={{ pathLength: 0 }}
+                        animate={{ pathLength: 1 }}
+                        transition={{ duration: 0.9, repeat: Infinity, repeatDelay: 1.8, ease: "easeInOut" }}
+                      />
+                      {/* A-line dress silhouette */}
+                      <motion.path
+                        d="M47 36C43 48 38 62 33 82h54C82 62 77 48 73 36c-4 4-22 4-26 0Z"
+                        fill="none"
+                        stroke="var(--draep-orange)"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        initial={{ pathLength: 0 }}
+                        animate={{ pathLength: 1 }}
+                        transition={{ duration: 1.2, delay: 0.7, repeat: Infinity, repeatDelay: 1.5, ease: "easeInOut" }}
+                      />
+                      {/* Hem / seam detail strokes */}
+                      <motion.path
+                        d="M39 64h42M43 73h34"
+                        fill="none"
+                        stroke="rgba(255,255,255,0.4)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        initial={{ pathLength: 0 }}
+                        animate={{ pathLength: 1 }}
+                        transition={{ duration: 0.6, delay: 1.6, repeat: Infinity, repeatDelay: 2.1, ease: "easeInOut" }}
+                      />
+                    </svg>
+
+                    {/* Pencil riding the strokes */}
+                    <motion.span
+                      aria-hidden
+                      className="absolute left-1/2 top-0 -ml-2 text-draep-orange"
+                      animate={{ x: [-48, 48, 18, -48], y: [12, -2, 20, 12], rotate: [-8, 8, -8] }}
+                      transition={{ duration: 2.7, repeat: Infinity, ease: "easeInOut" }}
+                    >
+                      <PencilIcon />
+                    </motion.span>
+                  </div>
 
                   <p className="text-sm font-medium text-chalk-white">
                     {pendingCount > 1 ? `Sketching ${pendingCount} more…` : "Sketching next…"}
@@ -1197,22 +1239,26 @@ function PresentationStage({
         )}
 
         {/* ─── Agent wavebeat chip — docks INSIDE the image area, bottom-left,
-               above the caption bar and clear of the camera PiP (bottom-right
-               of the screen) so it covers neither ─── */}
-        <div className="absolute bottom-3 left-3 z-10">{wavebeat}</div>
-      </div>
+               lifted above the caption scrim and clear of the camera PiP
+               (bottom-right of the screen) so it covers neither ─── */}
+        <div className="absolute bottom-[4.5rem] left-3 z-10">{wavebeat}</div>
 
-      {/* ─── Caption bar — solid, always readable ─── */}
-      {design?.description && (
-        <div
-          className="shrink-0 px-4 py-2"
-          style={{ background: "#071F44", borderTop: "1px solid rgba(255,255,255,0.14)" }}
-        >
-          <p className="line-clamp-2 text-xs leading-snug text-chalk-white">
-            {design.description}
-          </p>
-        </div>
-      )}
+        {/* ─── Caption — overlays the image bottom on a navy scrim; padded
+               right so the floating camera PiP never sits on the text ─── */}
+        {design?.description && (
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] px-4 pb-3 pt-10"
+            style={{
+              background:
+                "linear-gradient(to top, rgba(4,16,43,0.95) 0%, rgba(4,16,43,0.72) 55%, transparent 100%)",
+            }}
+          >
+            <p className="line-clamp-2 pr-36 text-xs leading-snug text-chalk-white">
+              {design.description}
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* ─── Fullscreen viewer ─── */}
       <AnimatePresence>
