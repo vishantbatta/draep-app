@@ -1134,25 +1134,46 @@ function PresentationStage({
             )}
 
             {/* A follow-up design is rendering while an earlier one is on
-                stage — small pinned chip, exactly like Meet's "presenting…" */}
-            {loading && (
-              <div
-                className="absolute right-3 top-3 flex items-center gap-2 rounded-pill px-3 py-1.5"
-                style={{ background: "rgba(4,16,43,0.88)", border: "1px solid rgba(255,255,255,0.22)" }}
-              >
-                <motion.span
-                  aria-hidden
-                  className="text-draep-orange"
-                  animate={{ rotate: [-7, 7, -7] }}
-                  transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
+                stage — full-image sketching overlay, same hand-drawn feel as
+                the empty-stage SketchingState but layered over the current
+                design so the wait reads as "redrawing this". */}
+            <AnimatePresence>
+              {loading && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-3 px-6"
+                  style={{ background: "rgba(4,16,43,0.82)", backdropFilter: "blur(3px)" }}
                 >
-                  <PencilIcon />
-                </motion.span>
-                <span className="text-xs font-medium text-chalk-white">
-                  {pendingCount > 1 ? `Sketching ${pendingCount} more…` : "Sketching next…"}
-                </span>
-              </div>
-            )}
+                  {/* Wiggling pencil — hand-sketching feel */}
+                  <motion.span
+                    aria-hidden
+                    className="flex h-14 w-14 items-center justify-center rounded-full text-draep-orange"
+                    style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)" }}
+                    animate={{ rotate: [-7, 7, -7] }}
+                    transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
+                  >
+                    <PencilIcon />
+                  </motion.span>
+
+                  <p className="text-sm font-medium text-chalk-white">
+                    {pendingCount > 1 ? `Sketching ${pendingCount} more…` : "Sketching next…"}
+                  </p>
+
+                  {/* Indeterminate shimmer — no image-gen ETA */}
+                  <div className="h-1 w-56 overflow-hidden rounded-full bg-white/12">
+                    <motion.div
+                      className="h-full w-1/3 rounded-full"
+                      style={{ background: "var(--tape-gradient)" }}
+                      animate={{ x: ["-100%", "300%"] }}
+                      transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Rendering failed with designs already on stage — pinned, solid,
                 readable (never a translucent toast lost over the video). */}
