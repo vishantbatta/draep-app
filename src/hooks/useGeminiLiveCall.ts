@@ -243,57 +243,104 @@ export function useGeminiLiveCall() {
 
   // ── Ambient "sketching" sound (designs being rendered) ───────────────
   //
-  // Synthesized pencil-scratch: looped white noise through a bandpass, gated
-  // into short randomized strokes. No asset file needed; kept very quiet so
-  // it never fights the designer's voice.
+  // Synthesized pencil-on-paper: two noise layers (bright graphite hiss +
+  // soft paper body) shaped into individual strokes with a pressure envelope
+  // and hand-tremolo, alternating stroke directions and pausing irregularly —
+  // the rhythm and texture of someone actually drawing, not static hiss.
+  // Kept quiet so it never fights the designer's voice.
 
   const startSketchSound = useCallback(() => {
     const ctx = outputAudioCtxRef.current;
     if (!ctx || sketchSoundRef.current) return;
 
-    const noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.25), ctx.sampleRate);
+    // 1s looping white noise, shared by both layers.
+    const noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const ch = noiseBuf.getChannelData(0);
     for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
 
-    const noise = ctx.createBufferSource();
-    noise.buffer = noiseBuf;
-    noise.loop = true;
+    const makeLayer = (
+      filterType: BiquadFilterType,
+      freq: number,
+      vol: number,
+    ) => {
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuf;
+      noise.loop = true;
+      const filter = ctx.createBiquadFilter();
+      filter.type = filterType;
+      filter.frequency.value = freq;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      noise.start();
+      return { noise, gain, vol };
+    };
 
-    const bandpass = ctx.createBiquadFilter();
-    bandpass.type = "bandpass";
-    bandpass.frequency.value = 2100;
-    bandpass.Q.value = 0.9;
+    // Bright "graphite on paper" scratch + a soft low "paper" body underneath.
+    const graphite = makeLayer("highpass", 1400, 0.05);
+    const paper = makeLayer("lowpass", 800, 0.014);
 
-    const gain = ctx.createGain();
-    gain.gain.value = 0;
+    // A stroke envelope curve: quick pressure ramp-in, sustained middle with
+    // hand-tremolo wobble, taper off — the shape of a real pencil pass.
+    const strokeCurve = (dur: number, wobble: number) => {
+      const n = Math.max(16, Math.floor(dur * ctx.sampleRate * 0.02));
+      const curve = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const p = i / (n - 1);
+        const env = p < 0.18 ? p / 0.18 : Math.pow(1 - (p - 0.18) / 0.82, 0.7);
+        const trem = 1 + wobble * Math.sin(p * dur * 2 * Math.PI * 11 + Math.random() * 6);
+        curve[i] = Math.max(0.0001, env * trem);
+      }
+      return curve;
+    };
 
-    noise.connect(bandpass);
-    bandpass.connect(gain);
-    gain.connect(ctx.destination);
-    noise.start();
-
+    let stopped = false;
+    let dirBright = true;
     const stroke = () => {
-      const t = ctx.currentTime;
-      const dur = 0.05 + Math.random() * 0.09;
-      const vol = 0.025 + Math.random() * 0.03;
-      gain.gain.cancelScheduledValues(t);
-      gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), t);
-      gain.gain.linearRampToValueAtTime(vol, t + 0.015);
-      gain.gain.linearRampToValueAtTime(0.0001, t + dur);
+      if (stopped) return;
+      const t = ctx.currentTime + 0.02;
+      const dur = 0.16 + Math.random() * 0.24;
+      const pressure = 0.6 + Math.random() * 0.4; // light vs firm pass
+      // Direction alternates → slight brightness change between passes.
+      dirBright = !dirBright;
+      graphite.noise.playbackRate.value = dirBright ? 1 : 0.92;
+
+      for (const layer of [graphite, paper]) {
+        layer.gain.gain.cancelScheduledValues(t);
+        try {
+          layer.gain.gain.setValueCurveAtTime(
+            strokeCurve(dur, 0.25 + Math.random() * 0.15).map(
+              (v) => v * layer.vol * pressure,
+            ),
+            t,
+            dur,
+          );
+        } catch {
+          /* curve overlaps a previous stroke — skip this one */
+        }
+      }
     };
     stroke();
-    // Slight irregularity (skipped strokes) so it reads as hand-drawn.
-    const intervalId = setInterval(() => {
-      if (Math.random() < 0.85) stroke();
-    }, 170);
+    // Irregular back-and-forth rhythm with pauses, like a hand at work.
+    const schedule = () => {
+      if (stopped) return;
+      stroke();
+      timeoutId = window.setTimeout(schedule, 240 + Math.random() * 300);
+    };
+    let timeoutId = window.setTimeout(schedule, 240);
 
     sketchSoundRef.current = {
       stop: () => {
-        clearInterval(intervalId);
+        stopped = true;
+        clearTimeout(timeoutId);
         try {
-          gain.gain.cancelScheduledValues(ctx.currentTime);
-          gain.gain.value = 0;
-          noise.stop();
+          for (const layer of [graphite, paper]) {
+            layer.gain.gain.cancelScheduledValues(ctx.currentTime);
+            layer.gain.gain.value = 0;
+            layer.noise.stop();
+          }
         } catch { /* context already closed */ }
       },
     };
