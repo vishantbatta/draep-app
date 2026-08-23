@@ -985,6 +985,16 @@ function PresentationStage({
   const [activeIdx, setActiveIdx] = useState(designs.length - 1);
   const [fullscreen, setFullscreen] = useState(false);
 
+  // Iteration gallery — keep the active thumbnail scrolled into view.
+  const thumbRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  useEffect(() => {
+    thumbRefs.current[activeIdx]?.scrollIntoView({
+      behavior: "smooth",
+      inline: "center",
+      block: "nearest",
+    });
+  }, [activeIdx]);
+
   // New designs auto-advance ONLY if the user was already on the latest one.
   // If they're browsing an older design, don't yank the view away — mark the
   // next-stepper with a rivet dot instead so the arrival is discoverable.
@@ -1039,19 +1049,6 @@ function PresentationStage({
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          {/* Prev / next stepper — kept prominent (user-liked) */}
-          {hasImage && designs.length > 1 && (
-            <>
-              <StepperButton dir="prev" disabled={activeIdx === 0} onClick={() => setActiveIdx((i) => Math.max(0, i - 1))} />
-              <StepperButton
-                dir="next"
-                disabled={activeIdx === designs.length - 1}
-                notify={activeIdx < designs.length - 1}
-                onClick={() => setActiveIdx((i) => Math.min(designs.length - 1, i + 1))}
-              />
-            </>
-          )}
-
           {hasImage && (
             <button
               type="button"
@@ -1065,6 +1062,44 @@ function PresentationStage({
           )}
         </div>
       </div>
+
+      {/* ─── Iteration gallery — horizontally scrollable strip of every
+             design (previous iterations included); active gets the orange
+             tape ring (Brand Book §03) and auto-scrolls into view ─── */}
+      {designs.length > 1 && (
+        <div
+          className="flex shrink-0 items-center gap-2 overflow-x-auto px-4 py-2"
+          style={{ background: "#071F44", borderBottom: "1px solid rgba(255,255,255,0.14)" }}
+        >
+          {designs.map((d, i) => (
+            <button
+              key={`${d.url}-${i}`}
+              ref={(el) => {
+                thumbRefs.current[i] = el;
+              }}
+              type="button"
+              onClick={() => setActiveIdx(i)}
+              aria-label={`Design ${i + 1}`}
+              aria-current={i === activeIdx}
+              className="relative h-14 w-11 shrink-0 overflow-hidden rounded-card transition-opacity"
+              style={{
+                border: i === activeIdx ? "2px solid var(--draep-orange)" : "1px solid rgba(255,255,255,0.22)",
+                opacity: i === activeIdx ? 1 : 0.6,
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={d.url} alt="" className="h-full w-full object-cover" />
+              {i === designs.length - 1 && (
+                <span
+                  aria-hidden
+                  className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full"
+                  style={{ background: "var(--draep-orange)" }}
+                />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ─── Stage body — letterboxed, centered content ─── */}
       <div
@@ -1080,6 +1115,23 @@ function PresentationStage({
               className="h-full w-full cursor-zoom-in object-contain"
               onClick={() => setFullscreen(true)}
             />
+
+            {/* Prev / next — large overlay chevrons on the image edges */}
+            {designs.length > 1 && (
+              <>
+                <StageArrow
+                  side="left"
+                  disabled={activeIdx === 0}
+                  onClick={() => setActiveIdx((i) => Math.max(0, i - 1))}
+                />
+                <StageArrow
+                  side="right"
+                  disabled={activeIdx === designs.length - 1}
+                  notify={activeIdx < designs.length - 1}
+                  onClick={() => setActiveIdx((i) => Math.min(designs.length - 1, i + 1))}
+                />
+              </>
+            )}
 
             {/* A follow-up design is rendering while an earlier one is on
                 stage — small pinned chip, exactly like Meet's "presenting…" */}
@@ -1122,6 +1174,11 @@ function PresentationStage({
           /* Nothing on stage yet — centered loading (or first-attempt error) */
           <SketchingState count={pendingCount} error={designError} />
         )}
+
+        {/* ─── Agent wavebeat chip — docks INSIDE the image area, bottom-left,
+               above the caption bar and clear of the camera PiP (bottom-right
+               of the screen) so it covers neither ─── */}
+        <div className="absolute bottom-3 left-3 z-10">{wavebeat}</div>
       </div>
 
       {/* ─── Caption bar — solid, always readable ─── */}
@@ -1135,9 +1192,6 @@ function PresentationStage({
           </p>
         </div>
       )}
-
-      {/* ─── Agent wavebeat chip — participant tile pinned bottom-left ─── */}
-      <div className="absolute bottom-3 left-3 z-10">{wavebeat}</div>
 
       {/* ─── Fullscreen viewer ─── */}
       <AnimatePresence>
@@ -1176,13 +1230,14 @@ function PresentationStage({
   );
 }
 
-function StepperButton({
-  dir,
+/*  StageArrow — large overlay chevron on the image's left/right edge.  */
+function StageArrow({
+  side,
   disabled,
   notify,
   onClick,
 }: {
-  dir: "prev" | "next";
+  side: "left" | "right";
   disabled: boolean;
   /** Rivet dot — a newer design exists past this direction. */
   notify?: boolean;
@@ -1193,11 +1248,13 @@ function StepperButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      aria-label={dir === "prev" ? "Previous design" : "Next design"}
-      className="relative flex h-7 w-7 items-center justify-center rounded-full text-chalk-white transition-colors hover:bg-white/10 disabled:opacity-30"
-      style={{ background: "rgba(255,255,255,0.08)" }}
+      aria-label={side === "left" ? "Previous design" : "Next design"}
+      className={`absolute top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-chalk-white transition-colors hover:bg-[#0B2A5E] disabled:pointer-events-none disabled:opacity-0 ${
+        side === "left" ? "left-2" : "right-2"
+      }`}
+      style={{ background: "rgba(4,16,43,0.85)", border: "1px solid rgba(255,255,255,0.28)" }}
     >
-      {dir === "prev" ? <ChevronLeft /> : <ChevronRight />}
+      {side === "left" ? <ChevronLeft /> : <ChevronRight />}
       {notify && !disabled && (
         <motion.span
           aria-hidden
