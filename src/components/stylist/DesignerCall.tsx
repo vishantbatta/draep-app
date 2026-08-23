@@ -169,6 +169,14 @@ export function DesignerCall({
           <ArrowLeft size={20} />
         </button>
 
+        {/* Draep mark, top-left (Brand Book §08 — "lead with the symbol"; never below 24px) */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/logo_alpha_icon.png"
+          alt="draep"
+          className="mt-1 h-9 w-9 shrink-0 rounded-full object-cover"
+        />
+
         <CallHeader
           isConnected={isConnected}
           isRinging={isRinging}
@@ -177,8 +185,8 @@ export function DesignerCall({
           startedAt={callStartedAt}
         />
 
-        {/* balance spacer for the centered header */}
-        <div className="w-10 shrink-0" />
+        {/* balance spacer for the centered header (mirrors back button + logo) */}
+        <div className="w-[5.5rem] shrink-0" />
       </div>
 
       {/* ─── Reconnecting banner ─── */}
@@ -198,7 +206,7 @@ export function DesignerCall({
               animate={{ opacity: [0.3, 1, 0.3] }}
               transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
             />
-            <span className="text-caption font-medium text-chalk-white/90">
+            <span className="text-caption font-medium text-chalk-white">
               Connection dipped — reconnecting
             </span>
           </motion.div>
@@ -305,7 +313,7 @@ function CallHeader({
 
   return (
     <div className="flex flex-1 flex-col items-center">
-      <span className="mt-1 flex items-center gap-1.5 text-caption leading-tight text-chalk-white/80">
+      <span className="mt-1 flex items-center gap-1.5 text-caption leading-tight text-chalk-white">
         <span
           aria-hidden
           className="h-1.5 w-1.5 rounded-full"
@@ -474,7 +482,7 @@ function AgentWavebeat({
           </div>
 
           <div className="flex flex-col">
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-draep-orange">
+            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-chalk-white">
               draep · stylist
             </span>
           </div>
@@ -587,7 +595,7 @@ function SketchingState({ count, error }: { count: number; error: string | null 
           <p className="mt-4 text-sm font-medium text-chalk-white">
             That sketch didn’t come through
           </p>
-          <p className="mt-1.5 text-xs leading-relaxed text-chalk-white/60">
+          <p className="mt-1.5 text-xs leading-relaxed text-chalk-white/85">
             {error} — keep talking with your designer, they’ll try again.
           </p>
         </>
@@ -607,7 +615,7 @@ function SketchingState({ count, error }: { count: number; error: string | null 
           <p className="mt-4 text-sm font-medium text-chalk-white">
             {count > 1 ? `Sketching ${count} designs…` : strings.stylist.sketching}
           </p>
-          <p className="mt-1.5 text-xs text-chalk-white/60">{strings.stylist.sketchingHint}</p>
+          <p className="mt-1.5 text-xs text-chalk-white/85">{strings.stylist.sketchingHint}</p>
 
           {/* Indeterminate shimmer — we can't know image-gen ETA, so no percent */}
           <div className="mt-4 h-1 w-56 overflow-hidden rounded-full bg-white/12">
@@ -918,7 +926,7 @@ function ErrorModal({
 
           {/* One-line mono debug strip — protocol detail for support/dev */}
           {debugLine && (
-            <p className="mt-3 max-h-16 overflow-y-auto whitespace-pre-wrap break-words rounded-card bg-mist-navy px-3 py-2 font-mono text-[11px] leading-relaxed text-ink-navy/45">
+            <p className="mt-3 max-h-16 overflow-y-auto whitespace-pre-wrap break-words rounded-card bg-mist-navy px-3 py-2 font-mono text-[11px] leading-relaxed text-ink-navy/70">
               {debugLine}
             </p>
           )}
@@ -1016,13 +1024,13 @@ function PresentationStage({
         style={{ background: "#071F44", borderBottom: "1px solid rgba(255,255,255,0.14)" }}
       >
         <div className="flex min-w-0 items-center gap-2.5">
-          <DraepSymbol variant="color" className="h-4 w-4 shrink-0" />
-          <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-chalk-white">
+          <DraepSymbol variant="color" className="h-6 w-6 shrink-0" />
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.18em] text-chalk-white">
             {strings.stylist.designsLabel}
           </span>
           {hasImage && (
             <span
-              className="shrink-0 rounded-full px-2 py-0.5 font-mono text-[11px] font-medium text-chalk-white/95"
+              className="shrink-0 rounded-full px-2 py-0.5 font-mono text-xs font-medium text-chalk-white"
               style={{ background: "rgba(255,255,255,0.14)" }}
             >
               {String(activeIdx + 1).padStart(2, "0")}/{String(designs.length).padStart(2, "0")}
@@ -1122,7 +1130,7 @@ function PresentationStage({
           className="shrink-0 px-4 py-2"
           style={{ background: "#071F44", borderTop: "1px solid rgba(255,255,255,0.14)" }}
         >
-          <p className="line-clamp-2 text-xs leading-snug text-chalk-white/90">
+          <p className="line-clamp-2 text-xs leading-snug text-chalk-white">
             {design.description}
           </p>
         </div>
@@ -1148,7 +1156,7 @@ function PresentationStage({
               className="max-h-[78vh] max-w-[94vw] rounded-sheet object-contain"
             />
             {design.description && (
-              <p className="max-w-2xl text-center text-sm leading-snug text-chalk-white/85 line-clamp-3">
+              <p className="max-w-2xl text-center text-sm leading-snug text-chalk-white line-clamp-3">
                 {design.description}
               </p>
             )}
@@ -1186,7 +1194,7 @@ function StepperButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={dir === "prev" ? "Previous design" : "Next design"}
-      className="relative flex h-7 w-7 items-center justify-center rounded-full text-chalk-white/85 transition-colors hover:bg-white/10 disabled:opacity-30"
+      className="relative flex h-7 w-7 items-center justify-center rounded-full text-chalk-white transition-colors hover:bg-white/10 disabled:opacity-30"
       style={{ background: "rgba(255,255,255,0.08)" }}
     >
       {dir === "prev" ? <ChevronLeft /> : <ChevronRight />}
