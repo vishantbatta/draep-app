@@ -49,7 +49,9 @@ function curatedRank(
 }
 
 /** Label text helper — mirrors the backend `label_text`. */
-export function labelText(labels: Record<string, string> | null | undefined): string {
+export function labelText(
+  labels: Record<string, string> | null | undefined,
+): string {
   if (!labels) return "";
   return labels.en ?? labels.hi ?? Object.values(labels)[0] ?? "";
 }
@@ -86,7 +88,8 @@ export function buildSvgState(
         continue;
       }
       // Resolve the chosen variation, else the default, else the first option.
-      const chosenId = sel?.variationId ?? comp.defaultOptionId ?? comp.options[0]?.id;
+      const chosenId =
+        sel?.variationId ?? comp.defaultOptionId ?? comp.options[0]?.id;
       const opt = comp.options.find((o) => o.id === chosenId);
       if (!opt) continue;
       // Use the slug-derived key; for components with sub-types, add a "_type".
@@ -105,7 +108,9 @@ export function descText(
   descriptions: Record<string, string> | null | undefined,
 ): string {
   if (!descriptions) return "";
-  return descriptions.en ?? descriptions.hi ?? Object.values(descriptions)[0] ?? "";
+  return (
+    descriptions.en ?? descriptions.hi ?? Object.values(descriptions)[0] ?? ""
+  );
 }
 
 /** A selectable option within a step (a variation). */
@@ -120,7 +125,13 @@ export interface StepOption {
    *  that decompose along axes — used to resolve chip combinations. */
   axisValues?: Record<string, string>;
   /** Sub-options (variation_types), if any — e.g. Deep → U/V/Round/Square. */
-  subOptions?: { id: string; label: string; description?: string }[];
+  subOptions?: {
+    id: string;
+    label: string;
+    description?: string;
+    /** Reference image for the type (first asset_urls entry), if any. */
+    assetUrl?: string;
+  }[];
   /** Pre-selected sub-option id (variation.default_type_id), if any. */
   defaultSubOptionId?: string;
 }
@@ -234,10 +245,7 @@ function picksEqual(
  * one but not the other counts as different. (Full equality — both must have
  * the same set of components selected.)
  */
-export function selectionsEqual(
-  a: Selections,
-  b: Selections,
-): boolean {
+export function selectionsEqual(a: Selections, b: Selections): boolean {
   const aKeys = Object.keys(a);
   const bKeys = Object.keys(b);
   if (aKeys.length !== bKeys.length) return false;
@@ -271,11 +279,15 @@ export function selectionMatchesImage(
   toggleIds?: Set<string>,
 ): boolean {
   if (Object.keys(requested).length === 0) return false;
-  const sameSelection = (a: ComponentSelection | undefined, b: ComponentSelection | undefined) => {
+  const sameSelection = (
+    a: ComponentSelection | undefined,
+    b: ComponentSelection | undefined,
+  ) => {
     const aId = a?.variationId ?? null;
     const bId = b?.variationId ?? null;
     if (aId !== bId) return false;
-    if ((a?.variationTypeId ?? null) !== (b?.variationTypeId ?? null)) return false;
+    if ((a?.variationTypeId ?? null) !== (b?.variationTypeId ?? null))
+      return false;
     return picksEqual(a?.picks, b?.picks);
   };
 
@@ -321,6 +333,7 @@ function variationToStepOption(v: VariationOut): StepOption {
             id: t.id,
             label: labelText(t.labels) || t.id,
             description: descText(t.descriptions) || undefined,
+            assetUrl: t.asset_urls?.[0] || undefined,
           })),
           defaultSubOptionId: v.default_type_id ?? types[0]?.id,
         }
@@ -350,7 +363,11 @@ export function buildDesignSteps(tree: GarmentTreeOut): DesignStep[] {
   const critical = components
     .filter((c) => c.importance === "critical")
     .slice()
-    .sort((a, b) => curatedRank(a.slug, a.priority_order) - curatedRank(b.slug, b.priority_order));
+    .sort(
+      (a, b) =>
+        curatedRank(a.slug, a.priority_order) -
+        curatedRank(b.slug, b.priority_order),
+    );
   const nonCritical = components
     .filter((c) => c.importance !== "critical")
     .slice()
@@ -367,7 +384,10 @@ export function buildDesignSteps(tree: GarmentTreeOut): DesignStep[] {
   // NOT auto-advance (the user picks several, then finishes).
   const addons = (tree.addons ?? []).slice().sort(byPriority);
   const extrasComponents = [
-    ...nonCritical.map((c) => ({ ...componentToStepComponent(c), section: "Fit" })),
+    ...nonCritical.map((c) => ({
+      ...componentToStepComponent(c),
+      section: "Fit",
+    })),
     ...addons.map(addonToStepComponent),
   ];
   if (extrasComponents.length > 0) {
@@ -409,13 +429,22 @@ function addonAxisModel(variations: AddonVariationOut[]): {
   const fail = { axes: [] as StepAxis[], axisValuesOf: () => ({}) };
   if (variations.length < 2) return fail;
   const segLists = variations.map((v) =>
-    addonVariationLabel(v).split("·").map((s) => s.trim()).filter(Boolean),
+    addonVariationLabel(v)
+      .split("·")
+      .map((s) => s.trim())
+      .filter(Boolean),
   );
   const allMulti = segLists.every((s) => s.length >= 2);
-  const valueOf = (v: AddonVariationOut, i: number, key: string): string | undefined =>
+  const valueOf = (
+    v: AddonVariationOut,
+    i: number,
+    key: string,
+  ): string | undefined =>
     key === "where"
-      ? allMulti ? segLists[i][0] : undefined
-      : (v as unknown as Record<string, string | null>)[key] ?? undefined;
+      ? allMulti
+        ? segLists[i][0]
+        : undefined
+      : ((v as unknown as Record<string, string | null>)[key] ?? undefined);
   const distinct = (vals: (string | undefined)[]): string[] => {
     const out: string[] = [];
     for (const val of vals) if (val && !out.includes(val)) out.push(val);
@@ -425,26 +454,36 @@ function addonAxisModel(variations: AddonVariationOut[]): {
   const axes: StepAxis[] = [];
   if (allMulti) {
     const wheres = distinct(segLists.map((s) => s[0]));
-    if (wheres.length > 1) axes.push({ key: "where", label: "Where", values: wheres });
+    if (wheres.length > 1)
+      axes.push({ key: "where", label: "Where", values: wheres });
   }
   for (const { field, label } of AXIS_FIELDS) {
     const values = distinct(variations.map((v) => valueOf(v, -1, field)));
     if (values.length > 1) axes.push({ key: field, label, values });
   }
   if (axes.length < 2) return fail;
-  if (!variations.every((v, i) => axes.every((a) => valueOf(v, i, a.key) !== undefined))) {
+  if (
+    !variations.every((v, i) =>
+      axes.every((a) => valueOf(v, i, a.key) !== undefined),
+    )
+  ) {
     return fail;
   }
   return {
     axes,
     axisValuesOf: (v) => {
       const i = variations.indexOf(v);
-      return Object.fromEntries(axes.map((a) => [a.key, valueOf(v, i, a.key)!]));
+      return Object.fromEntries(
+        axes.map((a) => [a.key, valueOf(v, i, a.key)!]),
+      );
     },
   };
 }
 
-function addonToStepComponent(a: AddonOut): StepComponent {
+/** Flatten an add-on into a StepComponent (options = variations, with axis
+ *  decomposition when the variations span 2+ axes). Shared by the extras
+ *  picker and the /myod/ux playground. */
+export function addonToStepComponent(a: AddonOut): StepComponent {
   // Flatten addon variations into options; the axis fields (style/shape/size/...)
   // are surfaced via the variation label. An add-on with no variations is a
   // boolean toggle (on/off); one with variations is a single choice.
@@ -523,7 +562,8 @@ export function buildDesignBrief(
       const option = comp.options.find((o) => o.id === sel.variationId);
       if (!option) continue;
       let line = describeLine(comp, option, sel.variationTypeId);
-      if (sel.placement) line += ` — placed at ${placementLabel(sel.placement)}`;
+      if (sel.placement)
+        line += ` — placed at ${placementLabel(sel.placement)}`;
       parts.push(line);
     }
   }
@@ -537,7 +577,9 @@ function describeLine(
   subId?: string,
 ): string {
   // Value = option label (+ sub-type label if any).
-  const sub = subId ? option.subOptions?.find((s) => s.id === subId) : undefined;
+  const sub = subId
+    ? option.subOptions?.find((s) => s.id === subId)
+    : undefined;
   const value = sub ? `${option.label} (${sub.label})` : option.label;
 
   let line = `${comp.label}: ${value}`;

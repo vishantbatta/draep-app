@@ -1631,9 +1631,15 @@ function ExtrasRow({
             ? `${chosenOpt.label} · ${chosenSub.label}`
             : chosenOpt.label
           : "Optional";
-  const placeText = selection?.placement
-    ? placementLabel(selection.placement)
-    : null;
+  // Placement suffix only when the value text doesn't already end with it
+  // (Piping's variation labels ARE placements — "Front · Front" is noise).
+  const placeText =
+    selection?.placement &&
+    !valueText
+      .toLowerCase()
+      .endsWith(placementLabel(selection.placement).toLowerCase())
+      ? placementLabel(selection.placement)
+      : null;
 
   return (
     <button
@@ -1737,6 +1743,90 @@ function BrandSpinner({ size = 16 }: { size?: number }) {
 }
 
 /**
+ * Variation-type picker (variation_types — e.g. Strappy → Broad /
+ * Thin-round). Opens as its own bottom sheet above whatever picker is
+ * currently open (it renders fixed at the same z-50, later in the DOM, so
+ * it stacks on top) and lays the types out as a 2-column grid of image
+ * cards — photo, label, short description — mirroring the variation cards
+ * it drills into. Picking a type fires onPick and the sheet closes;
+ * dismissing picks nothing.
+ */
+function TypeSheet({
+  variationLabel,
+  subs,
+  selectedId,
+  disabled,
+  onPick,
+  onClose,
+}: {
+  variationLabel: string;
+  subs: NonNullable<StepOption["subOptions"]>;
+  selectedId: string | undefined;
+  disabled?: boolean;
+  onPick: (subId: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <BottomSheet open onClose={onClose} title={`Choose ${variationLabel} type`}>
+      <div className="grid grid-cols-2 gap-2 pb-4">
+        {subs.map((sub) => {
+          const selected = sub.id === selectedId;
+          return (
+            <button
+              key={sub.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onPick(sub.id)}
+              className={
+                "group/sub flex flex-col overflow-hidden rounded-card border text-left transition-all ease-brand active:scale-[0.98] disabled:opacity-50 " +
+                (selected
+                  ? "border-accent-text bg-chalk-white shadow-card"
+                  : "border-hairline bg-chalk-white hover:border-navy-interactive")
+              }
+            >
+              <div className="relative aspect-square w-full bg-mist-navy">
+                {sub.assetUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={sub.assetUrl}
+                    alt=""
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover/sub:scale-105"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <span className="font-heading text-h2 font-bold text-navy-interactive/25">
+                      {sub.label.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                )}
+                {selected && (
+                  <span
+                    className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full text-chalk-white shadow-[0_1px_2px_rgba(208,96,16,0.3)]"
+                    style={{ backgroundImage: "var(--tape-gradient)" }}
+                  >
+                    <Check size={12} />
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col gap-0.5 px-2 py-1.5">
+                <span className="text-caption font-semibold leading-tight text-ink-navy">
+                  {sub.label}
+                </span>
+                {sub.description && (
+                  <span className="line-clamp-2 text-[11px] leading-snug text-muted">
+                    {sub.description}
+                  </span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </BottomSheet>
+  );
+}
+
+/**
  * The picker that lives inside the bottom sheet. Holds a LOCAL draft of the
  * selection (variation + sub-type + placement) so the user can set multiple
  * axes (e.g. Keyhole shape + placement) before committing. Four modes by
@@ -1769,6 +1859,28 @@ function ExtrasPicker({
     component.kind === "toggle" || component.options.length === 0;
   const hasPlacement =
     !!component.placements && component.placements.length > 0;
+
+  // Keyhole-style spot picking serves add-ons whose variations decompose into
+  // a leading Where axis PLUS at least one more axis (Key Hole: Where · Shape ·
+  // Size): pick Where first (multi-select), then each active spot picks its
+  // combination. Placement-only add-ons (Piping, Lace Border — each variation
+  // IS a spot with nothing else to pick) fall through to the plain card list,
+  // as does anything varying across 0–1 axes.
+  const allAxes = component.kind !== "toggle" ? (component.axes ?? []) : [];
+  const whereAxis = allAxes[0]?.key === "where" ? allAxes[0] : undefined;
+  const spotAxes = whereAxis ? allAxes.slice(1) : allAxes;
+  const spotMode = !isToggle && !!whereAxis && spotAxes.length > 0;
+  const spotValues = whereAxis
+    ? whereAxis.values
+    : (component.placements ?? []);
+  const whereOf = (opt: StepOption | undefined): string | undefined => {
+    if (!opt) return undefined;
+    return (
+      opt.axisValues?.where ??
+      spotValues.find((w) => w.toLowerCase() === opt.label.toLowerCase()) ??
+      (component.options.length === 1 ? spotValues[0] : undefined)
+    );
+  };
   const defaultOpt =
     component.options.find((o) => o.id === component.defaultOptionId) ??
     (component.defaultOn ? component.options[0] : undefined);
@@ -1794,6 +1906,10 @@ function ExtrasPicker({
           : null,
   );
 
+  // Variation whose type sheet is open (null = closed). Picking a type
+  // writes it into the draft; dismissing keeps the draft untouched.
+  const [typeOpt, setTypeOpt] = useState<StepOption | null>(null);
+
   // Per-axis picks for multi-axis add-ons (e.g. Key Hole: Where · Shape · Size),
   // seeded from the current selection or the catalog default variation — not
   // the first variation.
@@ -1809,30 +1925,36 @@ function ExtrasPicker({
   // — several spots can be on at once, each with its own combination (a key
   // hole on each sleeve). Seeded from the selection's picks, else its single
   // combination, else the catalog default. A spot's presence = active.
-  const [spotSel, setSpotSel] = useState<Record<string, Record<string, string>>>(
-    () => {
-      const spotAxes = (component.axes ?? []).filter((a) => a.key !== "where");
-      const seed: Record<string, Record<string, string>> = {};
-      const seedFrom = (optId: string | undefined) => {
-        if (!optId) return;
-        const opt = component.options.find((o) => o.id === optId);
-        const where = opt?.axisValues?.where;
-        if (!where || seed[where]) return;
-        const rest: Record<string, string> = {};
-        for (const a of spotAxes) {
-          const v = opt?.axisValues?.[a.key];
-          if (v) rest[a.key] = v;
-        }
-        seed[where] = rest;
-      };
-      if (initialSelection?.picks?.length) {
-        for (const p of initialSelection.picks) seedFrom(p.variationId);
-      } else {
-        seedFrom(initialSelection?.variationId ?? component.defaultOptionId);
+  const [spotSel, setSpotSel] = useState<
+    Record<string, Record<string, string>>
+  >(() => {
+    const seed: Record<string, Record<string, string>> = {};
+    const seedFrom = (optId: string | undefined) => {
+      if (!optId) return;
+      const opt = component.options.find((o) => o.id === optId);
+      const where = whereOf(opt);
+      if (!where || seed[where]) return;
+      const rest: Record<string, string> = {};
+      for (const a of spotAxes) {
+        const v = opt?.axisValues?.[a.key];
+        if (v) rest[a.key] = v;
       }
-      return seed;
-    },
-  );
+      seed[where] = rest;
+    };
+    if (initialSelection?.picks?.length) {
+      for (const p of initialSelection.picks) seedFrom(p.variationId);
+    } else {
+      seedFrom(initialSelection?.variationId ?? component.defaultOptionId);
+    }
+    // Nothing seeded (no selection and no catalog default — Panel, Ruffle):
+    // open with the first spot active anyway. Key Hole gets this from its
+    // default variation; without it the sheet is a bare Where-chip row. The
+    // spot's picks default to its first variation, same as a manual tap.
+    if (Object.keys(seed).length === 0 && spotValues.length > 0) {
+      seedFrom(component.options.find((o) => whereOf(o) === spotValues[0])?.id);
+    }
+    return seed;
+  });
 
   // For toggle add-ons there are no option cards — the add-on's own asset
   // (when it has one) + enable/disable + place.
@@ -1843,12 +1965,15 @@ function ExtrasPicker({
       <>
         <div className="flex flex-col gap-3 py-2">
           {component.assetUrl && (
-            <div className="relative h-28 w-full overflow-hidden rounded-card bg-mist-navy">
+            // Frame hugs the image (capped height, natural width, centered) —
+            // addon assets are square, and a full-width cover strip crops them
+            // to a sliver. Same treatment as the picker previews below.
+            <div className="flex w-full justify-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={component.assetUrl}
                 alt=""
-                className="h-full w-full object-cover"
+                className="max-h-56 w-auto max-w-full rounded-card object-contain"
               />
             </div>
           )}
@@ -1917,198 +2042,205 @@ function ExtrasPicker({
     );
   }
 
-  // Multi-axis add-on (2+ varying axes): one chip section per axis instead of
-  // a flat card per variation. Chips that can't complete an existing
-  // combination are dimmed; Confirm resolves the picks to a variation.
-  const axes = component.kind !== "toggle" ? (component.axes ?? []) : [];
-  if (axes.length >= 2) {
-    // Where-priced grid: the Where chips toggle spots on/off (multi-select)
-    // and every active spot gets its own indented pick set on the remaining
-    // axes — the same add-on can sit on several spots at once (a key hole on
-    // each sleeve, each with its own shape/size).
-    if (axes[0].key === "where") {
-      const whereAxis = axes[0];
-      const spotAxes = axes.slice(1);
-      const activeSpots = Object.keys(spotSel);
-      const resolveSpot = (where: string): StepOption | undefined => {
-        const sel = spotSel[where];
-        if (!sel) return undefined;
-        return component.options.find(
-          (o) =>
-            o.axisValues?.where === where &&
-            spotAxes.every((a) => o.axisValues?.[a.key] === sel[a.key]),
-        );
-      };
-      const comboExistsAt = (where: string, key: string, value: string) =>
-        component.options.some(
-          (o) =>
-            o.axisValues?.where === where &&
-            o.axisValues?.[key] === value &&
-            spotAxes.every(
-              (a) =>
-                a.key === key || o.axisValues?.[a.key] === spotSel[where]?.[a.key],
-            ),
-        );
-      const toggleSpot = (where: string) => {
-        setSpotSel((prev) => {
-          const next = { ...prev };
-          if (next[where]) {
-            delete next[where];
-            return next;
-          }
-          const atSpot = component.options.filter(
-            (o) => o.axisValues?.where === where,
-          );
-          const def =
-            atSpot.find((o) => o.id === component.defaultOptionId) ?? atSpot[0];
-          const rest: Record<string, string> = {};
-          for (const a of spotAxes) {
-            const v = def?.axisValues?.[a.key];
-            if (v) rest[a.key] = v;
-          }
-          next[where] = rest;
-          return next;
-        });
-      };
-      const pickSpotAxis = (where: string, key: string, value: string) => {
-        setSpotSel((prev) =>
-          prev[where]
-            ? { ...prev, [where]: { ...prev[where], [key]: value } }
-            : prev,
-        );
-      };
-      const previewOpt = resolveSpot(activeSpots[0] ?? "");
-      const allResolved =
-        activeSpots.length > 0 &&
-        activeSpots.every((w) => resolveSpot(w) !== undefined);
-      return (
-        <>
-          <div className="flex flex-col gap-4 py-2">
-            {(previewOpt?.assetUrl ?? component.assetUrl) && (
-              <div className="flex w-full justify-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={previewOpt?.assetUrl ?? component.assetUrl}
-                  alt=""
-                  className="max-h-56 w-auto max-w-full rounded-card object-contain"
-                />
-              </div>
-            )}
-            {component.description && (
-              <p className="px-1 text-caption leading-snug text-muted">
-                {component.description}
-              </p>
-            )}
-            <div className="flex flex-col gap-2">
-              <span className="eyebrow px-1">{whereAxis.label}</span>
-              <div className="flex flex-wrap gap-1.5">
-                {whereAxis.values.map((val) => {
-                  const selected = !!spotSel[val];
-                  return (
-                    <button
-                      key={val}
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => toggleSpot(val)}
-                      className={
-                        "rounded-pill border px-3 py-1.5 text-caption leading-tight transition-all ease-brand active:scale-[0.97] disabled:opacity-50 " +
-                        (selected
-                          ? "border-transparent bg-tape text-chalk-white"
-                          : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")
-                      }
-                      style={
-                        selected
-                          ? { backgroundImage: "var(--tape-gradient)" }
-                          : undefined
-                      }
-                    >
-                      {val.charAt(0).toUpperCase() + val.slice(1)}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            {activeSpots.map((where) => {
-              const sel = spotSel[where];
-              const spotOpt = resolveSpot(where);
-              return (
-                <div
-                  key={where}
-                  className="flex flex-col gap-2 rounded-card border border-hairline bg-mist-navy/40 px-2.5 py-2.5"
-                >
-                  <span className="px-1 text-caption font-semibold capitalize text-ink-navy">
-                    {where}
-                  </span>
-                  {spotAxes.map((a) => (
-                    <div key={a.key} className="flex flex-col gap-2">
-                      <span className="eyebrow px-1">{a.label}</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {a.values.map((val) => {
-                          const selected = sel[a.key] === val;
-                          const exists = comboExistsAt(where, a.key, val);
-                          return (
-                            <button
-                              key={val}
-                              type="button"
-                              disabled={disabled || !exists}
-                              onClick={() => pickSpotAxis(where, a.key, val)}
-                              className={
-                                "rounded-pill border px-3 py-1.5 text-caption leading-tight transition-all ease-brand active:scale-[0.97] " +
-                                (!exists
-                                  ? "cursor-not-allowed border-hairline bg-chalk-white text-muted opacity-40"
-                                  : selected
-                                    ? "border-transparent bg-tape text-chalk-white"
-                                    : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")
-                              }
-                              style={
-                                selected && exists
-                                  ? { backgroundImage: "var(--tape-gradient)" }
-                                  : undefined
-                              }
-                            >
-                              {val.charAt(0).toUpperCase() + val.slice(1)}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                  {!spotOpt && (
-                    <p className="px-1 text-caption text-muted">
-                      Pick an option in each row.
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <PickerFooter
-            canConfirm={allResolved}
-            onConfirm={() => {
-              const picks: PlacementPick[] = activeSpots.map((w) => ({
-                variationId: resolveSpot(w)!.id,
-                placement: w,
-              }));
-              onConfirm({ variationId: picks[0].variationId, picks });
-            }}
-            confirmLabel={strings.myod.done}
-          />
-        </>
+  // Multi-spot add-on (any add-on with a placement): the Where chips toggle
+  // spots on/off (multi-select) and every active spot gets its own pick set
+  // on the remaining axes — the same add-on can sit on several spots at once
+  // (a key hole on each sleeve, each with its own shape/size). Spots with no
+  // remaining axes (Piping, Lace Border) resolve straight to the placement's
+  // own variation.
+  if (spotMode) {
+    const activeSpots = Object.keys(spotSel);
+    const resolveSpot = (where: string): StepOption | undefined => {
+      const sel = spotSel[where];
+      if (!sel) return undefined;
+      return component.options.find(
+        (o) =>
+          whereOf(o) === where &&
+          spotAxes.every((a) => o.axisValues?.[a.key] === sel[a.key]),
       );
-    }
+    };
+    const comboExistsAt = (where: string, key: string, value: string) =>
+      component.options.some(
+        (o) =>
+          whereOf(o) === where &&
+          o.axisValues?.[key] === value &&
+          spotAxes.every(
+            (a) =>
+              a.key === key ||
+              o.axisValues?.[a.key] === spotSel[where]?.[a.key],
+          ),
+      );
+    const toggleSpot = (where: string) => {
+      setSpotSel((prev) => {
+        const next = { ...prev };
+        if (next[where]) {
+          delete next[where];
+          return next;
+        }
+        const atSpot = component.options.filter((o) => whereOf(o) === where);
+        const def =
+          atSpot.find((o) => o.id === component.defaultOptionId) ?? atSpot[0];
+        const rest: Record<string, string> = {};
+        for (const a of spotAxes) {
+          const v = def?.axisValues?.[a.key];
+          if (v) rest[a.key] = v;
+        }
+        next[where] = rest;
+        return next;
+      });
+    };
+    const pickSpotAxis = (where: string, key: string, value: string) => {
+      setSpotSel((prev) =>
+        prev[where]
+          ? { ...prev, [where]: { ...prev[where], [key]: value } }
+          : prev,
+      );
+    };
+    const previewOpt = resolveSpot(activeSpots[0] ?? "");
+    const allResolved =
+      activeSpots.length > 0 &&
+      activeSpots.every((w) => resolveSpot(w) !== undefined);
+    return (
+      <>
+        <div className="flex flex-col gap-4 py-2">
+          {(previewOpt?.assetUrl ?? component.assetUrl) && (
+            <div className="flex w-full justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={previewOpt?.assetUrl ?? component.assetUrl}
+                alt=""
+                className="max-h-56 w-auto max-w-full rounded-card object-contain"
+              />
+            </div>
+          )}
+          {component.description && (
+            <p className="px-1 text-caption leading-snug text-muted">
+              {component.description}
+            </p>
+          )}
+          <div className="flex flex-col gap-2">
+            <span className="eyebrow px-1">{whereAxis?.label ?? "Where"}</span>
+            <div className="flex flex-wrap gap-1.5">
+              {spotValues.map((val) => {
+                const selected = !!spotSel[val];
+                return (
+                  <button
+                    key={val}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => toggleSpot(val)}
+                    className={
+                      "rounded-pill border px-3 py-1.5 text-caption leading-tight transition-all ease-brand active:scale-[0.97] disabled:opacity-50 " +
+                      (selected
+                        ? "border-transparent bg-tape text-chalk-white"
+                        : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")
+                    }
+                    style={
+                      selected
+                        ? { backgroundImage: "var(--tape-gradient)" }
+                        : undefined
+                    }
+                  >
+                    {val.charAt(0).toUpperCase() + val.slice(1)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {activeSpots.map((where) => {
+            const sel = spotSel[where];
+            const spotOpt = resolveSpot(where);
+            return (
+              <div
+                key={where}
+                className="flex flex-col gap-2 rounded-card border border-hairline bg-mist-navy/40 px-2.5 py-2.5"
+              >
+                <span className="px-1 text-caption font-semibold capitalize text-ink-navy">
+                  {where}
+                </span>
+                {/* Spots with no further axes (Piping) show their placement
+                    variation's own image inside the card. */}
+                {spotAxes.length === 0 && spotOpt?.assetUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={spotOpt.assetUrl}
+                    alt=""
+                    className="max-h-32 w-auto max-w-full self-start rounded-card object-contain pl-1"
+                  />
+                )}
+                {spotAxes.map((a) => (
+                  <div key={a.key} className="flex flex-col gap-2">
+                    <span className="eyebrow px-1">{a.label}</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {a.values.map((val) => {
+                        const selected = sel[a.key] === val;
+                        const exists = comboExistsAt(where, a.key, val);
+                        return (
+                          <button
+                            key={val}
+                            type="button"
+                            disabled={disabled || !exists}
+                            onClick={() => pickSpotAxis(where, a.key, val)}
+                            className={
+                              "rounded-pill border px-3 py-1.5 text-caption leading-tight transition-all ease-brand active:scale-[0.97] " +
+                              (!exists
+                                ? "cursor-not-allowed border-hairline bg-chalk-white text-muted opacity-40"
+                                : selected
+                                  ? "border-transparent bg-tape text-chalk-white"
+                                  : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")
+                            }
+                            style={
+                              selected && exists
+                                ? { backgroundImage: "var(--tape-gradient)" }
+                                : undefined
+                            }
+                          >
+                            {val.charAt(0).toUpperCase() + val.slice(1)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                {!spotOpt && (
+                  <p className="px-1 text-caption text-muted">
+                    Pick an option in each row.
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <PickerFooter
+          canConfirm={allResolved}
+          onConfirm={() => {
+            const picks: PlacementPick[] = activeSpots.map((w) => ({
+              variationId: resolveSpot(w)!.id,
+              placement: w,
+            }));
+            onConfirm({ variationId: picks[0].variationId, picks });
+          }}
+          confirmLabel={strings.myod.done}
+        />
+      </>
+    );
+  }
+
+  // Multi-axis add-on WITHOUT a placement (rule: one single-select section
+  // per metric, no Where step): chips that can't complete an existing
+  // combination are dimmed; Confirm resolves the picks to a variation.
+  if (allAxes.length >= 2) {
     const resolved = component.options.find((o) =>
-      axes.every((a) => o.axisValues?.[a.key] === axisSel[a.key]),
+      allAxes.every((a) => o.axisValues?.[a.key] === axisSel[a.key]),
     );
     const comboExists = (key: string, value: string) =>
       component.options.some(
         (o) =>
           o.axisValues?.[key] === value &&
-          axes.every(
+          allAxes.every(
             (a) => a.key === key || o.axisValues?.[a.key] === axisSel[a.key],
           ),
       );
-    // A leading "Where" axis already answers where the add-on goes.
-    const showPlacement = hasPlacement && axes[0].key !== "where";
     return (
       <>
         <div className="flex flex-col gap-4 py-2">
@@ -2131,7 +2263,7 @@ function ExtrasPicker({
               {component.description}
             </p>
           )}
-          {axes.map((a) => (
+          {allAxes.map((a) => (
             <div key={a.key} className="flex flex-col gap-2">
               <span className="eyebrow px-1">{a.label}</span>
               <div className="flex flex-wrap gap-1.5">
@@ -2174,34 +2306,15 @@ function ExtrasPicker({
             resolved && onConfirm({ ...draft, variationId: resolved.id })
           }
           confirmLabel={strings.myod.done}
-          placementProps={
-            showPlacement && draft
-              ? {
-                  placements: component.placements!,
-                  value: draft.placement,
-                  onSelect: (p: string) =>
-                    setDraft((d) =>
-                      d
-                        ? { ...d, placement: p }
-                        : {
-                            variationId: resolved?.id ?? "__placement__",
-                            placement: p,
-                          },
-                    ),
-                  disabled,
-                }
-              : undefined
-          }
         />
       </>
     );
   }
 
-  // Choice component: image cards + optional sub-type chips + optional placement.
+  // Choice component (no placement, ≤1 varying axis): one image card per
+  // variation + a type bottom-sheet for variations with types — the
+  // Latkan-style list.
   const selectedId = draft?.variationId;
-  const selectedOpt = component.options.find((o) => o.id === selectedId);
-  const hasSubs =
-    !!selectedOpt?.subOptions && selectedOpt.subOptions.length > 0;
   const canConfirm = !!draft;
 
   return (
@@ -2236,19 +2349,23 @@ function ExtrasPicker({
               <button
                 type="button"
                 disabled={disabled}
-                onClick={() =>
+                onClick={() => {
+                  // Variations with types (e.g. Shoulder → Strappy) drill
+                  // into a type bottom-sheet instead of selecting outright.
+                  if (opt.subOptions?.length) {
+                    setTypeOpt(opt);
+                    return;
+                  }
                   setDraft({
                     variationId: opt.id,
-                    // Keep existing sub-type if still valid for this option, else default/first.
-                    variationTypeId:
-                      opt.subOptions?.find(
-                        (s) => s.id === draft?.variationTypeId,
-                      )?.id ??
-                      opt.defaultSubOptionId ??
-                      opt.subOptions?.[0]?.id,
-                    placement: draft?.placement,
-                  })
-                }
+                    // Placement-bearing flat add-ons (Piping): each card IS
+                    // a placement, so sync it; others keep the seeded one.
+                    placement:
+                      component.placements?.find(
+                        (p) => p.toLowerCase() === opt.label.toLowerCase(),
+                      ) ?? draft?.placement,
+                  });
+                }}
                 className="flex w-full flex-row items-stretch text-left active:scale-[0.99]"
               >
                 {/* Reference image — left */}
@@ -2278,83 +2395,52 @@ function ExtrasPicker({
                       {opt.description}
                     </span>
                   )}
+                  {selected &&
+                    !!opt.subOptions?.length &&
+                    opt.subOptions.find(
+                      (s) => s.id === draft?.variationTypeId,
+                    ) && (
+                      <span className="text-[11px] font-medium leading-snug text-accent-text">
+                        Type:{" "}
+                        {
+                          opt.subOptions.find(
+                            (s) => s.id === draft?.variationTypeId,
+                          )!.label
+                        }
+                      </span>
+                    )}
                 </div>
               </button>
-
-              {/* Sub-type chips */}
-              <AnimatePresence initial={false}>
-                {selected && hasSubs && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                    className="flex flex-wrap gap-1.5 overflow-hidden border-t border-hairline px-3 py-2.5"
-                  >
-                    {selectedOpt!.subOptions!.map((sub) => {
-                      const subSelected = sub.id === draft?.variationTypeId;
-                      return (
-                        <button
-                          key={sub.id}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() =>
-                            setDraft((d) =>
-                              d
-                                ? {
-                                    ...d,
-                                    variationId: opt.id,
-                                    variationTypeId: sub.id,
-                                  }
-                                : {
-                                    variationId: opt.id,
-                                    variationTypeId: sub.id,
-                                    placement: draft?.placement,
-                                  },
-                            )
-                          }
-                          className={
-                            "rounded-pill border px-2.5 py-1 text-caption leading-tight transition-all ease-brand active:scale-[0.97] disabled:opacity-50 " +
-                            (subSelected
-                              ? "border-transparent bg-tape text-chalk-white"
-                              : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")
-                          }
-                          style={
-                            subSelected
-                              ? { backgroundImage: "var(--tape-gradient)" }
-                              : undefined
-                          }
-                        >
-                          {sub.label}
-                        </button>
-                      );
-                    })}
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </div>
           );
         })}
       </div>
+
+      {/* Type picker — a sheet stacked above this one */}
+      {typeOpt?.subOptions?.length ? (
+        <TypeSheet
+          variationLabel={typeOpt.label}
+          subs={typeOpt.subOptions}
+          selectedId={draft?.variationTypeId}
+          disabled={disabled}
+          onClose={() => setTypeOpt(null)}
+          onPick={(subId) => {
+            setDraft({
+              variationId: typeOpt.id,
+              variationTypeId: subId,
+              placement:
+                component.placements?.find(
+                  (p) => p.toLowerCase() === typeOpt.label.toLowerCase(),
+                ) ?? draft?.placement,
+            });
+            setTypeOpt(null);
+          }}
+        />
+      ) : null}
       <PickerFooter
         canConfirm={canConfirm}
         onConfirm={() => onConfirm(draft)}
         confirmLabel={strings.myod.done}
-        placementProps={
-          hasPlacement && draft
-            ? {
-                placements: component.placements!,
-                value: draft.placement,
-                onSelect: (p: string) =>
-                  setDraft((d) =>
-                    d
-                      ? { ...d, placement: p }
-                      : { variationId: "__placement__", placement: p },
-                  ),
-                disabled,
-              }
-            : undefined
-        }
       />
     </>
   );
@@ -2500,13 +2586,9 @@ function ComponentCards({
   onSelect: (sel: ComponentSelection) => void;
 }) {
   const selectedId = selection?.variationId;
-  const [expandedId, setExpandedId] = useState<string | null>(
-    selectedId ?? null,
-  );
-  // When the expanded option has sub-types, its card body swaps to a chip group.
-  const expandedOption = component.options.find((o) => o.id === expandedId);
-  const chipsActive =
-    !!expandedOption?.subOptions && expandedOption.subOptions.length > 0;
+  // Variation whose type sheet is open (null = closed). Tapping a variation
+  // with types opens the sheet instead of selecting outright.
+  const [typeOpt, setTypeOpt] = useState<StepOption | null>(null);
 
   if (component.kind === "toggle") {
     return (
@@ -2529,16 +2611,16 @@ function ComponentCards({
       <div className="flex flex-col gap-2">
         {component.options.map((opt) => {
           const selected = opt.id === selectedId;
-          const expanded = opt.id === expandedId;
-          // This card's body becomes chips when it is the active sub-type card.
-          const showChipsHere =
-            expanded && !!opt.subOptions && opt.subOptions.length > 0;
+          // Chosen type, shown on the card once selected (Hook → Front hook).
+          const chosenSub = opt.subOptions?.find(
+            (s) => s.id === selection?.variationTypeId,
+          );
           return (
             <div
               key={opt.id}
               className={
                 "group relative flex w-full flex-row items-stretch overflow-hidden rounded-card border text-left transition-all ease-brand disabled:opacity-50 " +
-                (selected || expanded
+                (selected
                   ? "border-accent-text bg-chalk-white shadow-card"
                   : "border-hairline bg-chalk-white shadow-card hover:border-navy-interactive hover:shadow-brand")
               }
@@ -2553,113 +2635,79 @@ function ComponentCards({
                 </span>
               )}
 
-              <AnimatePresence mode="wait" initial={false}>
-                {showChipsHere ? (
-                  // ── Chip body: replaces image + description, hugs the card frame ──
-                  <motion.div
-                    key="chips"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.18 }}
-                    className="flex min-w-0 flex-1 flex-col gap-1.5 px-3 py-2.5"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-body font-semibold leading-tight text-ink-navy">
-                        {opt.label}
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  // Variations with types (e.g. Tying mechanism → Hook) open
+                  // the type bottom-sheet instead of selecting outright.
+                  if (opt.subOptions?.length) {
+                    setTypeOpt(opt);
+                    return;
+                  }
+                  onSelect({ variationId: opt.id });
+                }}
+                className="flex w-full flex-row items-stretch text-left active:scale-[0.99]"
+              >
+                {/* Reference image — left */}
+                <div className="relative aspect-square w-20 shrink-0 overflow-hidden bg-mist-navy">
+                  {opt.assetUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={opt.assetUrl}
+                      alt=""
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center">
+                      <span className="font-heading text-h2 font-bold text-navy-interactive/25">
+                        {opt.label.charAt(0).toUpperCase()}
                       </span>
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => setExpandedId(null)}
-                        className="rounded-pill border border-hairline bg-chalk-white px-2 py-0.5 text-[10px] text-muted transition-colors hover:border-navy-interactive hover:text-ink-navy"
-                        aria-label={`Back to ${opt.label}`}
-                      >
-                        Back
-                      </button>
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {opt.subOptions!.map((sub) => {
-                        const subSelected =
-                          selected && sub.id === selection?.variationTypeId;
-                        return (
-                          <button
-                            key={sub.id}
-                            type="button"
-                            disabled={disabled}
-                            onClick={() =>
-                              onSelect({
-                                variationId: opt.id,
-                                variationTypeId: sub.id,
-                              })
-                            }
-                            className={
-                              "rounded-pill border px-2.5 py-1 text-[12px] leading-tight transition-all active:scale-[0.97] disabled:opacity-50 " +
-                              (subSelected
-                                ? "border-accent-text bg-mist-navy text-ink-navy"
-                                : "border-hairline bg-chalk-white text-muted hover:border-navy-interactive")
-                            }
-                          >
-                            {sub.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
-                ) : (
-                  // ── Default body: image + label + description (button) ──
-                  <motion.button
-                    key="body"
-                    type="button"
-                    disabled={disabled}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.18 }}
-                    onClick={() => {
-                      setExpandedId(opt.id);
-                      if (!opt.subOptions || opt.subOptions.length === 0) {
-                        onSelect({ variationId: opt.id });
-                      }
-                    }}
-                    className="flex w-full flex-row items-stretch text-left active:scale-[0.99]"
-                  >
-                    {/* Reference image — left */}
-                    <div className="relative aspect-square w-20 shrink-0 overflow-hidden bg-mist-navy">
-                      {opt.assetUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={opt.assetUrl}
-                          alt=""
-                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center">
-                          <span className="font-heading text-h2 font-bold text-navy-interactive/25">
-                            {opt.label.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                      )}
-                    </div>
+                  )}
+                </div>
 
-                    {/* Label + description — right */}
-                    <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
-                      <span className="text-body font-semibold leading-tight text-ink-navy">
-                        {opt.label}
-                      </span>
-                      {opt.description && (
-                        <span className="line-clamp-3 text-caption leading-snug text-muted">
-                          {opt.description}
-                        </span>
-                      )}
-                    </div>
-                  </motion.button>
-                )}
-              </AnimatePresence>
+                {/* Label + description — right */}
+                <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
+                  <span className="text-body font-semibold leading-tight text-ink-navy">
+                    {opt.label}
+                  </span>
+                  {opt.description && (
+                    <span className="line-clamp-3 text-caption leading-snug text-muted">
+                      {opt.description}
+                    </span>
+                  )}
+                  {selected && chosenSub && (
+                    <span className="text-[11px] font-medium leading-snug text-accent-text">
+                      Type: {chosenSub.label}
+                    </span>
+                  )}
+                </div>
+              </button>
             </div>
           );
         })}
       </div>
+
+      {/* Type picker bottom-sheet */}
+      {typeOpt?.subOptions?.length ? (
+        <TypeSheet
+          variationLabel={typeOpt.label}
+          subs={typeOpt.subOptions}
+          selectedId={
+            selectedId === typeOpt.id ? selection?.variationTypeId : undefined
+          }
+          disabled={disabled}
+          onClose={() => setTypeOpt(null)}
+          onPick={(subId) => {
+            onSelect({
+              variationId: typeOpt.id,
+              variationTypeId: subId,
+            });
+            setTypeOpt(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
