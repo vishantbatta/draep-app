@@ -22,7 +22,14 @@ interface BottomSheetProps {
   footer?: ReactNode;
 }
 
-export function BottomSheet({ open, onClose, title, children, className, footer }: BottomSheetProps) {
+export function BottomSheet({
+  open,
+  onClose,
+  title,
+  children,
+  className,
+  footer,
+}: BottomSheetProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -58,7 +65,7 @@ export function BottomSheet({ open, onClose, title, children, className, footer 
             aria-label={title}
             className={clsx(
               "relative w-full max-w-column rounded-t-sheet bg-chalk-white shadow-brand",
-              "flex max-h-[85dvh] flex-col",
+              "flex max-h-[92dvh] flex-col",
               className,
             )}
             initial={{ y: "100%" }}
@@ -67,7 +74,10 @@ export function BottomSheet({ open, onClose, title, children, className, footer 
             transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           >
             <div className="flex items-center justify-between px-4 pt-3 pb-2">
-              <div className="mx-auto h-1 w-10 rounded-pill bg-tape-silver" aria-hidden />
+              <div
+                className="mx-auto h-1 w-10 rounded-pill bg-tape-silver"
+                aria-hidden
+              />
             </div>
             <div className="px-4 pb-2">
               <h2 className="font-heading text-h2 text-ink-navy">{title}</h2>

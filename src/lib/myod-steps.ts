@@ -403,11 +403,14 @@ export function buildDesignSteps(tree: GarmentTreeOut): DesignStep[] {
   return steps;
 }
 
+// Order the axis-wizard steps: placement (Where, when the labels decompose)
+// comes first (added by addonAxisModel), then style-like axes before
+// measurements before color.
 const AXIS_FIELDS = [
   { field: "style", label: "Style" },
+  { field: "type", label: "Type" },
   { field: "shape", label: "Shape" },
   { field: "size", label: "Size" },
-  { field: "type", label: "Type" },
   { field: "color", label: "Color" },
 ] as const;
 

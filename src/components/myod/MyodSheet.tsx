@@ -40,6 +40,7 @@ import {
   type DesignStep,
   type PlacementPick,
   type Selections,
+  type StepAxis,
   type StepComponent,
   type StepOption,
 } from "@/lib/myod-steps";
@@ -1827,15 +1828,175 @@ function TypeSheet({
 }
 
 /**
+ * One value card in the axis wizard's 2-column grid: an image previewing the
+ * variation the picks so far + this value resolve to, falling back to the
+ * add-on's own asset while the catalog has no per-variation images (monogram
+ * only if even that is missing), and a label. The selection indicator follows
+ * the axis semantics: multi (placement) → check badge on picked values;
+ * single-select axes → radio ring, shown on every card. No resolving
+ * variation → the card disables (combination doesn't exist).
+ */
+function AxisValueCard({
+  value,
+  option,
+  selected,
+  disabled,
+  multi,
+  fallbackUrl,
+  onClick,
+}: {
+  value: string;
+  option: StepOption | undefined;
+  selected: boolean;
+  disabled?: boolean;
+  multi?: boolean;
+  fallbackUrl?: string;
+  onClick: () => void;
+}) {
+  const img = option?.assetUrl ?? fallbackUrl;
+  return (
+    <button
+      type="button"
+      disabled={disabled || !option}
+      onClick={onClick}
+      className={
+        "group/axis flex flex-col overflow-hidden rounded-card border text-left transition-all ease-brand active:scale-[0.98] disabled:opacity-40 " +
+        (selected
+          ? "border-accent-text bg-chalk-white shadow-card"
+          : "border-hairline bg-chalk-white hover:border-navy-interactive")
+      }
+    >
+      <div className="relative h-28 w-full bg-mist-navy">
+        {img ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={img}
+            alt=""
+            className="h-full w-full object-cover transition-transform duration-300 group-hover/axis:scale-105"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <span className="font-heading text-h2 font-bold text-navy-interactive/25">
+              {value.charAt(0).toUpperCase()}
+            </span>
+          </div>
+        )}
+        {multi ? (
+          selected && (
+            <span
+              className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full text-chalk-white shadow-[0_1px_2px_rgba(208,96,16,0.3)]"
+              style={{ backgroundImage: "var(--tape-gradient)" }}
+            >
+              <Check size={12} />
+            </span>
+          )
+        ) : (
+          <span
+            className={
+              "absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 bg-chalk-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.15)] " +
+              (selected ? "border-accent-text" : "border-navy-interactive/30")
+            }
+          >
+            {selected && (
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundImage: "var(--tape-gradient)" }}
+              />
+            )}
+          </span>
+        )}
+      </div>
+      <div className="px-2 py-1.5">
+        <span className="text-caption font-semibold leading-tight text-ink-navy">
+          {value.charAt(0).toUpperCase() + value.slice(1)}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+/**
+ * A stacked step sheet of the add-on axis wizard (ExtrasPicker): every axis
+ * after the first — e.g. Shape, then Size — gets its own sheet with a preview
+ * of what the picks so far resolve to and a 2-column grid of that axis's
+ * value cards. Tapping a value reports to onPick (the picker advances to the
+ * next axis or, on the last axis, commits); ✕ goes back one step.
+ */
+function AxisStepSheet({
+  axisLabel,
+  stepNumber,
+  stepCount,
+  cards,
+  previewOption,
+  caption,
+  disabled,
+  fallbackUrl,
+  onPick,
+  onBack,
+}: {
+  axisLabel: string;
+  stepNumber: number;
+  stepCount: number;
+  cards: { value: string; selected: boolean; option: StepOption | undefined }[];
+  previewOption: StepOption | undefined;
+  caption: string;
+  disabled?: boolean;
+  fallbackUrl?: string;
+  onPick: (value: string) => void;
+  onBack: () => void;
+}) {
+  return (
+    <BottomSheet open onClose={onBack} title={axisLabel}>
+      <div className="flex flex-col gap-4 pb-2">
+        <span className="eyebrow">
+          Step {stepNumber} of {stepCount}
+        </span>
+        <div className="flex flex-col items-center gap-1.5">
+          <div className="relative flex aspect-[4/3] w-full max-w-[200px] items-center justify-center overflow-hidden rounded-card bg-mist-navy">
+            {(previewOption?.assetUrl ?? fallbackUrl) ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={previewOption?.assetUrl ?? fallbackUrl}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="font-heading text-h1 font-bold text-navy-interactive/25">
+                {(previewOption?.label ?? axisLabel).charAt(0).toUpperCase()}
+              </span>
+            )}
+          </div>
+          <span className="text-caption font-medium text-muted">{caption}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {cards.map((c) => (
+            <AxisValueCard
+              key={c.value}
+              value={c.value}
+              option={c.option}
+              selected={c.selected}
+              disabled={disabled}
+              fallbackUrl={fallbackUrl}
+              onClick={() => onPick(c.value)}
+            />
+          ))}
+        </div>
+      </div>
+    </BottomSheet>
+  );
+}
+
+/**
  * The picker that lives inside the bottom sheet. Holds a LOCAL draft of the
  * selection (variation + sub-type + placement) so the user can set multiple
- * axes (e.g. Keyhole shape + placement) before committing. Four modes by
- * component shape: bool add-ons (enable + place), multi-spot add-ons (a
- * leading Where axis — spots toggle on/off, each active spot picks its own
- * combination on the remaining axes), multi-axis add-ons (one chip section
- * per axis, resolved to a variation on Confirm), and everything else (image
- * card per variation). Nothing is applied to the live design until Confirm —
- * on confirm, `onConfirm(draft)` fires once and the sheet closes.
+ * axes before committing. Modes by component shape: bool add-ons (enable +
+ * place), axis-wizard add-ons (varying across 2+ axes — a step-by-step sheet
+ * per axis in the order Where → Style → Type → Shape → Size → Color, only
+ * the axes that actually vary; Where is multi-select with a Continue, the
+ * rest single-select advancing on tap, last tap commits), and everything
+ * else (image card per variation, with a type sheet for typed ones).
+ * Nothing is applied to the live design until the wizard/Confirm commits —
+ * `onConfirm` fires once and the sheet closes.
  */
 function ExtrasPicker({
   component,
@@ -1860,16 +2021,13 @@ function ExtrasPicker({
   const hasPlacement =
     !!component.placements && component.placements.length > 0;
 
-  // Keyhole-style spot picking serves add-ons whose variations decompose into
-  // a leading Where axis PLUS at least one more axis (Key Hole: Where · Shape ·
-  // Size): pick Where first (multi-select), then each active spot picks its
-  // combination. Placement-only add-ons (Piping, Lace Border — each variation
-  // IS a spot with nothing else to pick) fall through to the plain card list,
-  // as does anything varying across 0–1 axes.
+  // Variation axes drive the axis wizard: add-ons varying across 2+ axes
+  // (with or without a leading Where axis) step through one sheet per axis.
+  // Placement-only add-ons (Piping, Lace Border — each variation IS a spot
+  // with nothing else to pick) fall through to the plain card list, as does
+  // anything varying across 0–1 axes.
   const allAxes = component.kind !== "toggle" ? (component.axes ?? []) : [];
   const whereAxis = allAxes[0]?.key === "where" ? allAxes[0] : undefined;
-  const spotAxes = whereAxis ? allAxes.slice(1) : allAxes;
-  const spotMode = !isToggle && !!whereAxis && spotAxes.length > 0;
   const spotValues = whereAxis
     ? whereAxis.values
     : (component.placements ?? []);
@@ -1910,9 +2068,13 @@ function ExtrasPicker({
   // writes it into the draft; dismissing keeps the draft untouched.
   const [typeOpt, setTypeOpt] = useState<StepOption | null>(null);
 
-  // Per-axis picks for multi-axis add-ons (e.g. Key Hole: Where · Shape · Size),
-  // seeded from the current selection or the catalog default variation — not
-  // the first variation.
+  // Axis-wizard step the picker is on (0 = this sheet's own content). Steps
+  // ≥ 1 render as stacked sheets above, one axis each; ✕ on a step sheet
+  // goes back one step.
+  const [wizStep, setWizStep] = useState(0);
+
+  // Per-axis picks for axis-wizard add-ons, seeded from the current
+  // selection or the catalog default variation — not the first variation.
   const [axisSel, setAxisSel] = useState<Record<string, string>>(() => {
     const seed = component.options.find(
       (o) =>
@@ -1921,39 +2083,20 @@ function ExtrasPicker({
     return { ...(seed?.axisValues ?? {}) };
   });
 
-  // Multi-spot add-ons (a leading "Where" axis): one pick set per active spot
-  // — several spots can be on at once, each with its own combination (a key
-  // hole on each sleeve). Seeded from the selection's picks, else its single
-  // combination, else the catalog default. A spot's presence = active.
-  const [spotSel, setSpotSel] = useState<
-    Record<string, Record<string, string>>
-  >(() => {
-    const seed: Record<string, Record<string, string>> = {};
-    const seedFrom = (optId: string | undefined) => {
-      if (!optId) return;
-      const opt = component.options.find((o) => o.id === optId);
-      const where = whereOf(opt);
-      if (!where || seed[where]) return;
-      const rest: Record<string, string> = {};
-      for (const a of spotAxes) {
-        const v = opt?.axisValues?.[a.key];
-        if (v) rest[a.key] = v;
-      }
-      seed[where] = rest;
-    };
-    if (initialSelection?.picks?.length) {
-      for (const p of initialSelection.picks) seedFrom(p.variationId);
-    } else {
-      seedFrom(initialSelection?.variationId ?? component.defaultOptionId);
-    }
-    // Nothing seeded (no selection and no catalog default — Panel, Ruffle):
-    // open with the first spot active anyway. Key Hole gets this from its
-    // default variation; without it the sheet is a bare Where-chip row. The
-    // spot's picks default to its first variation, same as a manual tap.
-    if (Object.keys(seed).length === 0 && spotValues.length > 0) {
-      seedFrom(component.options.find((o) => whereOf(o) === spotValues[0])?.id);
-    }
-    return seed;
+  // Active placements for add-ons with a Where axis — ONE shared combination
+  // is picked for every active spot (a key hole on the back and both
+  // sleeves). Seeded from the selection's picks, else its single spot, else
+  // the catalog default's spot.
+  const [spots, setSpots] = useState<string[]>(() => {
+    if (!whereAxis) return [];
+    if (initialSelection?.picks?.length)
+      return initialSelection.picks.map((p) => p.placement);
+    const seedOpt = component.options.find(
+      (o) =>
+        o.id === (initialSelection?.variationId ?? component.defaultOptionId),
+    );
+    const w = whereOf(seedOpt);
+    return w ? [w] : [];
   });
 
   // For toggle add-ons there are no option cards — the add-on's own asset
@@ -2042,64 +2185,82 @@ function ExtrasPicker({
     );
   }
 
-  // Multi-spot add-on (any add-on with a placement): the Where chips toggle
-  // spots on/off (multi-select) and every active spot gets its own pick set
-  // on the remaining axes — the same add-on can sit on several spots at once
-  // (a key hole on each sleeve, each with its own shape/size). Spots with no
-  // remaining axes (Piping, Lace Border) resolve straight to the placement's
-  // own variation.
-  if (spotMode) {
-    const activeSpots = Object.keys(spotSel);
-    const resolveSpot = (where: string): StepOption | undefined => {
-      const sel = spotSel[where];
-      if (!sel) return undefined;
-      return component.options.find(
-        (o) =>
-          whereOf(o) === where &&
-          spotAxes.every((a) => o.axisValues?.[a.key] === sel[a.key]),
-      );
-    };
-    const comboExistsAt = (where: string, key: string, value: string) =>
-      component.options.some(
-        (o) =>
-          whereOf(o) === where &&
-          o.axisValues?.[key] === value &&
-          spotAxes.every(
-            (a) =>
-              a.key === key ||
-              o.axisValues?.[a.key] === spotSel[where]?.[a.key],
-          ),
-      );
-    const toggleSpot = (where: string) => {
-      setSpotSel((prev) => {
-        const next = { ...prev };
-        if (next[where]) {
-          delete next[where];
-          return next;
-        }
-        const atSpot = component.options.filter((o) => whereOf(o) === where);
-        const def =
-          atSpot.find((o) => o.id === component.defaultOptionId) ?? atSpot[0];
-        const rest: Record<string, string> = {};
-        for (const a of spotAxes) {
-          const v = def?.axisValues?.[a.key];
-          if (v) rest[a.key] = v;
-        }
-        next[where] = rest;
-        return next;
+  // Axis wizard — any add-on varying across 2+ axes, with or without a
+  // placement: a step-by-step sheet per axis in the order Where → Style →
+  // Type → Shape → Size → Color, only the axes that actually vary. Step 0
+  // renders in this sheet; each later axis opens its own sheet above. The
+  // Where step is multi-select (a Continue advances); the rest are
+  // single-select and advance on tap, with the last tap committing the
+  // combination — one shared combo for every selected spot.
+  if (allAxes.length >= 2) {
+    const hostAxis = allAxes[0];
+    const whereStep = hostAxis.key === "where";
+    const stepAxis = allAxes[wizStep] ?? hostAxis;
+    const restAxes = whereAxis ? allAxes.slice(1) : allAxes;
+    // Partial match: axes the user hasn't stepped to yet don't constrain.
+    const matchesPartial = (o: StepOption, override?: [string, string]) =>
+      allAxes.every((a) => {
+        if (a.key === "where") return true;
+        const v = override?.[0] === a.key ? override[1] : axisSel[a.key];
+        return v === undefined || o.axisValues?.[a.key] === v;
       });
+    const atSpots = (o: StepOption) =>
+      !whereAxis || spots.some((w) => whereOf(o) === w);
+    const cardsFor = (
+      axis: StepAxis,
+    ): { value: string; option: StepOption | undefined }[] =>
+      axis.key === "where"
+        ? axis.values.map((val) => ({
+            value: val,
+            option: component.options.find(
+              (o) => whereOf(o) === val && matchesPartial(o),
+            ),
+          }))
+        : axis.values.map((val) => ({
+            value: val,
+            option: component.options.find(
+              (o) => matchesPartial(o, [axis.key, val]) && atSpots(o),
+            ),
+          }));
+    const previewOpt = component.options.find(
+      (o) => matchesPartial(o) && atSpots(o),
+    );
+    const partialSummary = [
+      ...(whereAxis && spots.length
+        ? [spots.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" + ")]
+        : []),
+      ...restAxes
+        .map((a) => axisSel[a.key])
+        .filter(Boolean)
+        .map((v) => v!.charAt(0).toUpperCase() + v!.slice(1)),
+    ].join(" · ");
+    const pickValue = (axis: StepAxis, value: string) => {
+      const next = { ...axisSel, [axis.key]: value };
+      setAxisSel(next);
+      if (wizStep >= allAxes.length - 1) {
+        // Last axis: resolve the full combination and commit.
+        if (whereAxis) {
+          const picks: PlacementPick[] = [];
+          for (const w of spots) {
+            const o = component.options.find(
+              (opt) =>
+                whereOf(opt) === w &&
+                restAxes.every((a) => opt.axisValues?.[a.key] === next[a.key]),
+            );
+            if (o) picks.push({ variationId: o.id, placement: w });
+          }
+          if (picks.length)
+            onConfirm({ variationId: picks[0].variationId, picks });
+        } else {
+          const o = component.options.find((opt) =>
+            restAxes.every((a) => opt.axisValues?.[a.key] === next[a.key]),
+          );
+          if (o) onConfirm({ ...draft, variationId: o.id });
+        }
+      } else {
+        setWizStep(wizStep + 1);
+      }
     };
-    const pickSpotAxis = (where: string, key: string, value: string) => {
-      setSpotSel((prev) =>
-        prev[where]
-          ? { ...prev, [where]: { ...prev[where], [key]: value } }
-          : prev,
-      );
-    };
-    const previewOpt = resolveSpot(activeSpots[0] ?? "");
-    const allResolved =
-      activeSpots.length > 0 &&
-      activeSpots.every((w) => resolveSpot(w) !== undefined);
     return (
       <>
         <div className="flex flex-col gap-4 py-2">
@@ -2109,7 +2270,7 @@ function ExtrasPicker({
               <img
                 src={previewOpt?.assetUrl ?? component.assetUrl}
                 alt=""
-                className="max-h-56 w-auto max-w-full rounded-card object-contain"
+                className="max-h-32 w-auto max-w-full rounded-card object-contain"
               />
             </div>
           )}
@@ -2119,194 +2280,60 @@ function ExtrasPicker({
             </p>
           )}
           <div className="flex flex-col gap-2">
-            <span className="eyebrow px-1">{whereAxis?.label ?? "Where"}</span>
-            <div className="flex flex-wrap gap-1.5">
-              {spotValues.map((val) => {
-                const selected = !!spotSel[val];
-                return (
-                  <button
-                    key={val}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => toggleSpot(val)}
-                    className={
-                      "rounded-pill border px-3 py-1.5 text-caption leading-tight transition-all ease-brand active:scale-[0.97] disabled:opacity-50 " +
-                      (selected
-                        ? "border-transparent bg-tape text-chalk-white"
-                        : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")
-                    }
-                    style={
-                      selected
-                        ? { backgroundImage: "var(--tape-gradient)" }
-                        : undefined
-                    }
-                  >
-                    {val.charAt(0).toUpperCase() + val.slice(1)}
-                  </button>
-                );
-              })}
+            <span className="eyebrow px-1">{hostAxis.label}</span>
+            <div className="grid grid-cols-2 gap-2">
+              {cardsFor(hostAxis).map(({ value, option }) => (
+                <AxisValueCard
+                  key={value}
+                  value={value}
+                  option={option}
+                  selected={
+                    whereStep
+                      ? spots.includes(value)
+                      : axisSel[hostAxis.key] === value
+                  }
+                  disabled={disabled}
+                  multi={whereStep}
+                  fallbackUrl={component.assetUrl}
+                  onClick={() =>
+                    whereStep
+                      ? setSpots((prev) =>
+                          prev.includes(value)
+                            ? prev.filter((v) => v !== value)
+                            : [...prev, value],
+                        )
+                      : pickValue(hostAxis, value)
+                  }
+                />
+              ))}
             </div>
           </div>
-          {activeSpots.map((where) => {
-            const sel = spotSel[where];
-            const spotOpt = resolveSpot(where);
-            return (
-              <div
-                key={where}
-                className="flex flex-col gap-2 rounded-card border border-hairline bg-mist-navy/40 px-2.5 py-2.5"
-              >
-                <span className="px-1 text-caption font-semibold capitalize text-ink-navy">
-                  {where}
-                </span>
-                {/* Spots with no further axes (Piping) show their placement
-                    variation's own image inside the card. */}
-                {spotAxes.length === 0 && spotOpt?.assetUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={spotOpt.assetUrl}
-                    alt=""
-                    className="max-h-32 w-auto max-w-full self-start rounded-card object-contain pl-1"
-                  />
-                )}
-                {spotAxes.map((a) => (
-                  <div key={a.key} className="flex flex-col gap-2">
-                    <span className="eyebrow px-1">{a.label}</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {a.values.map((val) => {
-                        const selected = sel[a.key] === val;
-                        const exists = comboExistsAt(where, a.key, val);
-                        return (
-                          <button
-                            key={val}
-                            type="button"
-                            disabled={disabled || !exists}
-                            onClick={() => pickSpotAxis(where, a.key, val)}
-                            className={
-                              "rounded-pill border px-3 py-1.5 text-caption leading-tight transition-all ease-brand active:scale-[0.97] " +
-                              (!exists
-                                ? "cursor-not-allowed border-hairline bg-chalk-white text-muted opacity-40"
-                                : selected
-                                  ? "border-transparent bg-tape text-chalk-white"
-                                  : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")
-                            }
-                            style={
-                              selected && exists
-                                ? { backgroundImage: "var(--tape-gradient)" }
-                                : undefined
-                            }
-                          >
-                            {val.charAt(0).toUpperCase() + val.slice(1)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-                {!spotOpt && (
-                  <p className="px-1 text-caption text-muted">
-                    Pick an option in each row.
-                  </p>
-                )}
-              </div>
-            );
-          })}
         </div>
-        <PickerFooter
-          canConfirm={allResolved}
-          onConfirm={() => {
-            const picks: PlacementPick[] = activeSpots.map((w) => ({
-              variationId: resolveSpot(w)!.id,
-              placement: w,
-            }));
-            onConfirm({ variationId: picks[0].variationId, picks });
-          }}
-          confirmLabel={strings.myod.done}
-        />
-      </>
-    );
-  }
-
-  // Multi-axis add-on WITHOUT a placement (rule: one single-select section
-  // per metric, no Where step): chips that can't complete an existing
-  // combination are dimmed; Confirm resolves the picks to a variation.
-  if (allAxes.length >= 2) {
-    const resolved = component.options.find((o) =>
-      allAxes.every((a) => o.axisValues?.[a.key] === axisSel[a.key]),
-    );
-    const comboExists = (key: string, value: string) =>
-      component.options.some(
-        (o) =>
-          o.axisValues?.[key] === value &&
-          allAxes.every(
-            (a) => a.key === key || o.axisValues?.[a.key] === axisSel[a.key],
-          ),
-      );
-    return (
-      <>
-        <div className="flex flex-col gap-4 py-2">
-          {/* Preview of the resolved variation — falls back to the add-on's own
-              image until per-variation assets are uploaded. The frame hugs the
-              image (capped height, natural width, centered): no letterbox bars,
-              fully visible at any aspect ratio. */}
-          {(resolved?.assetUrl ?? component.assetUrl) && (
-            <div className="flex w-full justify-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={resolved?.assetUrl ?? component.assetUrl}
-                alt=""
-                className="max-h-56 w-auto max-w-full rounded-card object-contain"
-              />
-            </div>
-          )}
-          {component.description && (
-            <p className="px-1 text-caption leading-snug text-muted">
-              {component.description}
-            </p>
-          )}
-          {allAxes.map((a) => (
-            <div key={a.key} className="flex flex-col gap-2">
-              <span className="eyebrow px-1">{a.label}</span>
-              <div className="flex flex-wrap gap-1.5">
-                {a.values.map((val) => {
-                  const selected = axisSel[a.key] === val;
-                  const exists = comboExists(a.key, val);
-                  return (
-                    <button
-                      key={val}
-                      type="button"
-                      disabled={disabled || !exists}
-                      onClick={() =>
-                        setAxisSel((s) => ({ ...s, [a.key]: val }))
-                      }
-                      className={
-                        "rounded-pill border px-3 py-1.5 text-caption leading-tight transition-all ease-brand active:scale-[0.97] " +
-                        (!exists
-                          ? "cursor-not-allowed border-hairline bg-chalk-white text-muted opacity-40"
-                          : selected
-                            ? "border-transparent bg-tape text-chalk-white"
-                            : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")
-                      }
-                      style={
-                        selected && exists
-                          ? { backgroundImage: "var(--tape-gradient)" }
-                          : undefined
-                      }
-                    >
-                      {val.charAt(0).toUpperCase() + val.slice(1)}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-        <PickerFooter
-          canConfirm={!!resolved}
-          onConfirm={() =>
-            resolved && onConfirm({ ...draft, variationId: resolved.id })
-          }
-          confirmLabel={strings.myod.done}
-        />
+        {whereStep ? (
+          <PickerFooter
+            canConfirm={spots.length > 0}
+            onConfirm={() => setWizStep(1)}
+            confirmLabel="Continue"
+          />
+        ) : null}
+        {wizStep >= 1 ? (
+          <AxisStepSheet
+            key={stepAxis.key}
+            axisLabel={stepAxis.label}
+            stepNumber={wizStep + 1}
+            stepCount={allAxes.length}
+            cards={cardsFor(stepAxis).map((c) => ({
+              ...c,
+              selected: axisSel[stepAxis.key] === c.value,
+            }))}
+            previewOption={previewOpt}
+            caption={partialSummary}
+            disabled={disabled}
+            fallbackUrl={component.assetUrl}
+            onPick={(v) => pickValue(stepAxis, v)}
+            onBack={() => setWizStep(wizStep - 1)}
+          />
+        ) : null}
       </>
     );
   }
