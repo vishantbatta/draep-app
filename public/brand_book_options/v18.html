@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 18 Y2K Chrome · Beauty v2000</title>
+<meta name="description" content="draep brand direction 18: Y2K Chrome. Millennial gloss for a new century — custom-stitched is cool, beautify the world, safe space, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#1C1030; --panel:rgba(255,255,255,.055); --line:rgba(255,255,255,.22); --lav:#E9E4FF; --muted:#B7AEDD;
+  --pink:#FF7AB8; --teal:#6FF0D6; --plum:#2A0F22;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--lav);line-height:1.65;font-size:15px;
+  background-image:radial-gradient(ellipse 60% 40% at 85% -5%,rgba(255,122,184,.18),transparent),radial-gradient(ellipse 50% 35% at 10% 110%,rgba(111,240,214,.12),transparent)}
+:focus-visible{outline:3px solid var(--pink);outline-offset:3px;border-radius:4px}
+.wrap{max-width:920px;margin:0 auto;padding:0 30px}
+.k{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--teal);margin-bottom:20px;font-weight:500}
+
+header{padding:26px 0;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px}
+.wordmark{font-family:'Unbounded',sans-serif;font-weight:700;font-size:23px;background:linear-gradient(180deg,#FFFFFF 0%,#C9D2EC 55%,#A9B2CC 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:#C9D2EC}
+header .ed{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
+
+.hero{padding:60px 0 52px;position:relative}
+h1{font-family:'Unbounded',sans-serif;font-weight:900;font-size:clamp(30px,5.2vw,52px);line-height:1.12;background:linear-gradient(180deg,#FFFFFF 0%,#D6DDF2 50%,#A9B2CC 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:#D6DDF2}
+.hero .dek{margin-top:24px;max-width:560px;color:var(--muted);font-size:15.5px}
+.hero .dek b{color:var(--lav);font-weight:600}
+.rings{position:absolute;top:26px;right:0;width:170px;height:170px;pointer-events:none}
+.loadbar{margin-top:30px;max-width:420px}
+.loadbar .lab{font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--teal);margin-bottom:9px}
+.loadbar .bar{height:16px;border-radius:999px;border:1.5px solid var(--line);overflow:hidden;background:rgba(255,255,255,.04)}
+.loadbar .fill{height:100%;width:100%;background:linear-gradient(90deg,var(--teal),var(--pink));border-radius:999px}
+@media (max-width:760px){.rings{display:none}}
+
+.bubbles{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+.bub{background:var(--panel);border:1px solid var(--line);border-radius:26px;padding:26px 24px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.bub .no{font-size:10.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--pink);margin-bottom:10px;font-weight:600}
+.bub h2{font-family:'Unbounded',sans-serif;font-weight:700;font-size:18.5px;line-height:1.3;color:#FFFFFF;margin-bottom:9px}
+.bub h2 .pk{color:var(--pink)} .bub h2 .tl{color:var(--teal)}
+.bub p{font-size:13.5px;color:var(--muted)}
+.bub p b{color:var(--lav);font-weight:500}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin-top:58px}
+.sw{padding:20px 16px;border-right:1px solid var(--line)}
+.sw:last-child{border-right:none}
+.sw .chip{height:56px;margin-bottom:14px;border-radius:14px}
+.sw .nm{font-size:12.5px;font-weight:600;color:#FFFFFF}
+.sw .hx{font-size:11px;color:var(--muted);font-family:ui-monospace,monospace;margin-top:2px}
+
+.type{padding:58px 0}
+.type .big{font-family:'Unbounded',sans-serif;font-weight:700;font-size:clamp(22px,3.6vw,34px);line-height:1.25;background:linear-gradient(180deg,#FFFFFF 0%,#D6DDF2 55%,#A9B2CC 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:#D6DDF2}
+.type .sub{font-size:13.5px;color:var(--muted);margin-top:16px}
+
+.btn{font:inherit;font-weight:600;font-size:14px;padding:13px 30px;cursor:pointer;border-radius:999px;border:1.5px solid transparent}
+.btn.primary{background:var(--lav);color:var(--plum)}
+.btn.primary:hover{background:#FFFFFF}
+.btn.ghost{background:transparent;color:var(--lav);border-color:var(--line)}
+.btn.ghost:hover{border-color:var(--teal);color:var(--teal)}
+
+.kit{background:var(--panel);border:1px solid var(--line);border-radius:24px;overflow:hidden;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:26px;border-bottom:1px solid rgba(255,255,255,.12)}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--teal);padding-top:6px;font-weight:600}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:7px 15px;border-radius:999px}
+.tagpill.solid{background:var(--lav);color:var(--plum)}
+.tagpill.pk{border:1.5px solid var(--pink);color:var(--pink)}
+.tagpill.tl{border:1.5px solid var(--teal);color:var(--teal)}
+.btn-text{background:none;border:none;font:inherit;font-size:14px;font-weight:600;color:var(--pink);text-decoration:underline;text-underline-offset:5px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-size:12px;letter-spacing:.06em;margin-bottom:7px;color:#FFFFFF}
+.field input{width:100%;font:inherit;font-size:14.5px;padding:12px 16px;background:rgba(12,8,24,.6);color:var(--lav);border:1px solid var(--line);border-radius:14px}
+.field input:focus-visible{outline:none;border-color:var(--pink)}
+.hint{font-size:12.5px;color:var(--muted);margin-top:7px}
+.callout{border:1.5px solid var(--teal);border-radius:18px;padding:16px 20px;font-size:14.5px;color:var(--muted);max-width:560px;background:rgba(111,240,214,.06)}
+.callout b{color:var(--teal);font-weight:600}
+
+footer{margin-top:82px;border-top:1px solid var(--line);padding:24px 0 48px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+
+@media (prefers-reduced-motion:no-preference){
+  .loadbar .fill{animation:load 2.6s ease-in-out infinite}
+  @keyframes load{0%{width:8%}60%{width:100%}100%{width:100%}}
+  .rings{animation:spin 26s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.bubbles{grid-template-columns:1fr}.swatches{grid-template-columns:1fr 1fr}.sw:nth-child(2){border-right:none}.sw:nth-child(1),.sw:nth-child(2){border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">draep</div>
+    <div class="ed">Direction 18 — Beauty v2000.1</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <svg class="rings" viewBox="0 0 170 170" aria-hidden="true" focusable="false">
+        <circle cx="85" cy="85" r="76" fill="none" stroke="url(#g1)" stroke-width="5"/>
+        <circle cx="85" cy="85" r="56" fill="none" stroke="#FF7AB8" stroke-width="2.5" stroke-dasharray="6 10"/>
+        <circle cx="85" cy="85" r="34" fill="none" stroke="#6FF0D6" stroke-width="2.5"/>
+        <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#A9B2CC"/></linearGradient></defs>
+      </svg>
+      <div class="k">Y2K Chrome — the future always fit one person at a time</div>
+      <h1>NEW CENTURY,<br>SAME OLD RACK?<br>HARD PASS.</h1>
+      <p class="dek">The millennium promised everyone a customized future, then handed us all the same t-shirt. We're finishing the job: <b>clothes compiled for an audience of one</b>, chrome-plated confidence included. Walk out and upgrade the skyline.</p>
+      <div class="loadbar" aria-hidden="true">
+        <div class="lab">Beautifying the world… 100% — never stops</div>
+        <div class="bar"><div class="fill"></div></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="k">System preferences — four defaults, no overrides needed</div>
+      <div class="bubbles">
+        <div class="bub"><div class="no">Widget 01 · Cool</div><h2>Custom-stitched is <span class="pk">cool</span></h2><p>Nothing says "future" like something that didn't exist until you ordered it. <b>The rack is a rerun</b>; you're the premiere.</p></div>
+        <div class="bub"><div class="no">Widget 02 · Duty</div><h2>Beautify the <span class="tl">world</span></h2><p>Every street is a loading screen someone else has to look at. <b>Ship something beautiful</b> into it every single day.</p></div>
+        <div class="bub"><div class="no">Widget 03 · Space</div><h2>A <span class="pk">safe space</span>, no pop-ups</h2><p>No ads, no judgment, no comment section. <b>Every aesthetic is compatible</b> with this operating system.</p></div>
+        <div class="bub"><div class="no">Widget 04 · Your way</div><h2>Skinned <span class="tl">your way</span></h2><p>You pick the theme, the chrome, the shine. <b>However you want the world beautified</b>, we're just the download server.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="k" style="margin-top:56px">Chrome palette</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:linear-gradient(180deg,#FFFFFF,#A9B2CC)"></div><div class="nm">Liquid Chrome</div><div class="hx">#FFF → #A9B2CC</div></div>
+        <div class="sw"><div class="chip" style="background:#FF7AB8"></div><div class="nm">Hot Bubblegum</div><div class="hx">#FF7AB8</div></div>
+        <div class="sw"><div class="chip" style="background:#6FF0D6"></div><div class="nm">Antenna Teal</div><div class="hx">#6FF0D6</div></div>
+        <div class="sw"><div class="chip" style="background:#1C1030"></div><div class="nm">Midnight Purple</div><div class="hx">#1C1030</div></div>
+      </div>
+    </section>
+
+    <section class="type">
+      <div class="k">Type — Unbounded over Space Grotesk</div>
+      <div class="big">Paint the world the way you want — chrome-plated, bubble-wrapped, and shipped same day.</div>
+      <div class="sub">A wide futuristic display for the marquee, and a crisp grotesque doing the actual work. Big 2000s energy, current-century craft.</div>
+    </section>
+
+    <section style="margin-bottom:64px">
+      <div class="k">The parts catalog — components</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Install confidence</button>
+          <button class="btn ghost" type="button">Preview the drop</button>
+          <button class="btn-text" type="button">What's new in you 2.0 →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Badges</div><div class="chips">
+          <span class="tagpill solid">Build: yours</span>
+          <span class="tagpill pk">Chrome inside</span>
+          <span class="tagpill tl">No clones</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Registration</div><div class="field">
+          <label for="v18handle">Pick your handle</label>
+          <input id="v18handle" type="text" autocomplete="off">
+          <p class="hint">Every license here is single-seat and unlimited-style. Whatever handle you choose, it's yours alone.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Read-me</div><div class="callout">
+          <b>FROM THE FUTURE.</b> The world renders grey unless someone uploads something better. You hold the account — paint the world the way you want.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>DRAEP — DIRECTION 18 OF 20</span>
+    <span>BEAUTY v2000 · NO CLONES MANUFACTURED</span>
+  </footer>
+</div>
+</body>
+</html>

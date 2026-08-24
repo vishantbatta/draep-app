@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 20 Denim Workwear · Indigo Hours</title>
+<meta name="description" content="draep brand direction 20: Denim Workwear. Indigo, topstitch and copper rivets — custom-stitched is cool, beautify the world, safe space, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=Archivo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --denim:#2E4A72; --denim2:#33547E; --indigo:#1D3050; --cream:#F5EFDD; --gold:#F2C94C; --leather:#7A4A2B; --copper:#E8975A;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Archivo',sans-serif;background:var(--denim);color:var(--cream);line-height:1.65;font-size:15px;
+  background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.018) 0 2px,transparent 2px 6px)}
+:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
+.wrap{max-width:920px;margin:0 auto;padding:0 30px}
+.k{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--gold);margin-bottom:20px;font-weight:700}
+
+header{padding:26px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;border-bottom:2px dashed rgba(245,239,221,.5)}
+.wordmark{font-family:'Oswald',sans-serif;font-weight:600;font-size:26px;letter-spacing:.04em}
+.wordmark .ae{color:var(--gold)}
+.patchlabel{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;font-weight:700;color:var(--cream);background:var(--leather);padding:7px 16px;border-radius:8px 3px 8px 3px;border:2px dashed rgba(245,239,221,.55)}
+
+.hero{padding:64px 0 54px}
+h1{font-family:'Oswald',sans-serif;font-weight:600;font-size:clamp(32px,5.6vw,56px);line-height:1.08;text-transform:uppercase;letter-spacing:.015em;color:var(--cream)}
+h1 .gd{color:var(--gold)} h1 .cp{color:var(--copper)}
+.hero .dek{margin-top:24px;max-width:560px;font-size:15.5px;color:rgba(245,239,221,.85)}
+.hero .dek b{color:var(--gold);font-weight:700}
+
+.patches{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.patch{position:relative;background:var(--denim2);border:2px dashed var(--cream);padding:28px 24px;border-radius:6px}
+.patch .rivet{position:absolute;width:9px;height:9px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#F3B98A,var(--copper) 60%,#9A5A2C)}
+.patch .rivet.tl{top:8px;left:8px} .patch .rivet.tr{top:8px;right:8px} .patch .rivet.bl{bottom:8px;left:8px} .patch .rivet.br{bottom:8px;right:8px}
+.patch .no{font-size:10.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:10px}
+.patch h2{font-family:'Oswald',sans-serif;font-weight:500;font-size:20px;text-transform:uppercase;letter-spacing:.02em;margin-bottom:8px;color:var(--cream)}
+.patch h2 .gd{color:var(--gold)}
+.patch p{font-size:13.5px;color:rgba(245,239,221,.82)}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);border:2px dashed var(--cream);border-radius:6px;overflow:hidden;margin-top:58px}
+.sw{padding:20px 16px;border-right:2px dashed rgba(245,239,221,.4)}
+.sw:last-child{border-right:none}
+.sw .chip{height:56px;margin-bottom:14px;border-radius:4px}
+.sw .nm{font-size:12.5px;font-weight:700;color:var(--cream)}
+.sw .hx{font-size:11px;color:rgba(245,239,221,.7);font-family:ui-monospace,monospace;margin-top:2px}
+
+.type{padding:58px 0}
+.type .big{font-family:'Oswald',sans-serif;font-weight:600;font-size:clamp(26px,4.4vw,42px);line-height:1.14;text-transform:uppercase;letter-spacing:.015em;color:var(--cream)}
+.type .big .gd{color:var(--gold)} .type .big .cp{color:var(--copper)}
+.type .sub{font-size:13.5px;color:rgba(245,239,221,.8);margin-top:14px}
+
+.btn{font:inherit;font-weight:700;font-size:14.5px;letter-spacing:.03em;padding:14px 30px;cursor:pointer;border-radius:8px 3px 8px 3px;border:2px solid transparent}
+.btn.primary{background:var(--indigo);color:var(--cream);border-color:var(--cream)}
+.btn.primary:hover{background:var(--gold);color:var(--indigo);border-color:var(--gold)}
+.btn.ghost{background:transparent;color:var(--cream);border:2px dashed var(--cream)}
+.btn.ghost:hover{border-color:var(--gold);color:var(--gold)}
+
+.kit{background:var(--denim2);border:2px dashed var(--cream);border-radius:6px;position:relative}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:26px;border-bottom:2px dashed rgba(245,239,221,.4)}
+.kit-row:last-child{border-bottom:none}
+.kit .rivet{position:absolute;width:9px;height:9px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#F3B98A,var(--copper) 60%,#9A5A2C)}
+.kit .rivet.tl{top:8px;left:8px} .kit .rivet.tr{top:8px;right:8px}
+.kit-l{font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--gold);font-weight:700;padding-top:5px}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:6px 14px;border-radius:8px 3px 8px 3px}
+.tagpill.leather{background:var(--leather);color:var(--cream);border:1.5px dashed rgba(245,239,221,.5)}
+.tagpill.gold{border:2px solid var(--gold);color:var(--gold)}
+.tagpill.line{border:2px dashed var(--cream);color:var(--cream)}
+.btn-text{background:none;border:none;font:inherit;font-size:14.5px;font-weight:700;color:var(--gold);text-decoration:underline dashed;text-underline-offset:5px;text-decoration-thickness:2px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px;color:var(--cream)}
+.field input{width:100%;font:inherit;font-size:14.5px;padding:12px 15px;background:var(--indigo);color:var(--cream);border:2px dashed var(--cream);border-radius:8px 3px 8px 3px}
+.field input:focus-visible{outline:none;border-color:var(--gold)}
+.hint{font-size:12.5px;color:rgba(245,239,221,.82);margin-top:7px}
+.callout{background:var(--leather);border-radius:8px 3px 8px 3px;padding:18px 20px;font-size:14.5px;max-width:560px;border:2px dashed rgba(245,239,221,.5)}
+.callout b{color:var(--gold)}
+
+footer{margin-top:82px;border-top:2px dashed rgba(245,239,221,.5);padding:24px 0 48px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:rgba(245,239,221,.8);font-weight:700}
+
+@media (prefers-reduced-motion:no-preference){
+  .btn.primary{transition:background .2s ease,color .2s ease}
+}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.patches{grid-template-columns:1fr}.swatches{grid-template-columns:1fr 1fr}.sw:nth-child(2){border-right:none}.sw:nth-child(1),.sw:nth-child(2){border-bottom:2px dashed rgba(245,239,221,.4)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="patchlabel">Dir. 20 · Indigo Hours</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="k">Denim Workwear — the honest fabric gets better with wear</div>
+      <h1>Good denim fades<br>to <span class="gd">your</span> shape.<br><span class="cp">That's the point.</span></h1>
+      <p class="dek">Workwear was never about fashion — it was about gear cut for the one person who wore it every day. That's the whole draep idea with better thread: <b>stitched for your hours, your hands, your life</b>. And every faded crease leaves the world a little more beautiful.</p>
+    </section>
+
+    <section>
+      <div class="k">The tool belt — four pieces of gear</div>
+      <div class="patches">
+        <div class="patch"><span class="rivet tl" aria-hidden="true"></span><span class="rivet tr" aria-hidden="true"></span><span class="rivet bl" aria-hidden="true"></span><span class="rivet br" aria-hidden="true"></span><div class="no">Piece 01 · Cool</div><h2>Custom-stitched is <span class="gd">cool</span></h2><p>The best denim in the room is always the one that fits like it was made there. Because it was.</p></div>
+        <div class="patch"><span class="rivet tl" aria-hidden="true"></span><span class="rivet tr" aria-hidden="true"></span><span class="rivet bl" aria-hidden="true"></span><span class="rivet br" aria-hidden="true"></span><div class="no">Piece 02 · Duty</div><h2>Beautify the <span class="gd">world</span></h2><p>Indigo fades wherever you actually live. Walk enough beauty into the streets and they start fading along with you.</p></div>
+        <div class="patch"><span class="rivet tl" aria-hidden="true"></span><span class="rivet tr" aria-hidden="true"></span><span class="rivet bl" aria-hidden="true"></span><span class="rivet br" aria-hidden="true"></span><div class="no">Piece 03 · Space</div><h2>A <span class="gd">safe space</span> on the floor</h2><p>The workshop bench doesn't ask what the garment is for. Bring any idea, any cut, any strange pocket — we've seen it all and loved it.</p></div>
+        <div class="patch"><span class="rivet tl" aria-hidden="true"></span><span class="rivet tr" aria-hidden="true"></span><span class="rivet bl" aria-hidden="true"></span><span class="rivet br" aria-hidden="true"></span><div class="no">Piece 04 · Your way</div><h2>Topstitched <span class="gd">your way</span></h2><p>You pick the thread color, the rivets, the fade. However you want the world beautified — we run the seam exactly there.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="k" style="margin-top:56px">The fabric rack</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#2E4A72"></div><div class="nm">Shop Floor Denim</div><div class="hx">#2E4A72</div></div>
+        <div class="sw"><div class="chip" style="background:#3E5F8F"></div><div class="nm">Washed Once</div><div class="hx">#3E5F8F</div></div>
+        <div class="sw"><div class="chip" style="background:#F2C94C"></div><div class="nm">Topstitch Gold</div><div class="hx">#F2C94C</div></div>
+        <div class="sw"><div class="chip" style="background:#7A4A2B"></div><div class="nm">Patch Leather</div><div class="hx">#7A4A2B</div></div>
+      </div>
+    </section>
+
+    <section class="type">
+      <div class="k">Type — Oswald over Archivo</div>
+      <div class="big">Paint the world the way you want — <span class="gd">one honest seam</span> at a time, <span class="cp">faded to fit.</span></div>
+      <div class="sub">A condensed work-ticket voice for the labels; a sturdy grotesque for the instructions. Built like the gear: nothing decorative, everything intentional.</div>
+    </section>
+
+    <section style="margin-bottom:64px">
+      <div class="k">The sewing station — components</div>
+      <div class="kit">
+        <span class="rivet tl" aria-hidden="true"></span><span class="rivet tr" aria-hidden="true"></span>
+        <div class="kit-row" style="padding-top:32px"><div class="kit-l">Buttons</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Cut your pair</button>
+          <button class="btn ghost" type="button">See the fades</button>
+          <button class="btn-text" type="button">Workshop tour →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Tags</div><div class="chips">
+          <span class="tagpill leather">One wearer</span>
+          <span class="tagpill gold">Copper-riveted</span>
+          <span class="tagpill line">Fades to you</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Pocket stamp</div><div class="field">
+          <label for="v20pocket">Line for the pocket bag</label>
+          <input id="v20pocket" type="text" autocomplete="off">
+          <p class="hint">The inside pocket is where makers sign. Write whatever belongs there — it's stitched where only you'll read it.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Shop floor note</div><div class="callout">
+          <b>From the bench.</b> The world has enough identical jeans. Beat the fade into your own pair — beautify the world your way, one honest crease at a time.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>DRAEP — DIRECTION 20 OF 20</span>
+    <span>INDIGO HOURS · STITCHED FOR YOUR SHIFT</span>
+  </footer>
+</div>
+</body>
+</html>

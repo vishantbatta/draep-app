@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 10 Aurora Dusk · Northern Lights</title>
+<meta name="description" content="draep brand direction 10: Aurora Dusk. The sky never repeats an outfit — custom-stitched, world-beautifying, safe, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A0B24; --panel:rgba(30,32,68,.62); --text:#EEEFF7; --muted:#B9BCE0;
+  --mint:#7FE7C9; --lilac:#B39BF7; --rose:#F7A8D0; --line:rgba(238,239,247,.14);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);line-height:1.65;font-size:16px;overflow-x:hidden}
+:focus-visible{outline:3px solid var(--mint);outline-offset:3px;border-radius:10px}
+.wrap{max-width:940px;margin:0 auto;padding:0 28px;position:relative;z-index:1}
+.k{font-size:12px;letter-spacing:.3em;text-transform:uppercase;font-weight:600;color:var(--mint);margin-bottom:14px}
+
+/* aurora ribbons + stars behind the content */
+.sky{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;
+  background:linear-gradient(180deg,#0A0B24 0%,#12142E 48%,#1A1240 78%,#2A1545 100%)}
+.rib{position:absolute;width:160%;height:420px;left:-30%;filter:blur(42px);opacity:.5;mix-blend-mode:screen}
+.r1{top:-8%;background:linear-gradient(90deg,transparent,#7FE7C9 32%,#B39BF7 62%,transparent);transform:rotate(-7deg);animation:sweep 16s ease-in-out infinite}
+.r2{top:34%;background:linear-gradient(90deg,transparent,#B39BF7 30%,#F7A8D0 58%,transparent);transform:rotate(5deg);animation:sweep 21s ease-in-out infinite reverse}
+.r3{bottom:-14%;background:linear-gradient(90deg,transparent,#F7A8D0 35%,#7FE7C9 65%,transparent);transform:rotate(-4deg);animation:sweep 26s ease-in-out infinite;opacity:.34}
+@keyframes sweep{0%,100%{transform:translateX(-6%) rotate(var(--r,-7deg))}50%{transform:translateX(6%) rotate(calc(var(--r,-7deg) + 3deg))}}
+.r2{--r:5deg}.r3{--r:-4deg}
+.star{position:absolute;width:2px;height:2px;border-radius:50%;background:#EEEFF7;animation:tw 4s ease-in-out infinite}
+@keyframes tw{0%,100%{opacity:.15}50%{opacity:.95}}
+
+header{padding:26px 0;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px}
+.wordmark{font-weight:800;font-size:30px;letter-spacing:-.01em}
+.wordmark .ae{color:var(--mint)}
+header .ed{font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
+
+.hero{padding:78px 0 66px;text-align:center}
+h1{font-weight:800;font-size:clamp(38px,6.4vw,60px);line-height:1.1;letter-spacing:-.015em}
+h1 .m{color:var(--mint)}
+h1 .l{color:var(--lilac)}
+.hero .dek{margin:26px auto 0;max-width:590px;color:var(--muted);font-size:17px;font-weight:300}
+
+.glass{background:var(--panel);border:1px solid var(--line);border-radius:18px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.pillars{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.pillar{padding:28px 26px;transition:border-color .2s ease,transform .2s ease}
+.pillar:hover{border-color:var(--mint);transform:translateY(-3px)}
+.pillar .no{font-size:11.5px;letter-spacing:.26em;font-weight:600;color:var(--lilac)}
+.pillar h2{font-weight:600;font-size:21px;margin:8px 0 6px;letter-spacing:-.005em}
+.pillar h2 .m{color:var(--mint)}
+.pillar h2 .r{color:var(--rose)}
+.pillar p{font-size:14.5px;color:var(--muted);font-weight:300}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.sw{overflow:hidden}
+.sw .chip{height:86px}
+.sw .meta{padding:13px 15px;border-top:1px solid var(--line)}
+.sw .nm{font-weight:600;font-size:15.5px}
+.sw .hx{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted)}
+
+.type{margin-top:46px;padding:42px 34px;text-align:center}
+.type .tag{font-size:11.5px;letter-spacing:.34em;text-transform:uppercase;font-weight:600;color:var(--rose);margin-bottom:14px}
+.type .big{font-weight:800;font-size:clamp(28px,4.6vw,44px);line-height:1.14;letter-spacing:-.015em}
+.type .big .m{color:var(--mint)}
+.type .sub{font-size:14.5px;color:var(--muted);margin-top:14px;font-weight:300}
+
+.btn{font:inherit;font-weight:600;font-size:15px;padding:13px 30px;border-radius:999px;cursor:pointer;border:1px solid transparent}
+.btn.primary{background:var(--mint);color:#0A0B24}
+.btn.primary:hover{background:#9CF0D9}
+.btn.ghost{background:transparent;border-color:var(--lilac);color:var(--lilac)}
+.btn.ghost:hover{background:rgba(179,155,247,.12)}
+
+/* component library */
+.kit{background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:22px 24px;border-bottom:1px solid var(--line)}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-size:11.5px;letter-spacing:.26em;text-transform:uppercase;font-weight:600;color:var(--mint);padding-top:6px}
+.chips{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-size:12.5px;font-weight:600;padding:6px 16px;border-radius:999px}
+.tagpill.solid{background:var(--mint);color:#0A0B24}
+.tagpill.line{border:1px solid var(--lilac);color:var(--lilac)}
+.tagpill.rose{border:1px solid var(--rose);color:var(--rose)}
+.btn-text{background:none;border:none;font:inherit;font-weight:600;font-size:15px;color:var(--rose);text-decoration:underline;text-underline-offset:4px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-size:12.5px;font-weight:600;letter-spacing:.1em;margin-bottom:8px;color:var(--text)}
+.field input{width:100%;font:inherit;font-weight:300;font-size:14.5px;padding:12px 16px;background:rgba(10,11,36,.55);color:var(--text);border:1px solid var(--line);border-radius:12px}
+.hint{font-size:12.5px;font-weight:300;color:var(--muted);margin-top:8px}
+.callout{border-left:2px solid var(--mint);padding:16px 20px;font-size:14.5px;font-weight:300;color:var(--text);max-width:560px}
+.callout b{color:var(--mint);font-weight:600}
+
+footer{margin-top:64px;border-top:1px solid var(--line);padding:24px 0 44px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){.rib{animation:none}.star{animation:none;opacity:.5}.pillar{transition:none}}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.pillars{grid-template-columns:1fr}.swatches{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="sky" aria-hidden="true">
+  <div class="rib r1"></div><div class="rib r2"></div><div class="rib r3"></div>
+  <span class="star" style="top:8%;left:12%"></span><span class="star" style="top:16%;left:64%;animation-delay:1.1s"></span>
+  <span class="star" style="top:29%;left:84%;animation-delay:2.3s"></span><span class="star" style="top:47%;left:22%;animation-delay:.6s"></span>
+  <span class="star" style="top:61%;left:70%;animation-delay:1.8s"></span><span class="star" style="top:76%;left:38%;animation-delay:3s"></span>
+  <span class="star" style="top:88%;left:9%;animation-delay:2s"></span><span class="star" style="top:92%;left:57%;animation-delay:.3s"></span>
+</div>
+
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="ed">Direction 10 — Northern Lights</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="k">Aurora Dusk</div>
+      <h1>The sky never wears<br>the same <span class="l">outfit</span> <span class="m">twice.</span></h1>
+      <p class="dek">Every night the aurora composes itself from scratch — no template, no repeats, gloriously custom. We think getting dressed should work the same way. Cloth, cut for the one body and one mood it will meet tonight.</p>
+    </section>
+
+    <section>
+      <div class="k">Four lights on the horizon</div>
+      <div class="pillars">
+        <div class="pillar glass"><div class="no">LIGHT I</div><h2>Custom-stitched is <span class="m">cool</span></h2><p>Nature's most beautiful display is also its most custom. Rarity isn't showing off — it's just how auroras, and you, are made.</p></div>
+        <div class="pillar glass"><div class="no">LIGHT II</div><h2>Beautify the <span class="r">world</span></h2><p>The sky beautifies the world for everyone below it, every single night, for free. Wear that responsibility like a mantle of light.</p></div>
+        <div class="pillar glass"><div class="no">LIGHT III</div><h2>A <span class="m">safe space</span></h2><p>The night sky holds every color without flinching. So do we — a dark, calm expanse where any hue of you can glow.</p></div>
+        <div class="pillar glass"><div class="no">LIGHT IV</div><h2>Entirely <span class="r">your way</span></h2><p>No two auroras agree on a palette. Paint the world the way you want — the horizon has room for every arrangement.</p></div>
+      </div>
+    </section>
+
+    <section style="margin-top:46px">
+      <div class="k">Palette — sampled at dusk</div>
+      <div class="swatches">
+        <div class="sw glass"><div class="chip" style="background:#7FE7C9"></div><div class="meta"><div class="nm">Mint Veil</div><div class="hx">#7FE7C9</div></div></div>
+        <div class="sw glass"><div class="chip" style="background:#B39BF7"></div><div class="meta"><div class="nm">Lilac Haze</div><div class="hx">#B39BF7</div></div></div>
+        <div class="sw glass"><div class="chip" style="background:#F7A8D0"></div><div class="meta"><div class="nm">Rose Glow</div><div class="hx">#F7A8D0</div></div></div>
+        <div class="sw glass"><div class="chip" style="background:#0A0B24;border-bottom:1px solid #2A2D5E"></div><div class="meta"><div class="nm">Polar Dusk</div><div class="hx">#0A0B24</div></div></div>
+      </div>
+    </section>
+
+    <section class="type glass">
+      <div class="tag">Typography — Outfit</div>
+      <div class="big">Paint the world <span class="m">the way you want!</span></div>
+      <div class="sub">One geometric family, weights from whisper to flare. Glass panels let the aurora stay part of every word.</div>
+    </section>
+
+    <section style="margin-top:44px">
+      <div class="k">Lights on standby — components</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Catch the light</button>
+          <button class="btn ghost" type="button">Tonight's forecast</button>
+          <button class="btn-text" type="button">Aurora gallery →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Signals</div><div class="chips">
+          <span class="tagpill solid">One sky only</span>
+          <span class="tagpill line">Mint channel</span>
+          <span class="tagpill rose">Rose glow</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Beacon form</div><div class="field">
+          <label for="v10beacon">Name your arrangement</label>
+          <input id="v10beacon" type="text" autocomplete="off">
+          <p class="hint">No two auroras agree on a palette. Name yours — any arrangement is welcome.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Signal note</div><div class="callout">
+          <b>From the night sky.</b> The horizon has room for every arrangement. Paint the world the way you want — we'll hold the dark calm for you.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>draep · Aurora Dusk — direction 10 of 10</span>
+    <span>Every arrangement of you is welcome here.</span>
+  </footer>
+</div>
+</body>
+</html>

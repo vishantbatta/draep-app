@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 02 Midnight Neon · After Dark</title>
+<meta name="description" content="draep brand direction 02: Midnight Neon. The coolest thing you can wear is something stitched only for you.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A0A12; --card:#14141F; --text:#F4F4FA; --dim:#B9B9CE;
+  --lime:#B8FF29; --mag:#FF4FC3; --cyan:#5EEAFF; --line:rgba(255,255,255,.14);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;font-size:16px;overflow-x:hidden}
+:focus-visible{outline:3px solid var(--lime);outline-offset:3px;border-radius:4px}
+.wrap{max-width:1020px;margin:0 auto;padding:0 28px}
+.k{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.28em;text-transform:uppercase;color:var(--cyan);margin-bottom:16px}
+section{padding:64px 0}
+
+header{display:flex;justify-content:space-between;align-items:center;padding:22px 0;border-bottom:1px solid var(--line)}
+.wordmark{font-weight:700;font-size:26px;letter-spacing:.04em}
+.wordmark .ae{color:var(--lime);text-shadow:0 0 18px rgba(184,255,41,.55)}
+header .tag{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--dim);letter-spacing:.14em}
+
+/* marquee */
+.marquee{border-top:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;padding:13px 0;background:var(--card)}
+.marquee .track{display:flex;gap:48px;white-space:nowrap;width:max-content;animation:scroll 26s linear infinite;font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--lime)}
+.marquee .track span b{color:var(--mag);font-weight:500}
+@keyframes scroll{to{transform:translateX(-50%)}}
+
+.hero{text-align:center;padding:88px 0 72px;position:relative}
+.hero .sign{font-weight:700;font-size:clamp(44px,8vw,88px);line-height:1.02;letter-spacing:-.01em}
+.hero .sign .l1{color:var(--text)}
+.hero .sign .l2{color:var(--lime);text-shadow:0 0 34px rgba(184,255,41,.4)}
+.hero .sign .l3{color:var(--mag);text-shadow:0 0 34px rgba(255,79,195,.4);animation:pulse 3.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{text-shadow:0 0 22px rgba(255,79,195,.25)}50%{text-shadow:0 0 44px rgba(255,79,195,.6)}}
+.hero .sub{max-width:600px;margin:30px auto 0;color:var(--dim);font-size:17px}
+.hero .sub b{color:var(--text)}
+
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+.cell{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px;position:relative}
+.cell:hover{border-color:var(--lime)}
+.cell .no{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--mag);letter-spacing:.2em}
+.cell h2{font-size:22px;margin:10px 0 8px;font-weight:700}
+.cell h2 .l{color:var(--lime)}
+.cell p{font-size:14.5px;color:var(--dim)}
+
+.swatches{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.sw{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+.sw .chip{height:76px}
+.sw .meta{padding:10px 12px}
+.sw .nm{font-size:12.5px;font-weight:500}
+.sw .hx{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim)}
+
+.type{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:34px}
+.type .big{font-size:42px;font-weight:700;letter-spacing:-.01em}
+.type .big .g1{color:var(--lime)}.type .big .g2{color:var(--cyan)}
+.type .mono{font-family:'IBM Plex Mono',monospace;font-size:14px;color:var(--cyan);margin-top:12px}
+
+.btnrow{display:flex;gap:14px;flex-wrap:wrap}
+.btn{font:inherit;font-weight:700;font-size:15px;padding:13px 30px;border-radius:999px;border:none;cursor:pointer}
+.btn.primary{background:var(--lime);color:#0A0A12;box-shadow:0 0 28px rgba(184,255,41,.35)}
+.btn.primary:hover{box-shadow:0 0 44px rgba(184,255,41,.6)}
+.btn.dark{background:transparent;border:1.5px solid var(--mag);color:var(--mag)}
+.btn.dark:hover{background:rgba(255,79,195,.12)}
+
+/* component library */
+.kit{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:22px 24px;border-bottom:1px solid var(--line)}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--cyan);letter-spacing:.22em;text-transform:uppercase;padding-top:6px}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.08em;padding:5px 14px;border-radius:4px}
+.tagpill.solid{background:var(--lime);color:#0A0A12}
+.tagpill.line{border:1px solid var(--mag);color:var(--mag)}
+.tagpill.tint{border:1px solid var(--line);background:var(--bg);color:var(--cyan)}
+.btn-text{background:none;border:none;font:inherit;font-weight:700;font-size:15px;color:var(--cyan);text-decoration:underline;text-underline-offset:4px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);margin-bottom:7px}
+.field input{width:100%;font:inherit;font-size:14.5px;padding:12px 14px;background:var(--bg);color:var(--text);border:1.5px solid var(--line);border-radius:6px}
+.hint{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--dim);margin-top:7px}
+.callout{border-left:3px solid var(--lime);background:var(--bg);padding:16px 20px;font-size:14px;color:var(--text);max-width:560px;border-radius:0 8px 8px 0}
+.callout b{color:var(--lime)}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}}
+
+footer{border-top:1px solid var(--line);padding:24px 0 44px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--dim)}
+
+@media (prefers-reduced-motion:reduce){.marquee .track{animation:none}.hero .sign .l3{animation:none}}
+@media (max-width:760px){.grid{grid-template-columns:1fr}.swatches{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="tag">DIRECTION 02 // AFTER DARK</div>
+  </header>
+</div>
+
+<div class="marquee" aria-hidden="true">
+  <div class="track">
+    <span>CUSTOM-STITCHED IS COOL <b>◆</b> BEAUTIFY THE WORLD <b>◆</b> SAFE SPACE <b>◆</b> YOUR WAY <b>◆</b> </span>
+    <span>CUSTOM-STITCHED IS COOL <b>◆</b> BEAUTIFY THE WORLD <b>◆</b> SAFE SPACE <b>◆</b> YOUR WAY <b>◆</b> </span>
+  </div>
+</div>
+
+<main class="wrap">
+  <section class="hero">
+    <div class="k">// after dark, everyone glows</div>
+    <h1 class="sign">
+      <span class="l1">Off the rack is</span><br>
+      <span class="l2">a photocopy.</span><br>
+      <span class="l3">Stitched-for-you is a spotlight.</span>
+    </h1>
+    <p class="sub">The coolest thing you can wear is something that exists <b>only on you</b>. Take the responsibility to beautify the world seriously — and the freedom to do it <b>exactly your way</b>. This is the safe space for both.</p>
+  </section>
+
+  <section>
+    <div class="k">The four signals</div>
+    <div class="grid">
+      <div class="cell"><div class="no">SIG_01</div><h2>Custom-stitched is <span class="l">cool</span></h2><p>Nobody queues for a copy. A piece cut for your body and nobody else's is the flex that never fades.</p></div>
+      <div class="cell"><div class="no">SIG_02</div><h2>Beauty is <span class="l">your duty</span></h2><p>What you wear changes the room. Neon or neutral, you're responsible for the light you add.</p></div>
+      <div class="cell"><div class="no">SIG_03</div><h2>A <span class="l">safe space</span>, lit all night</h2><p>Every color of you is welcome here. No judgment — the door doesn't even have one.</p></div>
+      <div class="cell"><div class="no">SIG_04</div><h2>Your way, <span class="l">always</span></h2><p>However you want to beautify the world is how it should be done. The neon board is yours.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="k">Palette — club lights on black</div>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:#B8FF29"></div><div class="meta"><div class="nm">Volt Lime</div><div class="hx">#B8FF29</div></div></div>
+      <div class="sw"><div class="chip" style="background:#FF4FC3"></div><div class="meta"><div class="nm">Signal Magenta</div><div class="hx">#FF4FC3</div></div></div>
+      <div class="sw"><div class="chip" style="background:#5EEAFF"></div><div class="meta"><div class="nm">Cyan Ray</div><div class="hx">#5EEAFF</div></div></div>
+      <div class="sw"><div class="chip" style="background:#14141F"></div><div class="meta"><div class="nm">Vinyl Black</div><div class="hx">#14141F</div></div></div>
+      <div class="sw"><div class="chip" style="background:#0A0A12;border-bottom:1px solid #2a2a3a"></div><div class="meta"><div class="nm">Midnight</div><div class="hx">#0A0A12</div></div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="k">Type — Space Grotesk &amp; Plex Mono</div>
+    <div class="type">
+      <div class="big"><span class="g1">Paint the world</span> <span class="g2">the way you want!</span></div>
+      <div class="mono">SPACE GROTESK 700 — DISPLAY · PLEX MONO — LABELS &amp; DATA</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="k">SIG_05 // component library</div>
+    <div class="kit">
+      <div class="kit-row"><div class="kit-l">Buttons</div><div class="btnrow">
+        <button class="btn primary" type="button">Get stitched</button>
+        <button class="btn dark" type="button">See the drops</button>
+        <button class="btn-text" type="button">View size file →</button>
+      </div></div>
+      <div class="kit-row"><div class="kit-l">Tags</div><div class="chips">
+        <span class="tagpill solid">DROP_001</span>
+        <span class="tagpill line">GLOW CERTIFIED</span>
+        <span class="tagpill tint">MADE FOR: YOU</span>
+      </div></div>
+      <div class="kit-row"><div class="kit-l">Input</div><div class="field">
+        <label for="v2handle">Neon name</label>
+        <input id="v2handle" type="text" autocomplete="nickname">
+        <p class="hint">The name that lights up on your first made-for-you piece.</p>
+      </div></div>
+      <div class="kit-row"><div class="kit-l">Notice</div><div class="callout">
+        <b>HOUSE RULE 01.</b> The coolest thing you can wear exists only on you. Beautify the world with it — no judgment on this floor, ever.
+      </div></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <span>draep · Midnight Neon — direction 02 of 10</span>
+    <span>After dark, everyone glows.</span>
+  </div>
+</footer>
+</body>
+</html>

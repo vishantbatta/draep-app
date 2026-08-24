@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 16 Memphis Milano · Pattern Riot</title>
+<meta name="description" content="draep brand direction 16: Memphis Milano. Postmodern play — custom-stitched is cool, beautify the world, safe space, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#FFF9F0; --ink:#191919; --blue:#1D4ED8; --red:#C11F2C; --teal:#0E7466; --card:#FFFFFF; --yellow:#FFD60A;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--ink);line-height:1.65;font-size:15px;
+  background-image:radial-gradient(rgba(29,78,216,.08) 2px,transparent 2px),radial-gradient(rgba(193,31,44,.07) 2px,transparent 2px);
+  background-size:52px 52px,52px 52px;background-position:0 0,26px 26px}
+:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+.wrap{max-width:920px;margin:0 auto;padding:0 30px}
+.k{font-size:11.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink);margin-bottom:22px;font-weight:700}
+
+header{padding:26px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.wordmark{font-family:'Baloo 2',sans-serif;font-weight:800;font-size:27px}
+.wordmark .ae{color:var(--red)}
+header .ed{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink);font-weight:500;border:2px solid var(--ink);padding:5px 12px;background:var(--yellow);box-shadow:3px 3px 0 var(--ink)}
+
+.hero{padding:56px 0 48px;display:grid;grid-template-columns:1fr auto;gap:26px;align-items:center}
+h1{font-family:'Baloo 2',sans-serif;font-weight:800;font-size:clamp(32px,5.6vw,56px);line-height:1.06;letter-spacing:-.01em}
+h1 .bl{color:var(--blue)} h1 .rd{color:var(--red)} h1 .tl{color:var(--teal)}
+.hero .dek{margin-top:22px;max-width:520px;font-size:15.5px}
+.squiggle{width:150px;height:110px}
+@media (max-width:760px){.squiggle{display:none}.hero{grid-template-columns:1fr}}
+
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.tile{background:var(--card);border:3px solid var(--ink);padding:28px 24px;box-shadow:7px 7px 0 var(--ink);position:relative}
+.tile:nth-child(1){transform:rotate(-.6deg)} .tile:nth-child(2){transform:rotate(.5deg)}
+.tile:nth-child(3){transform:rotate(.4deg)} .tile:nth-child(4){transform:rotate(-.5deg)}
+.tile .badge{width:46px;height:46px;border:3px solid var(--ink);margin-bottom:16px;display:flex;align-items:center;justify-content:center}
+.tile:nth-child(1) .badge{background:var(--blue)} .tile:nth-child(2) .badge{background:var(--red)}
+.tile:nth-child(3) .badge{background:var(--teal)} .tile:nth-child(4) .badge{background:var(--yellow)}
+.tile h2{font-family:'Baloo 2',sans-serif;font-weight:800;font-size:21px;line-height:1.2;margin-bottom:8px}
+.tile h2 .bl{color:var(--blue)} .tile h2 .rd{color:var(--red)} .tile h2 .tl{color:var(--teal)} .tile h2 .yl{color:#8A6D00}
+.tile p{font-size:14px;color:#444}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);border:3px solid var(--ink);box-shadow:7px 7px 0 var(--ink);margin-top:60px;background:var(--card)}
+.sw{padding:18px 16px;border-right:3px solid var(--ink)}
+.sw:last-child{border-right:none}
+.sw .chip{height:56px;margin-bottom:13px;border:2px solid var(--ink)}
+.sw .nm{font-size:12.5px;font-weight:700}
+.sw .hx{font-size:11px;color:#444;font-family:ui-monospace,monospace;margin-top:2px}
+
+.type{padding:58px 0}
+.type .big{font-family:'Baloo 2',sans-serif;font-weight:800;font-size:clamp(26px,4.4vw,42px);line-height:1.12}
+.type .big .bl{color:var(--blue)} .type .big .rd{color:var(--red)}
+.type .sub{font-size:13.5px;color:#444;margin-top:14px}
+
+.btn{font-family:'DM Sans',sans-serif;font-weight:700;font-size:14.5px;padding:13px 28px;cursor:pointer;border:3px solid var(--ink);border-radius:999px;box-shadow:4px 4px 0 var(--ink)}
+.btn.primary{background:var(--blue);color:#FFFFFF}
+.btn.primary:hover{background:var(--red)}
+.btn.ghost{background:var(--card);color:var(--ink)}
+.btn.ghost:hover{background:var(--yellow)}
+
+.kit{border:3px solid var(--ink);background:var(--card);box-shadow:7px 7px 0 var(--ink)}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:24px;border-bottom:2px dashed #C9C2B4}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--blue);font-weight:700;padding-top:6px}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:6px 15px;border-radius:999px;border:2.5px solid var(--ink)}
+.tagpill.solid{background:var(--blue);color:#FFFFFF}
+.tagpill.rd{background:var(--red);color:#FFFFFF}
+.tagpill.tl{border-color:var(--teal);color:var(--teal);border-style:dashed}
+.btn-text{background:none;border:none;font:inherit;font-size:14.5px;font-weight:700;color:var(--red);text-decoration:underline wavy;text-underline-offset:5px;text-decoration-thickness:2px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-size:12px;font-weight:700;letter-spacing:.05em;margin-bottom:7px}
+.field input{width:100%;font:inherit;font-size:14.5px;padding:11px 15px;background:#FFFFFF;color:var(--ink);border:2.5px solid var(--ink);border-radius:18px 6px 18px 6px}
+.hint{font-size:12.5px;color:#444;margin-top:7px}
+.callout{border:3px solid var(--ink);border-radius:22px 6px 22px 6px;background:var(--yellow);padding:16px 20px;font-size:14.5px;max-width:560px}
+.callout b{font-weight:800}
+
+footer{margin-top:84px;border-top:3px solid var(--ink);padding:22px 0 48px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:700}
+
+@media (prefers-reduced-motion:no-preference){
+  .tile:nth-child(1) .badge,.tile:nth-child(3) .badge{animation:bob 5s ease-in-out infinite}
+  .tile:nth-child(2) .badge,.tile:nth-child(4) .badge{animation:bob 5s ease-in-out 1.2s infinite}
+  @keyframes bob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-6px) rotate(3deg)}}
+}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.tiles{grid-template-columns:1fr}.tile{transform:none!important}.swatches{grid-template-columns:1fr 1fr;box-shadow:none}.sw:nth-child(2){border-right:none}.sw:nth-child(1),.sw:nth-child(2){border-bottom:3px solid var(--ink)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="ed">Direction 16 — Pattern Riot, Milano-style</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <div class="k">Memphis Milano — serious about not being serious</div>
+        <h1>Boring is a <span class="bl">choice.</span><br>We chose <span class="rd">confetti</span> and a<br><span class="tl">sewing machine.</span></h1>
+        <p class="dek">In 1981 Milan threw out the rulebook and called it a movement. Your closet can do the same every morning: custom-stitched means the pattern mix is yours, the rules are yours — and the streets get more beautiful for it.</p>
+      </div>
+      <svg class="squiggle" viewBox="0 0 150 110" aria-hidden="true" focusable="false">
+        <path d="M8 78 Q 24 22 40 58 T 72 58 T 104 58 T 136 58" fill="none" stroke="#C11F2C" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="28" cy="24" r="12" fill="#1D4ED8" stroke="#191919" stroke-width="4"/>
+        <rect x="92" y="12" width="26" height="26" fill="#FFD60A" stroke="#191919" stroke-width="4" transform="rotate(14 105 25)"/>
+        <circle cx="132" cy="92" r="8" fill="#0E7466" stroke="#191919" stroke-width="3"/>
+        <rect x="18" y="86" width="20" height="20" fill="none" stroke="#191919" stroke-width="4" transform="rotate(-12 28 96)"/>
+      </svg>
+    </section>
+
+    <section>
+      <div class="k">The pattern book — four prints, one riot</div>
+      <div class="tiles">
+        <div class="tile"><div class="badge" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 26 26"><path d="M4 18 Q 9 4 14 14 T 24 12" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/></svg></div><h2>Custom-stitched is <span class="bl">cool</span></h2><p>The Memphis kids knew it first: the coolest object in the room is the one that refuses to match.</p></div>
+        <div class="tile"><div class="badge" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 26 26"><circle cx="13" cy="13" r="8" fill="none" stroke="#FFFFFF" stroke-width="4"/></svg></div><h2>Beautify the <span class="rd">world</span></h2><p>Grey cities are a blank wall. Your outfit is the confetti cannon — fire generously, everywhere you go.</p></div>
+        <div class="tile"><div class="badge" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 26 26"><path d="M6 6 L20 20 M20 6 L6 20" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/></svg></div><h2>A <span class="tl">safe space</span> to clash</h2><p>No pattern police here. Stripes on florals on polka dots — every combination is welcome on our cutting table.</p></div>
+        <div class="tile"><div class="badge" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 26 26"><path d="M13 4 L22 20 L4 20 Z" fill="none" stroke="#191919" stroke-width="4" stroke-linejoin="round"/></svg></div><h2>Mixed <span class="yl">your way</span></h2><p>You hand us the pattern board. However you want the world beautified, we stitch exactly that riot.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="k" style="margin-top:56px">The confetti set</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#1D4ED8"></div><div class="nm">Sottsass Blue</div><div class="hx">#1D4ED8</div></div>
+        <div class="sw"><div class="chip" style="background:#C11F2C"></div><div class="nm">Riot Red</div><div class="hx">#C11F2C</div></div>
+        <div class="sw"><div class="chip" style="background:#FFD60A"></div><div class="nm">Marble Yellow</div><div class="hx">#FFD60A</div></div>
+        <div class="sw"><div class="chip" style="background:#0E7466"></div><div class="nm">Terrazzo Teal</div><div class="hx">#0E7466</div></div>
+      </div>
+    </section>
+
+    <section class="type">
+      <div class="k">Type — Baloo 2 over DM Sans</div>
+      <div class="big">Paint the world the way you want — <span class="bl">stripes on florals,</span> <span class="rd">no permission needed.</span></div>
+      <div class="sub">A round, cheeky display face for shouting joy; an honest workhorse for the small print that nobody's allowed to make boring either.</div>
+    </section>
+
+    <section style="margin-bottom:64px">
+      <div class="k">The toy chest — components</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Start a riot</button>
+          <button class="btn ghost" type="button">See the patterns</button>
+          <button class="btn-text" type="button">Read the manifesto →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Stickers</div><div class="chips">
+          <span class="tagpill solid">1 of 1</span>
+          <span class="tagpill rd">Clash-certified</span>
+          <span class="tagpill tl">Pattern-mixed</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Pick prints</div><div class="field">
+          <label for="v16sticker">Name your pattern mix</label>
+          <input id="v16sticker" type="text" autocomplete="off">
+          <p class="hint">There is no wrong combination — the cutting table has never rejected a pairing and never will.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Riot note</div><div class="callout">
+          <b>From the studio floor.</b> The world hands out grey for free; beauty you have to sew yourself. Take the confetti — the pattern board is yours.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>DRAEP — DIRECTION 16 OF 20</span>
+    <span>MILANO, BUT ON YOUR BODY</span>
+  </footer>
+</div>
+</body>
+</html>

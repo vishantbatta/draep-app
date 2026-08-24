@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 12 Sumi Ink · The Quiet Brush</title>
+<meta name="description" content="draep brand direction 12: Sumi Ink. One brush, one stroke, one garment — custom-stitched is cool, beautify the world, safe space, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Antique&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F6F1E7; --ink:#1F1B16; --seal:#B3261E; --muted:#5C564A; --card:#EFE8D8; --line:#DAD2BE;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--paper);color:var(--ink);line-height:1.7;font-size:15.5px}
+:focus-visible{outline:2.5px solid var(--seal);outline-offset:4px}
+.wrap{max-width:880px;margin:0 auto;padding:0 32px;position:relative}
+.k{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--muted);margin-bottom:22px;font-weight:500}
+
+header{padding:28px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.wordmark{font-family:'Zen Antique',serif;font-size:26px}
+.wordmark .ae{color:var(--seal)}
+header .ed{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+
+.hero{display:grid;grid-template-columns:1fr 64px;gap:26px;padding:70px 0 64px;border-top:1px solid var(--ink)}
+h1{font-family:'Zen Antique',serif;font-weight:400;font-size:clamp(32px,5.4vw,52px);line-height:1.22}
+h1 .seal{color:var(--seal)}
+.hero .dek{margin-top:26px;max-width:520px;color:var(--muted);font-size:15.5px}
+.vline{writing-mode:vertical-rl;font-size:11.5px;letter-spacing:.42em;text-transform:uppercase;color:var(--muted);border-left:1px solid var(--line);padding-left:14px;height:fit-content}
+.seal-stamp{display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;background:var(--seal);color:#FFFFFF;font-family:'Zen Antique',serif;font-size:30px;margin-top:26px;border-radius:6px}
+.enso{position:absolute;top:34px;right:96px;width:170px;height:170px;border:14px solid rgba(31,27,22,.14);border-left-color:transparent;border-radius:50%;transform:rotate(24deg);pointer-events:none}
+
+.rows{border-top:1px solid var(--ink)}
+.row{display:grid;grid-template-columns:110px 1fr;gap:24px;padding:34px 0;border-bottom:1px solid var(--line)}
+.row .glyph{font-family:'Zen Antique',serif;font-size:52px;line-height:1;color:var(--ink)}
+.row .glyph small{display:block;font-family:'Zen Kaku Gothic New',sans-serif;font-size:10.5px;letter-spacing:.26em;color:var(--seal);margin-top:8px;text-transform:uppercase}
+.row h2{font-family:'Zen Antique',serif;font-weight:400;font-size:22px;margin-bottom:8px}
+.row h2 .seal{color:var(--seal)}
+.row p{font-size:14.5px;color:var(--muted);max-width:560px}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--ink);border-bottom:1px solid var(--ink)}
+.sw{padding:22px 16px;border-right:1px solid var(--line)}
+.sw:last-child{border-right:none}
+.sw .chip{height:60px;margin-bottom:14px}
+.sw .nm{font-size:13px;font-weight:700}
+.sw .hx{font-size:11px;color:var(--muted);font-family:ui-monospace,monospace;margin-top:2px;letter-spacing:.04em}
+
+.type{padding:58px 0}
+.type .big{font-family:'Zen Antique',serif;font-size:clamp(26px,4vw,40px);line-height:1.3}
+.type .big .seal{color:var(--seal)}
+.type .sub{font-size:13.5px;color:var(--muted);margin-top:16px}
+
+.btn{font:inherit;font-weight:500;font-size:14.5px;padding:13px 30px;cursor:pointer;background:none;border:1.5px solid var(--ink);color:var(--ink)}
+.btn.primary{background:var(--ink);color:var(--paper)}
+.btn.primary:hover{background:var(--seal);border-color:var(--seal)}
+.btn.ghost:hover{border-color:var(--seal);color:var(--seal)}
+
+.kit{border:1px solid var(--ink);background:var(--card)}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:26px;border-bottom:1px solid var(--line)}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--seal);padding-top:5px;font-weight:700}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-size:11.5px;letter-spacing:.12em;padding:6px 14px}
+.tagpill.solid{background:var(--seal);color:#FFFFFF}
+.tagpill.tint{background:var(--paper);color:var(--ink);border:1px solid var(--ink)}
+.tagpill.ink{background:var(--ink);color:var(--paper)}
+.btn-text{background:none;border:none;font:inherit;font-size:14.5px;color:var(--seal);text-decoration:underline;text-underline-offset:5px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-size:12px;letter-spacing:.06em;margin-bottom:7px}
+.field input{width:100%;font:inherit;font-size:14.5px;padding:11px 14px;background:#FFFFFF;color:var(--ink);border:1.5px solid var(--ink);border-radius:0}
+.hint{font-size:12.5px;color:var(--muted);margin-top:7px}
+.callout{border-left:3px solid var(--seal);padding:4px 0 4px 20px;font-size:14.5px;max-width:560px;background:var(--paper)}
+.callout b{color:var(--seal);font-family:'Zen Antique',serif;font-weight:400}
+
+footer{margin-top:80px;border-top:1px solid var(--ink);padding:24px 0 48px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+
+@media (prefers-reduced-motion:no-preference){
+  .enso{animation:breathe 14s ease-in-out infinite}
+  @keyframes breathe{0%,100%{transform:rotate(24deg) scale(1)}50%{transform:rotate(28deg) scale(1.04)}}
+}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.row{grid-template-columns:1fr;gap:8px}.hero{grid-template-columns:1fr}.vline{writing-mode:horizontal-tb;border-left:none;border-top:1px solid var(--line);padding:10px 0 0;height:auto;letter-spacing:.3em}.enso{display:none}.swatches{grid-template-columns:1fr 1fr}.sw:nth-child(2){border-right:none}.sw:nth-child(1),.sw:nth-child(2){border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="ed">Direction 12 — The Quiet Brush</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <div class="k">Sumi Ink — one stroke, no corrections needed</div>
+        <h1>One brush.<br>One body.<br>One <span class="seal">stroke.</span></h1>
+        <p class="dek">A sumi line cannot be photocopied into meaning. Neither can a garment cut to one person. Wear the single stroke you are — and leave every street calmer and lovelier for it.</p>
+        <div class="seal-stamp" aria-hidden="true">美</div>
+        <span class="vh" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">beauty</span>
+      </div>
+      <div class="vline">THE QUIET BRUSH — ATELIER OF ONE</div>
+      <div class="enso" aria-hidden="true"></div>
+    </section>
+
+    <section>
+      <div class="k" style="padding-top:8px">Four strokes of the brush</div>
+      <div class="rows">
+        <div class="row"><div class="glyph" aria-hidden="true">一<small>Stroke 1</small></div><div><h2>Custom-stitched is <span class="seal">cool</span></h2><p>One confident line beats a thousand hesitant ones. Singular work carries singular presence.</p></div></div>
+        <div class="row"><div class="glyph" aria-hidden="true">二<small>Stroke 2</small></div><div><h2>Beautify the <span class="seal">world</span></h2><p>The scroll is public. Everything you wear is brushed across everyone's day — leave more beauty than you found.</p></div></div>
+        <div class="row"><div class="glyph" aria-hidden="true">三<small>Stroke 3</small></div><div><h2>A <span class="seal">safe space</span></h2><p>The studio door is paper, and it slides open for every style of hand. No judgment enters with you.</p></div></div>
+        <div class="row"><div class="glyph" aria-hidden="true">四<small>Stroke 4</small></div><div><h2>Brushed <span class="seal">your way</span></h2><p>Your arm, your pressure, your gesture. However you mean to beautify the world, we grind the ink.</p></div></div>
+      </div>
+    </section>
+
+    <section style="margin-top:64px">
+      <div class="k">Pigments</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#1F1B16"></div><div class="nm">Sumi Black</div><div class="hx">#1F1B16</div></div>
+        <div class="sw"><div class="chip" style="background:#B3261E"></div><div class="nm">Vermillion Seal</div><div class="hx">#B3261E</div></div>
+        <div class="sw"><div class="chip" style="background:#EFE8D8;border:1px solid #DAD2BE"></div><div class="nm">Raw Silk</div><div class="hx">#EFE8D8</div></div>
+        <div class="sw"><div class="chip" style="background:#F6F1E7;border:1px solid #DAD2BE"></div><div class="nm">Washi</div><div class="hx">#F6F1E7</div></div>
+      </div>
+    </section>
+
+    <section class="type">
+      <div class="k">Typography — Zen Antique over Zen Kaku Gothic</div>
+      <div class="big">Paint the world the way you want — <span class="seal">one unhurried stroke at a time.</span></div>
+      <div class="sub">Serif restraint for the statement; a quiet gothic for everything else. Whitespace is part of the composition.</div>
+    </section>
+
+    <section style="margin:0 0 64px">
+      <div class="k">The writing box — components</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Grind the ink</button>
+          <button class="btn ghost" type="button">View the scroll</button>
+          <button class="btn-text" type="button">Read the colophon →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Marks</div><div class="chips">
+          <span class="tagpill solid">Seal of one</span>
+          <span class="tagpill tint">Hand-ground</span>
+          <span class="tagpill ink">No photocopies</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Inscription</div><div class="field">
+          <label for="v12seal">Characters for your seal</label>
+          <input id="v12seal" type="text" autocomplete="off">
+          <p class="hint">Your seal is pressed once the garment is finished — signed however you write it.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Margin note</div><div class="callout">
+          <b>From the studio.</b> The brush does not apologize for its line. Step out wearing yours — the world is hung with plain paper waiting for it.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>DRAEP — DIRECTION 12 OF 20</span>
+    <span>THE QUIET BRUSH · 美</span>
+  </footer>
+</div>
+</body>
+</html>

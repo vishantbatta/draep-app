@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 03 Botanical · The Garden Ledger</title>
+<meta name="description" content="draep brand direction 03: Botanical. A garden ledger of selves — custom-stitched, world-beautifying, safe for every species of you.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Karla:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0D231A; --card:#132E22; --text:#EDF6EC; --muted:#B9CDC0;
+  --leaf:#93D6A4; --petal:#F2A9C7; --gold:#E5CD96; --line:rgba(237,246,236,.16);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Karla',sans-serif;background:var(--bg);color:var(--text);line-height:1.65;font-size:16px}
+:focus-visible{outline:3px solid var(--leaf);outline-offset:3px;border-radius:4px}
+.wrap{max-width:960px;margin:0 auto;padding:0 28px}
+.k{font-family:'Karla',sans-serif;font-size:11.5px;letter-spacing:.24em;text-transform:uppercase;font-weight:700;color:var(--gold);margin-bottom:14px}
+
+/* climbing vine on the left edge (decorative) */
+.vine{position:fixed;left:14px;top:0;bottom:0;width:2px;background:linear-gradient(#132E22,#3f6b4d,#132E22);z-index:0}
+.vine i{position:absolute;left:-5px;width:12px;height:22px;border-radius:0 100% 0 100%;background:#2E5540;transform-origin:0 0;animation:sway 5s ease-in-out infinite}
+.vine i:nth-child(2n){border-radius:100% 0 100% 0;background:#3A6A4E}
+@keyframes sway{0%,100%{transform:rotate(18deg)}50%{transform:rotate(38deg)}}
+
+header{padding:26px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px}
+.wordmark{font-family:'Cormorant Garamond',serif;font-weight:700;font-size:30px}
+.wordmark .ae{color:var(--petal)}
+header .ed{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+
+.hero{padding:80px 0 70px;display:grid;grid-template-columns:1.5fr 1fr;gap:44px;align-items:end}
+h1{font-family:'Cormorant Garamond',serif;font-weight:600;font-size:clamp(40px,6vw,62px);line-height:1.1}
+h1 em{color:var(--leaf);font-style:italic}
+.hero .note{background:var(--card);border:1px solid var(--line);border-radius:4px 18px 4px 18px;padding:22px;font-size:14px;color:var(--muted)}
+.hero .note b{color:var(--petal)}
+.hero .dek{color:var(--muted);font-size:17px;max-width:520px;margin-top:22px}
+
+.ledger{display:grid;grid-template-columns:220px 1fr;gap:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.ledger .row-l{padding:26px 20px;border-bottom:1px solid var(--line);font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--gold)}
+.ledger .row-r{padding:26px 26px 26px 0;border-bottom:1px solid var(--line)}
+.ledger .row-r:last-child,.ledger .row-l:last-child{border-bottom:none}
+.ledger h2{font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:700;margin-bottom:6px}
+.ledger h2 .sp{color:var(--petal)}
+.ledger p{font-size:14.5px;color:var(--muted)}
+.ledger .no{font-size:11px;letter-spacing:.2em;color:var(--leaf);font-weight:700;font-family:'Karla',sans-serif}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.sw{border:1px solid var(--line);border-radius:4px 16px 4px 16px;overflow:hidden;background:var(--card)}
+.sw .chip{height:86px}
+.sw .meta{padding:12px 14px}
+.sw .nm{font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700}
+.sw .hx{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted)}
+
+.type{background:var(--card);border:1px solid var(--line);border-radius:4px 20px 4px 20px;padding:34px}
+.type .big{font-family:'Cormorant Garamond',serif;font-size:44px;font-weight:600;line-height:1.15}
+.type .big em{color:var(--leaf)}
+.type .sub{font-size:14.5px;color:var(--muted);margin-top:12px}
+
+.btn{font:inherit;font-weight:700;font-size:15px;padding:12px 28px;border-radius:4px 16px 4px 16px;border:none;cursor:pointer}
+.btn.primary{background:var(--leaf);color:#0D231A}
+.btn.primary:hover{background:#A8E4B6}
+.btn.ghost{background:transparent;border:1.5px solid var(--petal);color:var(--petal)}
+.btn.ghost:hover{background:rgba(242,169,199,.1)}
+
+/* component library */
+.kit{background:var(--card);border:1px solid var(--line);border-radius:4px 18px 4px 18px;overflow:hidden}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:22px 24px;border-bottom:1px solid var(--line)}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-size:11px;letter-spacing:.2em;text-transform:uppercase;font-weight:700;color:var(--gold);padding-top:6px}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-size:12.5px;font-weight:700;padding:5px 15px;border-radius:4px 14px 4px 14px}
+.tagpill.solid{background:var(--leaf);color:#0D231A}
+.tagpill.petal{background:var(--petal);color:#0D231A}
+.tagpill.line{border:1px solid var(--gold);color:var(--gold)}
+.btn-text{background:none;border:none;font:inherit;font-weight:700;font-size:15px;color:var(--gold);text-decoration:underline;text-underline-offset:4px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-size:12.5px;font-weight:700;margin-bottom:7px;color:var(--text)}
+.field input{width:100%;font:inherit;font-size:14.5px;padding:11px 14px;background:var(--bg);color:var(--text);border:1.5px solid var(--line);border-radius:4px 14px 4px 14px}
+.hint{font-size:12.5px;color:var(--muted);margin-top:7px}
+.callout{border-left:3px solid var(--petal);background:var(--bg);padding:16px 20px;font-size:14px;color:var(--text);max-width:560px;border-radius:0 14px 0 14px}
+.callout b{color:var(--gold)}
+
+footer{margin-top:64px;border-top:1px solid var(--line);padding:22px 0 40px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){.vine i{animation:none}}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.hero{grid-template-columns:1fr}.ledger{grid-template-columns:1fr}.row-l{border-bottom:none!important;padding-bottom:0}.swatches{grid-template-columns:1fr 1fr}.vine{display:none}}
+</style>
+</head>
+<body>
+<div class="vine" aria-hidden="true">
+  <i style="top:12%"></i><i style="top:24%"></i><i style="top:37%"></i><i style="top:51%"></i>
+  <i style="top:66%"></i><i style="top:79%"></i><i style="top:90%"></i>
+</div>
+
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="ed">Brand Direction 03 · The Garden Ledger</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <h1>A garden has no <em>off-the-rack.</em><br>Neither do you.</h1>
+        <p class="dek">Every flower is stitched to its own pattern. We cut cloth the way nature grows petals — one being, one pattern, no duplicates. That's why custom-stitched isn't a luxury. It's how a garden works.</p>
+      </div>
+      <div class="note">
+        <b>Field note №1</b> — What you wear is the beauty you put into the world's path. Tend it. The garden you dress becomes the garden everyone walks through.
+      </div>
+    </section>
+
+    <section>
+      <div class="k">Ledger of tenets — recorded &amp; kept</div>
+      <div class="ledger">
+        <div class="row-l">Specimen i — the craft</div>
+        <div class="row-r"><div class="no">RECORDED</div><h2>Custom-stitched is <span class="sp">cool</span></h2><p>In a garden, the rare specimen is the treasured one. Clothing cut only for you is the rarest thing you can wear.</p></div>
+        <div class="row-l">Specimen ii — the duty</div>
+        <div class="row-r"><div class="no">RECORDED</div><h2>Beautify the <span class="sp">world</span></h2><p>Every bloom changes the meadow. Every outfit changes the street. You carry that responsibility — carry it gladly.</p></div>
+        <div class="row-l">Specimen iii — the soil</div>
+        <div class="row-r"><div class="no">RECORDED</div><h2>A <span class="sp">safe space</span> to grow</h2><p>Nothing blooms under judgment. Our atelier is greenhouse conditions for every species of you.</p></div>
+        <div class="row-l">Specimen iv — the bloom</div>
+        <div class="row-r"><div class="no">RECORDED</div><h2>Entirely <span class="sp">your way</span></h2><p>No gardener tells the rose how to open. However you choose to beautify the world is exactly right.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="k">Palette — pressed from the garden</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#93D6A4"></div><div class="meta"><div class="nm">Young Leaf</div><div class="hx">#93D6A4</div></div></div>
+        <div class="sw"><div class="chip" style="background:#F2A9C7"></div><div class="meta"><div class="nm">Petal Blush</div><div class="hx">#F2A9C7</div></div></div>
+        <div class="sw"><div class="chip" style="background:#E5CD96"></div><div class="meta"><div class="nm">Pollen</div><div class="hx">#E5CD96</div></div></div>
+        <div class="sw"><div class="chip" style="background:#0D231A;border-bottom:1px solid #2E5540"></div><div class="meta"><div class="nm">Hedgerow Night</div><div class="hx">#0D231A</div></div></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="k">Typography — Cormorant &amp; Karla</div>
+      <div class="type">
+        <div class="big">Paint the world <em>the way you want!</em></div>
+        <div class="sub">Cormorant Garamond presses the blossoms; Karla writes the labels. A botanist's pairing — romantic specimen, honest ledger.</div>
+      </div>
+    </section>
+
+    <section>
+      <div class="k">Pressings — the component kit</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Plant a garment</button>
+          <button class="btn ghost" type="button">Browse the greenhouse</button>
+          <button class="btn-text" type="button">Planting calendar →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Specimen tags</div><div class="chips">
+          <span class="tagpill solid">In bloom</span>
+          <span class="tagpill petal">Rare variety</span>
+          <span class="tagpill line">Your way</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Label field</div><div class="field">
+          <label for="v3label">Botanical name on the tag</label>
+          <input id="v3label" type="text" autocomplete="off">
+          <p class="hint">Every made-for-you piece arrives with a pressed-paper tag, in your name.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Field note</div><div class="callout">
+          <b>Field note №2.</b> A garden has no off-the-rack — and no gardener tells the rose how to open. Beautify the world the way only you grow.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>draep · Botanical — direction 03 of 10</span>
+    <span>Every species of you, welcome.</span>
+  </footer>
+</div>
+</body>
+</html>

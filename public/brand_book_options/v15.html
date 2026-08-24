@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 15 Varsity Athletic · Team You</title>
+<meta name="description" content="draep brand direction 15: Varsity Athletic. Letterman logic — custom-stitched is cool, beautify the world, safe space, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Work+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#101F3C; --gold:#FFB612; --oldgold:#8A5A00; --cream:#F7F3E8; --ink:#101010; --line:#DCD5C2;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Work Sans',sans-serif;background:var(--cream);color:var(--ink);line-height:1.65;font-size:15px}
+:focus-visible{outline:3px solid var(--navy);outline-offset:3px}
+.wrap{max-width:920px;margin:0 auto;padding:0 30px}
+.k{font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--oldgold);margin-bottom:20px;font-weight:700}
+
+.stripes{height:14px;background:repeating-linear-gradient(90deg,var(--navy) 0 26px,var(--gold) 26px 40px,var(--cream) 40px 48px,var(--gold) 48px 62px)}
+header{padding:24px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.wordmark{font-family:'Anton',sans-serif;font-size:26px;letter-spacing:.03em}
+.wordmark .ae{color:var(--oldgold)}
+header .ed{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--navy);font-weight:600}
+
+.hero{display:grid;grid-template-columns:1fr 190px;gap:34px;align-items:center;padding:64px 0 56px}
+h1{font-family:'Anton',sans-serif;font-weight:400;font-size:clamp(34px,5.8vw,58px);line-height:1.02;letter-spacing:.01em;text-transform:uppercase;color:var(--navy)}
+h1 .gd{color:var(--oldgold)}
+.hero .dek{margin-top:24px;max-width:540px;color:var(--ink);font-size:15.5px}
+.patch{width:180px;height:180px;border-radius:50%;background:var(--navy);border:6px solid var(--gold);box-shadow:0 0 0 6px var(--navy),0 0 0 8px var(--gold);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--gold)}
+.patch .letter{font-family:'Anton',sans-serif;font-size:76px;line-height:1}
+.patch .sub{font-size:10px;letter-spacing:.3em;margin-top:6px;text-transform:uppercase}
+
+.ticker{overflow:hidden;background:var(--navy);border-top:4px solid var(--gold);border-bottom:4px solid var(--gold)}
+.ticker .track{display:flex;gap:0;white-space:nowrap;width:max-content;animation:scroll 22s linear infinite}
+.ticker span{font-family:'Anton',sans-serif;font-size:17px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);padding:11px 0}
+.ticker span i{font-style:normal;color:var(--cream);padding:0 18px}
+
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:16px}
+.card{background:var(--navy);color:var(--cream);padding:28px 26px;border:3px solid var(--ink);box-shadow:6px 6px 0 var(--ink)}
+.card .no{font-family:'Anton',sans-serif;font-size:30px;color:var(--gold);line-height:1}
+.card h2{font-family:'Anton',sans-serif;font-weight:400;font-size:21px;letter-spacing:.02em;text-transform:uppercase;margin:10px 0 8px;color:#FFFFFF}
+.card h2 .gd{color:var(--gold)}
+.card p{font-size:13.5px;color:rgba(247,243,232,.85)}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);border:3px solid var(--ink);margin-top:56px;box-shadow:6px 6px 0 var(--ink)}
+.sw{padding:20px 16px;border-right:3px solid var(--ink);background:var(--cream)}
+.sw:last-child{border-right:none}
+.sw .chip{height:58px;margin-bottom:14px}
+.sw .nm{font-size:12.5px;font-weight:700}
+.sw .hx{font-size:11px;color:var(--navy);font-family:ui-monospace,monospace;margin-top:2px}
+
+.type{padding:56px 0}
+.type .big{font-family:'Anton',sans-serif;font-weight:400;font-size:clamp(26px,4.4vw,42px);line-height:1.08;text-transform:uppercase;color:var(--navy)}
+.type .big .gd{color:var(--oldgold)}
+.type .sub{font-size:13.5px;color:var(--ink);margin-top:14px}
+
+.btn{font-family:'Work Sans',sans-serif;font-weight:700;font-size:14px;letter-spacing:.06em;padding:14px 30px;cursor:pointer;border:3px solid var(--ink);border-radius:14px 4px 14px 4px;box-shadow:4px 4px 0 var(--ink)}
+.btn.primary{background:var(--navy);color:var(--gold)}
+.btn.primary:hover{background:var(--oldgold);color:#FFFFFF}
+.btn.ghost{background:var(--cream);color:var(--navy)}
+.btn.ghost:hover{background:#EDE6D2}
+
+.kit{border:3px solid var(--ink);box-shadow:6px 6px 0 var(--ink);background:var(--cream)}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:24px;border-bottom:2px dashed var(--line)}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--navy);font-weight:700;padding-top:6px}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:6px 14px;border-radius:999px;border:2.5px solid var(--ink)}
+.tagpill.solid{background:var(--navy);color:var(--gold)}
+.tagpill.gold{background:var(--gold);color:var(--ink)}
+.tagpill.line{background:var(--cream);color:var(--navy);border-style:dashed}
+.btn-text{background:none;border:none;font:inherit;font-size:14px;font-weight:700;color:var(--oldgold);text-decoration:underline;text-underline-offset:4px;text-decoration-thickness:2px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-size:12px;font-weight:700;letter-spacing:.06em;margin-bottom:7px}
+.field input{width:100%;font:inherit;font-size:14.5px;padding:11px 14px;background:#FFFFFF;color:var(--ink);border:2.5px solid var(--ink);border-radius:10px 4px 10px 4px}
+.hint{font-size:12.5px;color:var(--ink);opacity:.75;margin-top:7px}
+.callout{background:var(--navy);color:var(--cream);border-radius:14px 4px 14px 4px;padding:18px 20px;font-size:14.5px;max-width:560px}
+.callout b{color:var(--gold)}
+
+footer{margin-top:80px;border-top:3px solid var(--ink);padding:22px 0 48px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink);font-weight:600}
+
+@keyframes scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@media (prefers-reduced-motion:reduce){.ticker .track{animation:none}}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.hero{grid-template-columns:1fr}.patch{margin:0 auto}.cards{grid-template-columns:1fr}.swatches{grid-template-columns:1fr 1fr;box-shadow:none}.sw:nth-child(2){border-right:none}.sw:nth-child(1),.sw:nth-child(2){border-bottom:3px solid var(--ink)}}
+</style>
+</head>
+<body>
+<div class="stripes" aria-hidden="true"></div>
+<main>
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="ed">Direction 15 — Team You, est. now</div>
+  </header>
+
+    <section class="hero">
+      <div>
+        <div class="k">Varsity Athletic — earned one letter at a time</div>
+        <h1>Letterman<br>logic: you're<br><span class="gd">the whole team.</span></h1>
+        <p class="dek">The jacket was never for everyone — it was stitched for the one who earned it. Your closet works the same way: cut for your body, your season, your name on the back. Play like the stands are watching, and leave the field more beautiful.</p>
+      </div>
+      <div class="patch" aria-hidden="true">
+        <div class="letter">D</div>
+        <div class="sub">Varsity · 1st string</div>
+      </div>
+    </section>
+</div>
+
+<div class="ticker" aria-hidden="true">
+  <div class="track">
+    <span>GO TEAM YOU <i>•</i> CUT ONCE, WORN FOREVER <i>•</i> BEAUTIFY THE WORLD <i>•</i> NO BENCH, NO JUDGMENT <i>•</i> GO TEAM YOU <i>•</i> CUT ONCE, WORN FOREVER <i>•</i> BEAUTIFY THE WORLD <i>•</i> NO BENCH, NO JUDGMENT <i>•</i> </span>
+  </div>
+</div>
+
+<div class="wrap">
+    <section style="padding-top:48px">
+      <div class="k">The playbook — four plays that always score</div>
+      <div class="cards">
+        <div class="card"><div class="no">01</div><h2>Custom-stitched is <span class="gd">cool</span></h2><p>Nobody gets the jacket by blending in. Uniqueness is the varsity letter of clothing.</p></div>
+        <div class="card"><div class="no">02</div><h2>Beautify the <span class="gd">world</span></h2><p>Every game is away and every crowd sees your uniform. Give the city something worth cheering.</p></div>
+        <div class="card"><div class="no">03</div><h2>A <span class="gd">safe space</span></h2><p>No tryout cuts here. Every style makes the roster, every body starts first string.</p></div>
+        <div class="card"><div class="no">04</div><h2>Played <span class="gd">your way</span></h2><p>You call the plays. However you want to beautify the world, we sew the uniform for it.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="k" style="margin-top:56px">Team colors</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#101F3C"></div><div class="nm">Locker Navy</div><div class="hx">#101F3C</div></div>
+        <div class="sw"><div class="chip" style="background:#FFB612"></div><div class="nm">Stadium Gold</div><div class="hx">#FFB612</div></div>
+        <div class="sw"><div class="chip" style="background:#8A5A00"></div><div class="nm">Old Gold</div><div class="hx">#8A5A00</div></div>
+        <div class="sw"><div class="chip" style="background:#F7F3E8;border:1px solid #DCD5C2"></div><div class="nm">Bleacher Cream</div><div class="hx">#F7F3E8</div></div>
+      </div>
+    </section>
+
+    <section class="type">
+      <div class="k">Type — Anton over Work Sans</div>
+      <div class="big">Paint the world the way you want — <span class="gd">full varsity, no apologies.</span></div>
+      <div class="sub">The scoreboard voice for headlines; a workhorse sans for the playbook. Loud where it counts, legible everywhere.</div>
+    </section>
+
+    <section style="margin-bottom:64px">
+      <div class="k">The spirit wear — components</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Join the roster</button>
+          <button class="btn ghost" type="button">Season highlights</button>
+          <button class="btn-text" type="button">Read the playbook →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Patches</div><div class="chips">
+          <span class="tagpill solid">1st string</span>
+          <span class="tagpill gold">MVP: you</span>
+          <span class="tagpill line">Rookie-friendly</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Name on back</div><div class="field">
+          <label for="v15jersey">Name for the jersey</label>
+          <input id="v15jersey" type="text" autocomplete="off">
+          <p class="hint">Any name, any spelling, any script — the stitching room spells it exactly as you say it.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Coach's note</div><div class="callout">
+          <b>From the locker room.</b> The coolest thing on any street is a uniform that exists for exactly one player. Suit up your way — and beautify the world like it's a home game.
+        </div></div>
+      </div>
+    </section>
+  <footer>
+    <span>DRAEP — DIRECTION 15 OF 20</span>
+    <span>TEAM YOU · Undefeated at being you</span>
+  </footer>
+</div>
+</main>
+</body>
+</html>

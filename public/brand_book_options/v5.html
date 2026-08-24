@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 05 Candy Pop · Joy Riot</title>
+<meta name="description" content="draep brand direction 05: Candy Pop. A joy riot of color — custom-stitched, world-beautifying, safe, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#FFF5FA; --card:#FFE9F4; --ink:#2E0A54; --muted:#6C4B8A;
+  --pink:#C4157F; --btnbg:#FFB3D9; --yellow:#FFD60A; --sky:#0E76C6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Nunito',sans-serif;background:var(--bg);color:var(--ink);line-height:1.6;font-size:16px;overflow-x:hidden}
+:focus-visible{outline:3px solid var(--pink);outline-offset:3px;border-radius:8px}
+.wrap{max-width:940px;margin:0 auto;padding:0 28px;position:relative;z-index:1}
+.k{font-weight:800;font-size:12.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--pink);margin-bottom:16px}
+
+/* morphing blobs in the background */
+.blob{position:fixed;z-index:0;filter:blur(2px);opacity:.55;pointer-events:none}
+.b1{width:340px;height:340px;background:#FFD60A;top:-90px;right:-100px;animation:morph 11s ease-in-out infinite}
+.b2{width:260px;height:260px;background:#FF7ABA;bottom:8%;left:-110px;animation:morph 9s ease-in-out infinite reverse}
+.b3{width:200px;height:200px;background:#9AE6E0;top:52%;right:-70px;animation:morph 13s ease-in-out infinite}
+@keyframes morph{
+  0%,100%{border-radius:58% 42% 63% 37%/49% 56% 44% 51%;transform:rotate(0) scale(1)}
+  33%{border-radius:38% 62% 45% 55%/62% 38% 62% 38%;transform:rotate(38deg) scale(1.07)}
+  66%{border-radius:63% 37% 56% 44%/40% 63% 37% 60%;transform:rotate(-24deg) scale(.95)}
+}
+
+header{padding:24px 0;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px}
+.wordmark{font-family:'Baloo 2',cursive;font-weight:800;font-size:32px}
+.wordmark .ae{background:var(--yellow);border-radius:12px 4px 12px 4px;padding:0 6px;display:inline-block;transform:rotate(-3deg)}
+header .ed{font-weight:700;font-size:12.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+
+.hero{padding:64px 0 56px;text-align:center}
+h1{font-family:'Baloo 2',cursive;font-weight:800;font-size:clamp(42px,7vw,68px);line-height:1.06}
+h1 .hi{background:var(--yellow);border-radius:16px 6px 16px 6px;padding:0 12px;display:inline-block;transform:rotate(-2deg)}
+h1 .pk{color:var(--pink)}
+.hero .dek{margin:26px auto 0;max-width:600px;font-size:17.5px;color:var(--muted);font-weight:600}
+
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+.card{background:var(--card);border:3px solid var(--ink);border-radius:22px 8px 22px 8px;padding:24px 22px;transition:transform .18s ease}
+.card:hover{transform:translateY(-5px) rotate(-.6deg)}
+.card .no{display:inline-block;font-family:'Baloo 2',cursive;font-weight:800;font-size:13px;background:var(--yellow);border:2.5px solid var(--ink);border-radius:10px 4px 10px 4px;padding:2px 10px;margin-bottom:12px}
+.card h2{font-family:'Baloo 2',cursive;font-weight:700;font-size:22px;line-height:1.2;margin-bottom:6px}
+.card h2 .pk{color:var(--pink)}
+.card p{font-size:14.5px;color:var(--muted);font-weight:600}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.sw{background:var(--card);border:3px solid var(--ink);border-radius:20px 8px 20px 8px;overflow:hidden;transition:transform .18s ease}
+.sw:hover{transform:rotate(1.5deg) scale(1.03)}
+.sw .chip{height:84px;border-bottom:3px solid var(--ink)}
+.sw .meta{padding:12px 14px}
+.sw .nm{font-family:'Baloo 2',cursive;font-weight:700;font-size:16px}
+.sw .hx{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted);font-weight:600}
+
+.type{background:var(--ink);color:#FFF5FA;border-radius:26px 10px 26px 10px;padding:38px;margin-top:44px}
+.type .tag{font-weight:800;font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--yellow);margin-bottom:12px}
+.type .big{font-family:'Baloo 2',cursive;font-weight:700;font-size:clamp(30px,4.8vw,46px);line-height:1.12;color:#FFF5FA}
+.type .big .pk{color:var(--yellow)}
+.type .sub{font-size:14.5px;margin-top:12px;color:#E3CFF2;font-weight:600}
+
+.btn{font-family:'Baloo 2',cursive;font-weight:700;font-size:16.5px;padding:13px 30px;border:3px solid var(--ink);border-radius:18px 6px 18px 6px;cursor:pointer;box-shadow:4px 4px 0 var(--ink);transition:transform .12s ease,box-shadow .12s ease}
+.btn:active{transform:translate(4px,4px);box-shadow:0 0 0 var(--ink)}
+.btn.primary{background:var(--btnbg);color:var(--ink)}
+.btn.primary:hover{background:#FFC4E2}
+.btn.sun{background:var(--yellow);color:var(--ink)}
+.btn.sun:hover{background:#FFE14D}
+
+/* component library */
+.kit{background:var(--card);border:3px solid var(--ink);border-radius:22px 8px 22px 8px;overflow:hidden}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:22px 24px;border-bottom:3px dashed #D9B8E8}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-family:'Baloo 2',cursive;font-size:13px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--pink);padding-top:4px}
+.chips{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-weight:700;font-size:13px;padding:5px 15px;border-radius:12px 4px 12px 4px}
+.tagpill.solid{background:var(--yellow);color:var(--ink);border:2.5px solid var(--ink)}
+.tagpill.pink{background:var(--pink);color:#FFF5FA;border:2.5px solid var(--ink)}
+.tagpill.line{border:2.5px solid var(--ink);color:var(--ink);background:#FFFFFF}
+.btn-text{background:none;border:none;font-family:'Baloo 2',cursive;font-weight:700;font-size:16px;color:var(--pink);text-decoration:underline;text-underline-offset:4px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-family:'Baloo 2',cursive;font-weight:700;font-size:14.5px;margin-bottom:7px;color:var(--ink)}
+.field input{width:100%;font-family:'Nunito',sans-serif;font-weight:600;font-size:14.5px;padding:12px 15px;background:#FFFFFF;color:var(--ink);border:3px solid var(--ink);border-radius:14px 4px 14px 4px}
+.hint{font-size:12.5px;font-weight:600;color:var(--muted);margin-top:7px}
+.callout{border:3px solid var(--ink);background:#FFFFFF;padding:16px 20px;font-size:14.5px;font-weight:600;color:var(--ink);max-width:560px;border-radius:18px 6px 18px 6px}
+.callout b{color:var(--pink)}
+
+footer{margin-top:60px;padding:22px 0 44px;border-top:3px dashed #D9B8E8;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px;font-weight:700;color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){.blob,.card,.sw{animation:none!important;transition:none!important}}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.cards{grid-template-columns:1fr}.swatches{grid-template-columns:1fr 1fr}.b3{display:none}}
+</style>
+</head>
+<body>
+<div class="blob b1" aria-hidden="true"></div>
+<div class="blob b2" aria-hidden="true"></div>
+<div class="blob b3" aria-hidden="true"></div>
+
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="ed">Brand Direction 05 · Joy Riot</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Custom-stitched is the <span class="hi">coolest</span><br>thing you can <span class="pk">wear.</span></h1>
+      <p class="dek">Life's too short for boring cloth. We stitch joy in your exact size, your exact colors — and hand you the crayons to beautify the world with.</p>
+    </section>
+
+    <section>
+      <div class="k">The flavor profile — four big feels</div>
+      <div class="cards">
+        <div class="card"><div class="no">01</div><h2>Ridiculously <span class="pk">cool</span></h2><p>Clothes that exist once — on you. That's not shopping, that's a superpower.</p></div>
+        <div class="card"><div class="no">02</div><h2>Make the world <span class="pk">prettier</span></h2><p>When you step out in color, you hand everyone a better day. That's your responsibility — and your privilege.</p></div>
+        <div class="card"><div class="no">03</div><h2>Zero <span class="pk">judgment</span></h2><p>A candy store doesn't ask why you want the blue one. Come as you are; try every flavor.</p></div>
+        <div class="card"><div class="no">04</div><h2>Your way, <span class="pk">always</span></h2><p>Stripes with polka dots? Yes. Capes on Tuesdays? Also yes. The world gets beautified your way or not at all.</p></div>
+      </div>
+    </section>
+
+    <section style="margin-top:44px">
+      <div class="k">Palette — unwrap the pack</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#FFD60A"></div><div class="meta"><div class="nm">Lemon Fizz</div><div class="hx">#FFD60A</div></div></div>
+        <div class="sw"><div class="chip" style="background:#FF7ABA"></div><div class="meta"><div class="nm">Bubblegum</div><div class="hx">#FF7ABA</div></div></div>
+        <div class="sw"><div class="chip" style="background:#C4157F"></div><div class="meta"><div class="nm">Cherry Punch</div><div class="hx">#C4157F</div></div></div>
+        <div class="sw"><div class="chip" style="background:#2E0A54"></div><div class="meta"><div class="nm">Grape Shadow</div><div class="hx">#2E0A54</div></div></div>
+      </div>
+    </section>
+
+    <section class="type">
+      <div class="tag">Typography — Baloo 2 / Nunito</div>
+      <div class="big">Paint the world <span class="pk">the way you want!</span></div>
+      <div class="sub">Baloo 2 is the giggle; Nunito is the grin. Round, friendly, impossible to read with a straight face.</div>
+    </section>
+
+    <section style="margin-top:44px">
+      <div class="k">The toy box — components</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Get stitched ✂</button>
+          <button class="btn sun" type="button">Taste the rainbow</button>
+          <button class="btn-text" type="button">Peek inside the box →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Stickers</div><div class="chips">
+          <span class="tagpill solid">FRESH</span>
+          <span class="tagpill pink">ONE OF ONE</span>
+          <span class="tagpill line">JUDGMENT-FREE</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Question box</div><div class="field">
+          <label for="v5flavor">Pick your flavor</label>
+          <input id="v5flavor" type="text" autocomplete="off">
+          <p class="hint">Stripes with polka dots? Capes on Tuesdays? All valid answers.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Say-it-loud</div><div class="callout">
+          <b>Heads up!</b> Clothes that exist once — on you — are the coolest thing you can wear. The world gets beautified your way or not at all.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>draep · Candy Pop — direction 05 of 10</span>
+    <span>Every flavor of you, welcome.</span>
+  </footer>
+</div>
+</body>
+</html>

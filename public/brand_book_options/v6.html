@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 06 Gallery Minimal · The White Wall</title>
+<meta name="description" content="draep brand direction 06: Gallery Minimal. Custom clothing deserves the white wall — cool, responsible, safe, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#FCFBF8; --ink:#101010; --ikb:#002FA7; --muted:#6E6A60; --card:#F4F2EC; --line:#E3E0D8;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--ink);line-height:1.65;font-size:16px}
+:focus-visible{outline:2px solid var(--ikb);outline-offset:4px}
+.wrap{max-width:860px;margin:0 auto;padding:0 32px}
+.k{font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--muted);margin-bottom:22px;font-weight:500}
+
+header{padding:30px 0;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px}
+.wordmark{font-weight:600;font-size:22px;letter-spacing:-.01em}
+.wordmark .ae{color:var(--ikb)}
+header .ed{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
+
+.hero{padding:96px 0 84px}
+h1{font-weight:600;font-size:clamp(34px,5.4vw,52px);line-height:1.14;letter-spacing:-.025em}
+h1 .blue{color:var(--ikb)}
+.hero .dek{margin-top:28px;max-width:520px;color:var(--muted);font-size:16.5px}
+
+.plinth{border-top:1px solid var(--ink)}
+.prow{display:grid;grid-template-columns:72px 1fr;border-bottom:1px solid var(--line);padding:34px 0;gap:20px}
+.prow .no{font-size:12px;letter-spacing:.14em;color:var(--ikb);font-weight:500;padding-top:5px}
+.prow h2{font-size:19px;font-weight:600;letter-spacing:-.01em;margin-bottom:8px}
+.prow h2 .blue{color:var(--ikb)}
+.prow p{font-size:14.5px;color:var(--muted);max-width:560px}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--ink);border-bottom:1px solid var(--ink)}
+.sw{padding:22px 16px;border-right:1px solid var(--line)}
+.sw:last-child{border-right:none}
+.sw .chip{height:64px;margin-bottom:16px}
+.sw .nm{font-size:13px;font-weight:600}
+.sw .hx{font-size:11px;color:var(--muted);font-family:ui-monospace,monospace;letter-spacing:.04em;margin-top:2px}
+
+.type{padding:56px 0}
+.type .big{font-size:clamp(26px,4vw,40px);font-weight:600;letter-spacing:-.025em;line-height:1.15}
+.type .big .blue{color:var(--ikb)}
+.type .sub{font-size:13.5px;color:var(--muted);margin-top:16px}
+
+.btn{font:inherit;font-size:14px;font-weight:500;padding:13px 30px;cursor:pointer;letter-spacing:.02em}
+.btn.primary{background:var(--ink);color:#FCFBF8;border:1px solid var(--ink)}
+.btn.primary:hover{background:var(--ikb);border-color:var(--ikb)}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--ink)}
+.btn.ghost:hover{border-color:var(--ikb);color:var(--ikb)}
+
+/* component library */
+.kit{border-top:1px solid var(--ink)}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:26px 0;border-bottom:1px solid var(--line)}
+.kit-l{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--ikb);padding-top:5px}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;padding:6px 14px}
+.tagpill.solid{background:var(--ikb);color:#FCFBF8}
+.tagpill.tint{background:var(--card);color:var(--ink)}
+.tagpill.line{border:1px solid var(--ink);color:var(--ink)}
+.btn-text{background:none;border:none;font:inherit;font-size:14px;font-weight:500;color:var(--ikb);text-decoration:underline;text-underline-offset:4px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-size:12px;letter-spacing:.06em;margin-bottom:7px;color:var(--ink)}
+.field input{width:100%;font:inherit;font-size:14.5px;padding:11px 14px;background:#FFFFFF;color:var(--ink);border:1px solid var(--ink);border-radius:0}
+.hint{font-size:12.5px;color:var(--muted);margin-top:7px}
+.callout{border-left:2px solid var(--ikb);padding:4px 0 4px 20px;font-size:14.5px;color:var(--ink);max-width:560px}
+.callout b{color:var(--ikb);font-weight:600}
+
+footer{margin-top:88px;border-top:1px solid var(--ink);padding:24px 0 48px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;letter-spacing:.08em;color:var(--muted)}
+
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.prow{grid-template-columns:1fr;gap:6px}.swatches{grid-template-columns:1fr 1fr}.sw:nth-child(2){border-right:none}.sw:nth-child(1),.sw:nth-child(2){border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="ed">Direction 06 — The White Wall</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="k">Gallery Minimal</div>
+      <h1>Museums don't hang<br><span class="blue">multiples.</span></h1>
+      <p class="dek">Anything made a thousand times goes to the warehouse. Anything made once gets the white wall. Custom-stitched clothing is you, exhibited — and the world is a better gallery for it.</p>
+    </section>
+
+    <section>
+      <div class="k">Four works, permanent collection</div>
+      <div class="plinth">
+        <div class="prow"><div class="no">No. 1</div><div><h2>Custom-stitched is <span class="blue">cool</span></h2><p>Singular work carries singular prestige. The rarest thing you can wear is something that only fits one person — you.</p></div></div>
+        <div class="prow"><div class="no">No. 2</div><div><h2>Beautify the <span class="blue">world</span></h2><p>Every piece you hang on yourself is hung in public. Curate with care; the street is everyone's gallery.</p></div></div>
+        <div class="prow"><div class="no">No. 3</div><div><h2>A <span class="blue">safe space</span></h2><p>No critic at this door. Whatever you bring, the white wall receives it without comment.</p></div></div>
+        <div class="prow"><div class="no">No. 4</div><div><h2>Shown <span class="blue">your way</span></h2><p>The artist decides the frame, the light, the angle. Beautify the world exactly as you intend.</p></div></div>
+      </div>
+    </section>
+
+    <section style="margin-top:72px">
+      <div class="k">Palette</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#002FA7"></div><div class="nm">International Klein Blue</div><div class="hx">#002FA7</div></div>
+        <div class="sw"><div class="chip" style="background:#101010"></div><div class="nm">Exhibit Ink</div><div class="hx">#101010</div></div>
+        <div class="sw"><div class="chip" style="background:#F4F2EC;border:1px solid #E3E0D8"></div><div class="nm">Plaster</div><div class="hx">#F4F2EC</div></div>
+        <div class="sw"><div class="chip" style="background:#FCFBF8;border:1px solid #E3E0D8"></div><div class="nm">White Wall</div><div class="hx">#FCFBF8</div></div>
+      </div>
+    </section>
+
+    <section class="type">
+      <div class="k">Typography — Inter, nothing else</div>
+      <div class="big">Paint the world <span class="blue">the way you want!</span></div>
+      <div class="sub">One family, many weights. Restraint is the frame that lets the color — and the clothing — speak.</div>
+    </section>
+
+    <section style="margin-top:72px">
+      <div class="k">Components — the kit</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Commission a piece</button>
+          <button class="btn ghost" type="button">View the collection</button>
+          <button class="btn-text" type="button">Artist's statement →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Labels</div><div class="chips">
+          <span class="tagpill solid">Acquired</span>
+          <span class="tagpill tint">On view</span>
+          <span class="tagpill line">No. 1 of 1</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Field</div><div class="field">
+          <label for="v6plaque">Wall label, your title</label>
+          <input id="v6plaque" type="text" autocomplete="off">
+          <p class="hint">Every exhibited piece carries a plaque. Yours, untitled, is accepted too.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Note</div><div class="callout">
+          <b>From the curator.</b> Museums don't hang multiples. Beautify the world with the one work only you can make — the white wall receives everything.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>DRAEP — DIRECTION 06 OF 10</span>
+    <span>THE WHITE WALL RECEIVES EVERYTHING</span>
+  </footer>
+</div>
+</body>
+</html>

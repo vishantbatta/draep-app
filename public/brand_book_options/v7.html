@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 07 Retro Sunbeam · Golden Hour '77</title>
+<meta name="description" content="draep brand direction 07: Retro Sunbeam. A 1977 poster for custom-stitched joy — cool, responsible, safe, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Righteous&family=Work+Sans:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F4E7D3; --card:#EFE0C8; --ink:#38210F; --deep:#7A3E12; --burnt:#BE4E17;
+  --muted:#6D5233; --sun:#F0B429; --line:#D8C3A0;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Work Sans',sans-serif;background:var(--bg);color:var(--ink);line-height:1.65;font-size:16px}
+:focus-visible{outline:3px solid var(--deep);outline-offset:3px;border-radius:6px}
+.wrap{max-width:940px;margin:0 auto;padding:0 28px}
+.k{font-size:12px;letter-spacing:.26em;text-transform:uppercase;color:var(--deep);font-weight:600;margin-bottom:14px}
+
+header{padding:22px 0;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px}
+.wordmark{font-family:'Righteous',sans-serif;font-weight:400;font-size:30px;color:var(--ink)}
+.wordmark .ae{color:var(--burnt)}
+header .ed{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+
+/* dusk sky with a rising gold disc — all sky stops keep 4.5:1 with cream text */
+.sunsky{position:relative;margin:0;padding:150px 28px 96px;text-align:center;overflow:hidden;
+  background:linear-gradient(180deg,#A0522E 0%,#8C3B10 58%,#5C2408 100%)}
+.sunsky .disc{position:absolute;top:44px;left:50%;transform:translateX(-50%);width:232px;height:116px;
+  border-radius:232px 232px 0 0;background:linear-gradient(180deg,#F5C24E 0%,#F0B429 55%,#E8862E 100%)}
+.sunsky .rays{position:absolute;top:0;left:50%;width:680px;height:330px;transform:translateX(-50%);
+  background:repeating-conic-gradient(from -90deg at 50% 0%,rgba(56,33,15,.22) 0 6deg,transparent 6deg 14deg);
+  -webkit-mask-image:radial-gradient(440px 330px at 50% 0%,#000 55%,transparent 100%);
+  mask-image:radial-gradient(440px 330px at 50% 0%,#000 55%,transparent 100%)}
+.sunsky h1{position:relative;font-family:'Righteous',sans-serif;font-weight:400;color:#FDF4E3;font-size:clamp(40px,7vw,66px);line-height:1.06;letter-spacing:.01em;
+  text-shadow:3px 3px 0 rgba(56,33,15,.5)}
+.sunsky .sub1{position:relative;color:#FCE9C8;font-size:18px;max-width:560px;margin:22px auto 0;font-weight:600}
+.sunsky .est{position:relative;display:inline-block;margin-top:26px;font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:#FDF4E3;border:2px solid #FDF4E3;border-radius:999px;padding:8px 22px}
+
+.wave{display:block;width:100%;height:34px;margin-bottom:44px;color:var(--card)}
+
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+.card{background:var(--card);border:2.5px solid var(--ink);border-radius:130px 18px 130px 18px;padding:26px 24px 22px;text-align:center}
+.card .no{font-family:'Righteous',sans-serif;font-size:15px;color:var(--deep);letter-spacing:.1em}
+.card h2{font-family:'Righteous',sans-serif;font-weight:400;font-size:21px;margin:8px 0 6px;line-height:1.25}
+.card h2 .b{color:var(--deep)}
+.card p{font-size:14px;color:var(--muted);font-style:italic}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.sw{background:var(--card);border:2.5px solid var(--ink);border-radius:120px 14px 120px 14px;overflow:hidden}
+.sw .chip{height:80px;border-bottom:2.5px solid var(--ink)}
+.sw .meta{padding:12px 14px;text-align:center}
+.sw .nm{font-family:'Righteous',sans-serif;font-size:15px}
+.sw .hx{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted)}
+
+/* spinning badge */
+.badge-wrap{display:flex;align-items:center;gap:26px;margin-top:44px;background:var(--ink);border-radius:20px;padding:30px;flex-wrap:wrap}
+.badge{position:relative;width:118px;height:118px;flex:none}
+.badge .disc{position:absolute;inset:0;background:var(--sun);border-radius:50%;border:3px solid var(--ink);
+  display:grid;place-items:center}
+.badge .txt{font-family:'Righteous',sans-serif;font-size:15px;color:var(--ink);position:relative;z-index:1}
+.badge .ring{position:absolute;inset:-12px;border:2.5px dashed #F4E7D3;border-radius:50%;animation:spin 14s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.badge-wrap .big{font-family:'Righteous',sans-serif;font-weight:400;color:#F4E7D3;font-size:clamp(24px,3.6vw,34px);line-height:1.18}
+.badge-wrap .sub{color:#D9C3A0;font-size:14px;margin-top:8px;font-style:italic}
+
+.btn{font-family:'Righteous',sans-serif;font-weight:400;font-size:16px;padding:13px 30px;border:2.5px solid var(--ink);border-radius:999px;cursor:pointer}
+.btn.primary{background:var(--sun);color:var(--ink)}
+.btn.primary:hover{background:#F5C24E}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--card)}
+
+/* component library */
+.kit{background:var(--card);border:2.5px solid var(--ink);border-radius:130px 18px 130px 18px;overflow:hidden}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:22px 24px;border-bottom:2px dashed var(--line)}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;font-weight:600;color:var(--deep);padding-top:6px}
+.chips{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-family:'Righteous',sans-serif;font-size:13px;letter-spacing:.04em;padding:5px 16px;border-radius:999px}
+.tagpill.solid{background:var(--sun);color:var(--ink);border:2px solid var(--ink)}
+.tagpill.deep{background:var(--deep);color:#F4E7D3;border:2px solid var(--ink)}
+.tagpill.line{border:2px solid var(--deep);color:var(--deep);background:transparent}
+.btn-text{background:none;border:none;font-family:'Righteous',sans-serif;font-weight:400;font-size:15.5px;color:var(--deep);text-decoration:underline;text-underline-offset:4px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-family:'Righteous',sans-serif;font-size:14px;margin-bottom:7px;color:var(--ink)}
+.field input{width:100%;font-family:'Work Sans',sans-serif;font-size:14.5px;padding:11px 18px;background:#FBF2E1;color:var(--ink);border:2.5px solid var(--ink);border-radius:999px}
+.hint{font-size:12.5px;color:var(--muted);margin-top:7px}
+.callout{border:2.5px solid var(--ink);border-radius:999px;background:#FBF2E1;padding:16px 26px;font-size:14px;font-style:italic;color:var(--ink);max-width:600px}
+.callout b{color:var(--deep);font-style:normal;font-family:'Righteous',sans-serif;font-weight:400}
+
+footer{margin-top:60px;border-top:2.5px solid var(--ink);padding:22px 0 44px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){.badge .ring{animation:none}}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.cards{grid-template-columns:1fr}.swatches{grid-template-columns:1fr 1fr}.badge-wrap{justify-content:center;text-align:center}}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="wordmark">dr<span class="ae">ae</span>p</div>
+      <div class="ed">Direction 07 — Golden Hour '77</div>
+    </header>
+  </div>
+
+  <main>
+    <section class="sunsky" aria-label="Retro Sunbeam hero">
+      <div class="rays" aria-hidden="true"></div>
+      <div class="disc" aria-hidden="true"></div>
+      <h1>Keep the golden hour on.</h1>
+      <p class="sub1">In '77, nobody dressed like everybody. Clothes were cut, taken in, let out, made yours. We brought that back — because custom-stitched never stopped being cool.</p>
+      <div class="est">Beautify the world · est. vibes 1977</div>
+    </section>
+    <svg class="wave" viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0,40 C100,0 200,40 300,20 C400,0 500,40 600,20 C700,0 800,40 900,20 C1000,0 1100,40 1200,20 L1200,40 Z" fill="currentColor"/>
+    </svg>
+
+    <div class="wrap">
+      <section>
+        <div class="k">The festival program — four promises</div>
+        <div class="cards">
+          <div class="card"><div class="no">— 01 —</div><h2>Custom-stitched is <span class="b">cool</span></h2><p>The sharpest dresser at the show wore something made for them. Still true. Always true.</p></div>
+          <div class="card"><div class="no">— 02 —</div><h2>Beautify the <span class="b">world</span></h2><p>Your outfit is the poster everyone sees. Hang a good one; beauty is a shared harvest.</p></div>
+          <div class="card"><div class="no">— 03 —</div><h2>A <span class="b">safe space</span></h2><p>The best dance floors judge nobody. Ours is open floor for every way you want to shine.</p></div>
+          <div class="card"><div class="no">— 04 —</div><h2>Entirely <span class="b">your way</span></h2><p>Flares or flowing, denim or drape — the golden hour belongs to whoever dresses it.</p></div>
+        </div>
+      </section>
+
+      <section style="margin-top:44px">
+        <div class="k">Palette — pressed from the poster</div>
+        <div class="swatches">
+          <div class="sw"><div class="chip" style="background:#F0B429"></div><div class="meta"><div class="nm">Sunbeam</div><div class="hx">#F0B429</div></div></div>
+          <div class="sw"><div class="chip" style="background:#BE4E17"></div><div class="meta"><div class="nm">Burnt Orange</div><div class="hx">#BE4E17</div></div></div>
+          <div class="sw"><div class="chip" style="background:#7A3E12"></div><div class="meta"><div class="nm">Pecan Shell</div><div class="hx">#7A3E12</div></div></div>
+          <div class="sw"><div class="chip" style="background:#F4E7D3;border-bottom:2.5px solid var(--line)"></div><div class="meta"><div class="nm">Wheat Paper</div><div class="hx">#F4E7D3</div></div></div>
+        </div>
+      </section>
+
+      <section class="badge-wrap">
+        <div class="badge" aria-hidden="true">
+          <div class="disc"><div class="txt">'77</div></div>
+          <div class="ring"></div>
+        </div>
+        <div>
+          <div class="big">Paint the world the way you want!</div>
+          <div class="sub">Righteous for the marquee, Work Sans for the fine print. Type with a sunbeam in its voice.</div>
+        </div>
+      </section>
+
+      <section style="margin-top:44px">
+        <div class="k">The merch table — components</div>
+        <div class="kit">
+          <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+            <button class="btn primary" type="button">Get stitched, man</button>
+            <button class="btn ghost" type="button">See the lineup</button>
+            <button class="btn-text" type="button">Tour dates →</button>
+          </div></div>
+          <div class="kit-row"><div class="kit-l">Pins</div><div class="chips">
+            <span class="tagpill solid">GOLDEN</span>
+            <span class="tagpill deep">BACKSTAGE</span>
+            <span class="tagpill line">ALL ARE WELCOME</span>
+          </div></div>
+          <div class="kit-row"><div class="kit-l">Sign-up sheet</div><div class="field">
+            <label for="v7name">Name on the guest list</label>
+            <input id="v7name" type="text" autocomplete="name">
+            <p class="hint">One name per garment, one garment per name. That's the whole list.</p>
+          </div></div>
+          <div class="kit-row"><div class="kit-l">Flyer note</div><div class="callout">
+            <b>POST NO BILLS — EXCEPT YOURS.</b> The sharpest dresser wore something made for them. Keep the golden hour on, your way.
+          </div></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="wrap">
+    <footer>
+      <span>draep · Retro Sunbeam — direction 07 of 10</span>
+      <span>Golden hour has no dress code.</span>
+    </footer>
+  </div>
+</body>
+</html>

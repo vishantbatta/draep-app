@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 17 Desert Adobe · High Desert Studio</title>
+<meta name="description" content="draep brand direction 17: Desert Adobe. Adobe, clay and sage — custom-stitched is cool, beautify the world, safe space, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Karla:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --sand:#F3E8D4; --ink:#3B2A1E; --clay:#8C3D1F; --sage:#4A5840; --card:#EFE0C6; --line:#DCC9A9; --sagechip:#45523A;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Karla',sans-serif;background:var(--sand);color:var(--ink);line-height:1.65;font-size:15px}
+:focus-visible{outline:2.5px solid var(--clay);outline-offset:4px}
+.wrap{max-width:920px;margin:0 auto;padding:0 30px}
+.k{font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--sage);margin-bottom:20px;font-weight:700}
+
+header{padding:26px 0;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px}
+.wordmark{font-family:'DM Serif Display',serif;font-size:26px}
+.wordmark .ae{color:var(--clay)}
+header .ed{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--sage)}
+
+.hero{position:relative;padding:120px 0 64px;overflow:hidden}
+.hero .sky{position:absolute;top:0;left:0;right:0;height:104px;pointer-events:none}
+h1{font-family:'DM Serif Display',serif;font-weight:400;font-size:clamp(34px,5.8vw,56px);line-height:1.1;position:relative}
+h1 .cl{color:var(--clay)} h1 .sg{color:var(--sage)}
+.hero .dek{margin-top:24px;max-width:540px;color:var(--ink);font-size:15.5px;position:relative}
+.sun{position:absolute;top:8px;right:8%;width:150px;height:75px;border-radius:0 0 150px 150px;background:var(--clay);pointer-events:none}
+
+.arches{display:grid;grid-template-columns:repeat(2,1fr);gap:22px}
+.arch{background:var(--card);border:1.5px solid var(--line);border-radius:160px 160px 8px 8px;padding:42px 30px 28px;text-align:center}
+.arch.sagebg{background:var(--sagechip);border-color:var(--sage)}
+.arch.claybg{background:var(--clay);border-color:#6E2F17}
+.arch .no{font-size:10.5px;letter-spacing:.3em;text-transform:uppercase;color:var(--sage);font-weight:700;margin-bottom:10px}
+.arch.sagebg .no,.arch.claybg .no{color:var(--sand)}
+.arch h2{font-family:'DM Serif Display',serif;font-weight:400;font-size:22px;margin-bottom:9px;color:var(--ink)}
+.arch.sagebg h2,.arch.claybg h2{color:#FFFFFF}
+.arch h2 .cl{color:var(--clay)} .arch h2 .sg{color:var(--sage)}
+.arch.sagebg h2 .lt,.arch.claybg h2 .lt{color:#F0D8A8}
+.arch p{font-size:13.5px;color:#5B4632;max-width:400px;margin:0 auto}
+.arch.sagebg p,.arch.claybg p{color:rgba(243,232,212,.88)}
+
+.zig{height:16px;margin-top:54px;background:repeating-linear-gradient(135deg,var(--clay) 0 10px,var(--sand) 10px 20px,var(--sagechip) 20px 30px,var(--sand) 30px 40px);border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink)}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1.5px solid var(--line)}
+.sw{padding:20px 16px;border-right:1px solid var(--line)}
+.sw:last-child{border-right:none}
+.sw .chip{height:60px;margin-bottom:14px;border-radius:80px 80px 4px 4px;border:1px solid var(--line)}
+.sw .nm{font-size:12.5px;font-weight:700}
+.sw .hx{font-size:11px;color:#5B4632;font-family:ui-monospace,monospace;margin-top:2px}
+
+.type{padding:56px 0}
+.type .big{font-family:'DM Serif Display',serif;font-size:clamp(26px,4.4vw,42px);line-height:1.2}
+.type .big .cl{color:var(--clay)} .type .big .sg{color:var(--sage)}
+.type .sub{font-size:13.5px;color:#5B4632;margin-top:14px}
+
+.btn{font:inherit;font-weight:700;font-size:14.5px;padding:13px 30px;cursor:pointer;border:1.5px solid var(--ink);border-radius:999px;background:none;color:var(--ink)}
+.btn.primary{background:var(--clay);color:#FFFFFF;border-color:#6E2F17}
+.btn.primary:hover{background:#6E2F17}
+.btn.ghost:hover{border-color:var(--clay);color:var(--clay)}
+
+.kit{border:1.5px solid var(--line);background:var(--card)}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:26px;border-bottom:1px solid var(--line)}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--clay);font-weight:700;padding-top:5px}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:7px 16px;border-radius:999px}
+.tagpill.solid{background:var(--clay);color:#FFFFFF}
+.tagpill.sage{background:var(--sagechip);color:#FFFFFF}
+.tagpill.line{border:1.5px solid var(--sage);color:var(--sage)}
+.btn-text{background:none;border:none;font:inherit;font-size:14.5px;font-weight:700;color:var(--clay);text-decoration:underline;text-underline-offset:5px;text-decoration-thickness:1.5px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-size:12px;font-weight:700;letter-spacing:.05em;margin-bottom:7px}
+.field input{width:100%;font:inherit;font-size:14.5px;padding:11px 16px;background:#FFFFFF;color:var(--ink);border:1.5px solid var(--ink);border-radius:999px}
+.hint{font-size:12.5px;color:#5B4632;margin-top:7px}
+.callout{border-radius:120px 120px 8px 8px;background:var(--sand);border:1.5px solid var(--clay);padding:26px 28px 18px;font-size:14.5px;max-width:560px}
+.callout b{color:var(--clay)}
+
+footer{margin-top:80px;border-top:1.5px solid var(--ink);padding:24px 0 48px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:#5B4632;font-weight:700}
+
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.arches{grid-template-columns:1fr}.sun{width:100px;height:50px;border-radius:0 0 100px 100px;right:4%}.hero{padding-top:84px}.swatches{grid-template-columns:1fr 1fr}.sw:nth-child(2){border-right:none}.sw:nth-child(1),.sw:nth-child(2){border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="ed">Direction 17 — High Desert Studio</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="sky" aria-hidden="true"></div>
+      <div class="sun" aria-hidden="true"></div>
+      <div class="k">Desert Adobe — everything here was shaped by hand</div>
+      <h1>The desert builds<br>nothing twice —<br><span class="cl">neither do we.</span></h1>
+      <p class="dek">Every adobe wall is hands, water and sun — never a mould. Your clothes deserve the same arithmetic: one body, one pattern, one garment. Wear it out into the world and let the light do the rest.</p>
+    </section>
+
+    <section>
+      <div class="k">Four arches, one courtyard</div>
+      <div class="arches">
+        <div class="arch"><div class="no">Arch 01 · Cool</div><h2>Custom-stitched is <span class="cl">cool</span></h2><p>Adobe doesn't come from a catalogue. The coolest thing on the street is the thing that was shaped, not shipped.</p></div>
+        <div class="arch sagebg"><div class="no">Arch 02 · Duty</div><h2>Beautify the <span class="lt">world</span></h2><p>The desert blooms because somebody carried water. Carry beauty into every room you enter — it's your responsibility and your gift.</p></div>
+        <div class="arch claybg"><div class="no">Arch 03 · Space</div><h2>A <span class="lt">safe space</span></h2><p>Canyons hold every shape the river gives them. We hold every shape and style you bring — nothing is eroded here.</p></div>
+        <div class="arch"><div class="no">Arch 04 · Your way</div><h2>Built <span class="sg">your way</span></h2><p>You draw the floor plan. However you want the world beautified, our hands follow your lines.</p></div>
+      </div>
+    </section>
+
+    <div class="zig" aria-hidden="true"></div>
+
+    <section>
+      <div class="k" style="padding-top:8px">Ochres and hours</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#8C3D1F"></div><div class="nm">Clay Kiln</div><div class="hx">#8C3D1F</div></div>
+        <div class="sw"><div class="chip" style="background:#5C6B4F"></div><div class="nm">Sagebrush</div><div class="hx">#5C6B4F</div></div>
+        <div class="sw"><div class="chip" style="background:#EFE0C6;border-color:#DCC9A9"></div><div class="nm">Sun-Baked Adobe</div><div class="hx">#EFE0C6</div></div>
+        <div class="sw"><div class="chip" style="background:#F3E8D4;border-color:#DCC9A9"></div><div class="nm">Dune Sand</div><div class="hx">#F3E8D4</div></div>
+      </div>
+    </section>
+
+    <section class="type">
+      <div class="k">Type — DM Serif Display over Karla</div>
+      <div class="big">Paint the world the way you want — <span class="cl">the desert keeps no templates,</span> <span class="sg">and neither do you.</span></div>
+      <div class="sub">A warm serif with canyon-scale presence, resting on a friendly humanist sans. Adobe proportions, modern stride.</div>
+    </section>
+
+    <section style="margin-bottom:64px">
+      <div class="k">The studio shelf — components</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Shape a garment</button>
+          <button class="btn ghost" type="button">Walk the courtyard</button>
+          <button class="btn-text" type="button">Meet the studio →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Pottery marks</div><div class="chips">
+          <span class="tagpill solid">Hand-shaped</span>
+          <span class="tagpill sage">Sun-dried</span>
+          <span class="tagpill line">No moulds</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Etch a tile</div><div class="field">
+          <label for="v17tile">Mark for your adobe tile</label>
+          <input id="v17tile" type="text" autocomplete="off">
+          <p class="hint">Courtyard walls are signed by whoever built them. Scratch in anything — every mark weathers well here.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Horno note</div><div class="callout">
+          <b>From the kiln.</b> The high desert keeps nothing twice-made — the sun rises on your one-of-one every morning. Wear it out and beautify the world your way.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>DRAEP — DIRECTION 17 OF 20</span>
+    <span>HIGH DESERT STUDIO · SHAPED BY HAND</span>
+  </footer>
+</div>
+</body>
+</html>

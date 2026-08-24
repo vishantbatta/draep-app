@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 13 CRT Terminal · Stitch.exe</title>
+<meta name="description" content="draep brand direction 13: CRT Terminal. Stitch.exe running for exactly one user — custom-stitched is cool, beautify the world, safe space, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#07100B; --green:#53FF96; --dim:#8FD8AC; --amber:#FFC24D; --panel:#0E2A18; --line:#1E4A2E;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'IBM Plex Mono',monospace;background:var(--bg);color:var(--green);line-height:1.6;font-size:15px}
+:focus-visible{outline:2px dashed var(--amber);outline-offset:4px}
+.scanlines{position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(180deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px);z-index:5}
+.glow{text-shadow:0 0 8px rgba(83,255,150,.35)}
+.wrap{max-width:900px;margin:0 auto;padding:0 30px}
+.k{font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:var(--dim);margin-bottom:18px}
+
+header{padding:24px 0;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px;border-bottom:1px solid var(--line)}
+.wordmark{font-family:'VT323',monospace;font-size:30px;color:var(--green)}
+.wordmark .ae{color:var(--amber)}
+header .ed{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim)}
+
+.boot{margin:44px 0 8px;font-family:'VT323',monospace;font-size:19px;color:var(--dim)}
+.boot .ok{color:var(--green)}
+h1{font-family:'VT323',monospace;font-weight:400;font-size:clamp(36px,6.4vw,64px);line-height:1.02;color:var(--green)}
+h1 .amb{color:var(--amber)}
+.cursor{display:inline-block;width:.55em;height:.9em;background:var(--green);vertical-align:-.08em;animation:blink 1.1s steps(1) infinite}
+.hero .dek{margin-top:24px;max-width:580px;color:var(--dim);font-size:14.5px}
+.hero .dek b{color:var(--green);font-weight:600}
+
+.log{margin-top:48px;border:1px solid var(--line);background:var(--panel)}
+.log .bar{display:flex;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);color:var(--dim);font-size:11.5px;letter-spacing:.18em;text-transform:uppercase}
+.log .bar i{width:10px;height:10px;border-radius:50%;background:var(--line);display:inline-block}
+.log .bar i:first-child{background:var(--amber)}
+.entry{display:grid;grid-template-columns:170px 1fr;gap:16px;padding:22px 20px;border-bottom:1px dashed var(--line)}
+.entry:last-child{border-bottom:none}
+.entry .tag{font-size:12px;letter-spacing:.14em;color:var(--amber);padding-top:3px}
+.entry h2{font-family:'VT323',monospace;font-weight:400;font-size:24px;color:var(--green);margin-bottom:6px}
+.entry p{font-size:13.5px;color:var(--dim)}
+.entry p b{color:var(--green);font-weight:600}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);margin-top:52px}
+.sw{padding:20px 16px;border-right:1px solid var(--line)}
+.sw:last-child{border-right:none}
+.sw .chip{height:58px;margin-bottom:14px}
+.sw .nm{font-size:12.5px;font-weight:600;color:var(--green)}
+.sw .hx{font-size:11px;color:var(--dim);margin-top:2px}
+
+.type{padding:56px 0 8px}
+.type .big{font-family:'VT323',monospace;font-size:clamp(28px,4.6vw,46px);line-height:1.08;color:var(--green)}
+.type .big .amb{color:var(--amber)}
+.type .sub{font-size:13px;color:var(--dim);margin-top:14px}
+
+.btn{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13.5px;padding:12px 24px;cursor:pointer;background:none;border:1px solid var(--green);color:var(--green)}
+.btn.primary{background:var(--green);color:#07100B}
+.btn.primary:hover{background:var(--amber);border-color:var(--amber);color:#07100B}
+.btn.ghost:hover{border-color:var(--amber);color:var(--amber)}
+
+.kit{border:1px solid var(--line);background:var(--panel);margin-top:20px}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:24px 20px;border-bottom:1px dashed var(--line)}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--amber);padding-top:5px;font-weight:600}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-family:'VT323',monospace;font-size:16px;padding:5px 12px}
+.tagpill.solid{background:var(--green);color:#07100B}
+.tagpill.amber{border:1px solid var(--amber);color:var(--amber)}
+.tagpill.line{border:1px solid var(--line);color:var(--dim)}
+.btn-text{background:none;border:none;font:inherit;font-size:13.5px;font-weight:600;color:var(--amber);text-decoration:underline;text-underline-offset:4px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-size:12px;letter-spacing:.06em;margin-bottom:7px;color:var(--green)}
+.field input{width:100%;font-family:'VT323',monospace;font-size:19px;padding:10px 14px;background:#050D08;color:var(--green);border:1px solid var(--green);border-radius:0}
+.hint{font-size:12.5px;color:var(--dim);margin-top:7px}
+.callout{border:1px dashed var(--amber);padding:16px 18px;font-size:14px;color:var(--dim);max-width:560px}
+.callout b{color:var(--amber);font-weight:600}
+
+footer{margin-top:72px;border-top:1px solid var(--line);padding:22px 0 46px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+
+@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.cursor{animation:none}}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.entry{grid-template-columns:1fr;gap:6px}.swatches{grid-template-columns:1fr 1fr}.sw:nth-child(2){border-right:none}.sw:nth-child(1),.sw:nth-child(2){border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="scanlines" aria-hidden="true"></div>
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="ed">tty13 — direction 13 of 20</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="boot">DRAEP/OS v13.0 — booting atelier… <span class="ok">[ OK ]</span> pattern engine… <span class="ok">[ OK ]</span> judgment module… <span class="ok">[ NOT FOUND — BY DESIGN ]</span></div>
+      <h1 class="glow">STITCH.EXE<br>RUNNING FOR USER: <span class="amb">YOU</span><span class="cursor" aria-hidden="true"></span></h1>
+      <p class="dek">Off-the-rack runs a batch script over a million bodies and calls it a day. We compile once, for a userbase of <b>exactly one</b>. That is the coolest program on any street — and its output beautifies the world every time you walk out the door.</p>
+    </section>
+
+    <section>
+      <div class="k">Runtime log — four processes, always resident</div>
+      <div class="log">
+        <div class="bar" aria-hidden="true"><i></i><i></i><i></i>&nbsp;tail -f /var/log/draep</div>
+        <div class="entry"><div class="tag">PID 01 · COOL</div><div><h2>custom-stitched is cool</h2><p>Batch output = wallpaper. A binary compiled for one body = <b>a signature nobody can fork</b>.</p></div></div>
+        <div class="entry"><div class="tag">PID 02 · DUTY</div><div><h2>beautify the world</h2><p>Every day you deploy an outfit to public display. <b>Ship beauty to every screen you walk past.</b></p></div></div>
+        <div class="entry"><div class="tag">PID 03 · SPACE</div><div><h2>a safe space</h2><p>No lint errors on your self-expression here. <b>Every input validates.</b> Any style, any syntax, any pace.</p></div></div>
+        <div class="entry"><div class="tag">PID 04 · YOURS</div><div><h2>run it your way</h2><p>Flags, paths, and output format are yours to set. <b>However you want the world beautified</b>, we just keep the machine warm.</p></div></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="k" style="margin-top:52px">Phosphor palette</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#53FF96"></div><div class="nm">P1 Phosphor</div><div class="hx">#53FF96</div></div>
+        <div class="sw"><div class="chip" style="background:#FFC24D"></div><div class="nm">P2 Amber Alert</div><div class="hx">#FFC24D</div></div>
+        <div class="sw"><div class="chip" style="background:#0E2A18"></div><div class="nm">P3 Cabinet</div><div class="hx">#0E2A18</div></div>
+        <div class="sw"><div class="chip" style="background:#07100B"></div><div class="nm">P4 Screen Off</div><div class="hx">#07100B</div></div>
+      </div>
+    </section>
+
+    <section class="type">
+      <div class="k">Type — VT323 display over IBM Plex Mono</div>
+      <div class="big">PAINT THE WORLD THE WAY YOU WANT<span class="amb"> — NO PERMISSION REQUIRED, NO ERRORS THROWN.</span></div>
+      <div class="sub">The display face glows like 1983; the text face keeps the manual legible. Old screen, new program.</div>
+    </section>
+
+    <section style="margin-bottom:64px">
+      <div class="k">The parts bin — components</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">$ draep init you</button>
+          <button class="btn ghost" type="button">$ man beauty</button>
+          <button class="btn-text" type="button">$ cat /dev/wardrobe →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Status flags</div><div class="chips">
+          <span class="tagpill solid">COMPILED 1×</span>
+          <span class="tagpill amber">SUDO: YOURS</span>
+          <span class="tagpill line">NO BUGS FILED</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Input</div><div class="field">
+          <label for="v13cmd">$ stitch --as "</label>
+          <input id="v13cmd" type="text" autocomplete="off">
+          <p class="hint">Any argument you pass is valid syntax here. The parser was built without a reject branch.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">System message</div><div class="callout">
+          <b>NOTICE 13.</b> The world renders grey until someone recompiles their part of it. You hold write access to the display — paint the world the way you want.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>DRAEP — DIRECTION 13 OF 20</span>
+    <span>EXIT CODE: ALWAYS 0 · SESSION: YOURS</span>
+  </footer>
+</div>
+</body>
+</html>

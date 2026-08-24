@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 04 Blueprint · The Atelier Draft</title>
+<meta name="description" content="draep brand direction 04: Blueprint. Every garment begins as a draft with your name on it — custom-stitched, world-beautifying, safe, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#16337F; --card:#1D3C8C; --chalk:#FFE08A; --white:#FFFFFF; --line:#8FA6D9;
+  --grid:rgba(143,166,217,.22);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Archivo',sans-serif;background:var(--bg);color:var(--white);line-height:1.6;font-size:16px;
+  background-image:radial-gradient(var(--grid) 1.5px,transparent 1.5px);background-size:26px 26px}
+:focus-visible{outline:3px solid var(--chalk);outline-offset:3px}
+.wrap{max-width:940px;margin:0 auto;padding:0 28px}
+.k{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--chalk);margin-bottom:14px}
+
+header{padding:24px 0;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px;border-bottom:2px dashed var(--line)}
+.wordmark{font-weight:800;font-size:29px;letter-spacing:-.02em}
+.wordmark .ae{color:var(--chalk)}
+header .ed{font-family:'IBM Plex Mono',monospace;font-size:12px;color:#C3D0EF;letter-spacing:.1em}
+
+.hero{padding:72px 0 58px}
+h1{font-weight:800;font-size:clamp(38px,6vw,58px);line-height:1.08;letter-spacing:-.02em;max-width:760px}
+h1 .u{border-bottom:5px solid var(--chalk)}
+.hero .dek{margin-top:24px;font-size:17px;max-width:600px;color:#E4EAF8}
+.stamp{display:inline-block;margin-top:26px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600;border:2.5px solid var(--chalk);color:var(--chalk);padding:9px 16px;letter-spacing:.14em;transform:rotate(-2deg)}
+
+.sheet{border:2px solid var(--white);background:var(--card);margin-bottom:0}
+.sheet .titlebar{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 18px;border-bottom:2px solid var(--white);font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.16em;background:rgba(255,255,255,.07)}
+.rows{display:grid;grid-template-columns:1fr 1fr;border-bottom:2px dashed var(--line)}
+.cell{padding:26px 22px;border-right:2px dashed var(--line);border-bottom:2px dashed var(--line)}
+.cell:nth-child(2n){border-right:none}
+.cell:nth-child(3),.cell:nth-child(4){border-bottom:none}
+.cell .no{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--chalk);letter-spacing:.2em}
+.cell h2{font-size:20px;font-weight:800;margin:8px 0 6px;letter-spacing:-.01em}
+.cell h2 .mk{color:var(--chalk)}
+.cell p{font-size:14px;color:#E4EAF8}
+.stitch{border-top:3px dashed var(--white);width:100%;animation:march 1.2s linear infinite}
+@keyframes march{to{background-position:28px 0;border-color:rgba(255,255,255,.001)}}
+.sheet .foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px 18px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#C3D0EF;border-top:2px solid var(--white);letter-spacing:.12em}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:2px solid var(--white)}
+.sw{border-right:2px dashed var(--line)}
+.sw:last-child{border-right:none}
+.sw .chip{height:88px}
+.sw .meta{padding:12px 14px;border-top:2px dashed var(--line);background:var(--card)}
+.sw .nm{font-weight:800;font-size:15px}
+.sw .hx{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#E4EAF8}
+
+.type{background:var(--white);color:#16337F;padding:34px;margin-top:44px}
+.type .tag{font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.2em;color:#16337F;opacity:1;margin-bottom:10px;font-weight:600}
+.type .big{font-weight:800;font-size:clamp(28px,4.4vw,44px);line-height:1.12;letter-spacing:-.02em}
+.type .sub{font-family:'IBM Plex Mono',monospace;font-size:13px;margin-top:12px;color:#2B4B9B}
+
+.btn{font:inherit;font-weight:600;font-size:15px;padding:12px 26px;cursor:pointer;border:2px solid var(--white)}
+.btn.primary{background:var(--chalk);color:#16337F;border-color:var(--chalk)}
+.btn.primary:hover{background:#FFEFAF}
+.btn.ghost{background:transparent;color:var(--white)}
+.btn.ghost:hover{background:rgba(255,255,255,.1)}
+
+/* component library */
+.kit{background:var(--card);border:2px solid var(--white);overflow:hidden}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:22px 24px;border-bottom:2px dashed var(--line)}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--chalk);letter-spacing:.22em;text-transform:uppercase;padding-top:6px}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.08em;padding:5px 13px;border-radius:2px}
+.tagpill.solid{background:var(--chalk);color:#16337F}
+.tagpill.tint{background:var(--white);color:#16337F}
+.tagpill.line{border:1.5px dashed #C3D0EF;color:#C3D0EF}
+.btn-text{background:none;border:none;font:inherit;font-weight:600;font-size:15px;color:#C3D0EF;text-decoration:underline;text-underline-offset:4px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--white);margin-bottom:7px}
+.field input{width:100%;font:inherit;font-size:14.5px;padding:11px 14px;background:var(--bg);color:var(--white);border:1.5px solid var(--chalk);border-radius:2px}
+.hint{font-family:'IBM Plex Mono',monospace;font-size:12px;color:#C3D0EF;margin-top:7px}
+.callout{border:1.5px dashed var(--chalk);background:var(--bg);padding:16px 20px;font-size:14px;color:var(--white);max-width:560px}
+.callout b{color:var(--chalk);font-family:'IBM Plex Mono',monospace;font-size:12.5px;letter-spacing:.1em}
+
+footer{margin-top:60px;border-top:2px dashed var(--line);padding:22px 0 40px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#E4EAF8}
+
+@media (prefers-reduced-motion:reduce){.stitch{animation:none}}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.rows{grid-template-columns:1fr}.cell{border-right:none!important;border-bottom:2px dashed var(--line)!important}.cell:last-child{border-bottom:none!important}.swatches{grid-template-columns:1fr 1fr}.sw:nth-child(2){border-right:none}.sw:nth-child(1),.sw:nth-child(2){border-bottom:2px dashed var(--line)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="ed">DWG-04 · BRAND DIRECTION · THE ATELIER DRAFT</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Every garment starts as a drawing with <span class="u">your name</span> in the corner.</h1>
+      <p class="dek">A blueprint is a promise: this was designed for one person, on purpose. Off the rack, you're a reprint of someone else's draft. Custom-stitched, you are the original — and originals are what get built.</p>
+      <div class="stamp">APPROVED FOR BEAUTY</div>
+    </section>
+
+    <section>
+      <div class="k">Spec sheet — tenets of construction</div>
+      <div class="sheet">
+        <div class="titlebar"><span>DRAEP / TENET SCHEDULE</span><span>SCALE: 1:1 · UNITS: YOU</span></div>
+        <div class="rows">
+          <div class="cell"><div class="no">DWG 01</div><h2>Custom-stitched is <span class="mk">cool</span></h2><p>The plan bears one name — yours. Nothing cooler than a build made only once.</p></div>
+          <div class="cell"><div class="no">DWG 02</div><h2>Beautify the <span class="mk">world</span></h2><p>Your drawings leave the drafting table and enter the street. Design that responsibility in from line one.</p></div>
+          <div class="cell"><div class="no">DWG 03</div><h2>A <span class="mk">safe space</span> to draft</h2><p>No wrong lines here. Every revision is welcome; every eraser mark is part of the process.</p></div>
+          <div class="cell"><div class="no">DWG 04</div><h2>Built <span class="mk">your way</span></h2><p>The client is the chief architect. However you want the world beautified, we draft to your spec.</p></div>
+        </div>
+        <div class="stitch" aria-hidden="true"></div>
+        <div class="foot"><span>REV A — "PAINT THE WORLD THE WAY YOU WANT!"</span><span>SHEET 04 OF 10</span></div>
+      </div>
+    </section>
+
+    <section style="margin-top:44px">
+      <div class="k">Material schedule — palette</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#FFFFFF"></div><div class="meta"><div class="nm">Chalk Line</div><div class="hx">#FFFFFF</div></div></div>
+        <div class="sw"><div class="chip" style="background:#FFE08A"></div><div class="meta"><div class="nm">Marker Gold</div><div class="hx">#FFE08A</div></div></div>
+        <div class="sw"><div class="chip" style="background:#1D3C8C"></div><div class="meta"><div class="nm">Draft Card</div><div class="hx">#1D3C8C</div></div></div>
+        <div class="sw"><div class="chip" style="background:#16337F"></div><div class="meta"><div class="nm">Blueprint Blue</div><div class="hx">#16337F</div></div></div>
+      </div>
+    </section>
+
+    <section class="type">
+      <div class="tag">TYPOGRAPHY — ARCHIVO / IBM PLEX MONO</div>
+      <div class="big">Paint the world the way you want!</div>
+      <div class="sub">The draftsman's pair: Archivo carries the bold header block, Plex Mono writes every dimension true.</div>
+    </section>
+
+    <section style="margin-top:44px">
+      <div class="k">DWG-05 · Component schedule</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Start your draft</button>
+          <button class="btn ghost" type="button">View revisions</button>
+          <button class="btn-text" type="button">Open drawing set →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Fittings</div><div class="chips">
+          <span class="tagpill solid">REV A</span>
+          <span class="tagpill tint">TO SCALE</span>
+          <span class="tagpill line">CLIENT: YOU</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Data entry</div><div class="field">
+          <label for="v4draft">Drafter's name, title block</label>
+          <input id="v4draft" type="text" autocomplete="name">
+          <p class="hint">Every sheet carries the maker's name in the corner. This one carries yours.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Stamped note</div><div class="callout">
+          <b>NOTE 05.</b> No wrong lines here — every revision is welcome, and the client is chief architect. Beautify the world to your own spec.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>draep · Blueprint — direction 04 of 10</span>
+    <span>No eraser marks, no judgment.</span>
+  </footer>
+</div>
+</body>
+</html>

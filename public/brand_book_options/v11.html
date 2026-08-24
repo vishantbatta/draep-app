@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>draep — 11 Riso Zine · Photocopy Dreams</title>
+<meta name="description" content="draep brand direction 11: Riso Zine. Photocopied, misprinted, one of one — custom-stitched is cool, beautify the world, safe space, your way.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#FAF5EC; --blue:#1F3BB3; --pink:#C2185B; --ink:#23201A;
+  --card:#F2EADA; --line:#D9CFB9; --dim:#54503F;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Space Mono',monospace;background:var(--paper);color:var(--ink);line-height:1.6;font-size:15px}
+:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+.wrap{max-width:920px;margin:0 auto;padding:0 30px}
+.k{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--dim);margin-bottom:20px;font-weight:700}
+
+header{padding:26px 0;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px;border-bottom:3px solid var(--ink)}
+.wordmark{font-family:'Archivo Black',sans-serif;font-size:24px;letter-spacing:.01em}
+.wordmark .ae{color:var(--pink)}
+header .ed{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
+
+.hero{padding:72px 0 60px;border-bottom:3px solid var(--ink);background-image:radial-gradient(rgba(31,59,179,.09) 1.2px,transparent 1.2px);background-size:14px 14px}
+h1{font-family:'Archivo Black',sans-serif;font-size:clamp(34px,6vw,60px);line-height:1.04;letter-spacing:-.01em;color:var(--blue);text-shadow:4px 4px 0 rgba(194,24,91,.45)}
+h1 .pk{color:var(--pink);text-shadow:4px 4px 0 rgba(31,59,179,.35)}
+.hero .dek{margin-top:26px;max-width:560px;color:var(--ink);font-size:15px}
+.hero .stamp{display:inline-block;margin-top:26px;border:2.5px solid var(--pink);color:var(--pink);font-weight:700;font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;padding:8px 14px;transform:rotate(-2deg)}
+
+.zine{display:grid;grid-template-columns:1fr 1fr;border-bottom:3px solid var(--ink)}
+.art{padding:34px 26px;border-right:3px solid var(--ink);border-bottom:3px solid var(--ink)}
+.art:nth-child(2n){border-right:none}
+.art:nth-child(3),.art:nth-child(4){border-bottom:none}
+.art .no{font-size:11px;letter-spacing:.24em;color:var(--pink);font-weight:700;margin-bottom:12px;text-transform:uppercase}
+.art h2{font-family:'Archivo Black',sans-serif;font-size:21px;line-height:1.2;margin-bottom:10px;letter-spacing:-.01em}
+.art h2 .bl{color:var(--blue)} .art h2 .pk{color:var(--pink)}
+.art p{font-size:13.5px;color:var(--dim)}
+.art.bluebox{background:var(--blue)} .art.bluebox .no{color:var(--paper)}
+.art.bluebox h2{color:var(--paper)} .art.bluebox p{color:rgba(250,245,236,.85)}
+.art.pinkbox{background:var(--pink)} .art.pinkbox .no{color:#FFFFFF}
+.art.pinkbox h2{color:#FFFFFF} .art.pinkbox p{color:rgba(255,255,255,.88)}
+
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:3px solid var(--ink)}
+.sw{padding:20px 16px;border-right:2px dashed var(--line)}
+.sw:last-child{border-right:none}
+.sw .chip{height:62px;margin-bottom:14px;border:2px solid var(--ink)}
+.sw .nm{font-size:12.5px;font-weight:700}
+.sw .hx{font-size:11px;color:var(--dim);margin-top:2px}
+
+.type{padding:56px 0;border-bottom:3px solid var(--ink)}
+.type .big{font-family:'Archivo Black',sans-serif;font-size:clamp(26px,4.4vw,42px);line-height:1.08;color:var(--ink)}
+.type .big .bl{color:var(--blue)} .type .big .pk{color:var(--pink)}
+.type .sub{font-size:13px;color:var(--dim);margin-top:14px;font-style:italic}
+
+.btn{font-family:'Space Mono',monospace;font-weight:700;font-size:14px;padding:13px 26px;cursor:pointer;border:2.5px solid var(--ink);box-shadow:4px 4px 0 var(--ink)}
+.btn.primary{background:var(--blue);color:var(--paper)}
+.btn.primary:hover{background:var(--pink);border-color:var(--pink);box-shadow:4px 4px 0 var(--pink)}
+.btn.ghost{background:var(--paper);color:var(--ink)}
+.btn.ghost:hover{background:var(--card)}
+
+.kit{border:3px solid var(--ink);background:var(--paper)}
+.kit-row{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:24px;border-bottom:2px dashed var(--line)}
+.kit-row:last-child{border-bottom:none}
+.kit-l{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--blue);font-weight:700;padding-top:4px}
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tagpill{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:6px 13px;border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink)}
+.tagpill.solid{background:var(--blue);color:var(--paper)}
+.tagpill.pink{background:var(--pink);color:#FFFFFF;border-color:var(--pink);box-shadow:3px 3px 0 var(--ink)}
+.tagpill.line{background:var(--paper);color:var(--pink)}
+.btn-text{background:none;border:none;font:inherit;font-size:14px;font-weight:700;color:var(--blue);text-decoration:underline;text-underline-offset:4px;text-decoration-thickness:2.5px;cursor:pointer;padding:0}
+.field{max-width:440px}
+.field label{display:block;font-size:12px;font-weight:700;letter-spacing:.06em;margin-bottom:7px}
+.field input{width:100%;font:inherit;font-size:14.5px;padding:11px 14px;background:#FFFFFF;color:var(--ink);border:2.5px solid var(--ink)}
+.hint{font-size:12.5px;color:var(--dim);margin-top:7px}
+.callout{border:2.5px dashed var(--pink);padding:16px 18px;font-size:14px;max-width:560px;background:var(--card)}
+.callout b{color:var(--pink)}
+
+footer{padding:26px 0 48px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.barcode{display:inline-block;width:120px;height:26px;background:repeating-linear-gradient(90deg,var(--ink) 0 2px,transparent 2px 5px,var(--ink) 5px 6px,transparent 6px 10px);vertical-align:middle}
+
+@media (prefers-reduced-motion:no-preference){
+  .hero .stamp{animation:wob 6s ease-in-out infinite}
+  @keyframes wob{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(1.5deg)}}
+}
+@media (max-width:760px){.kit-row{grid-template-columns:1fr;gap:10px}.zine{grid-template-columns:1fr}.art{border-right:none!important;border-bottom:3px solid var(--ink)!important}.art:last-child{border-bottom:none!important}.swatches{grid-template-columns:1fr 1fr}.sw:nth-child(2){border-right:none}.sw:nth-child(1),.sw:nth-child(2){border-bottom:2px dashed var(--line)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">dr<span class="ae">ae</span>p</div>
+    <div class="ed">Issue 11 — Photocopy Dreams</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="k">Riso Zine — printed once, like your clothes</div>
+      <h1>PHOTOCOPY<br>THE <span class="pk">ORIGINAL</span>:<br>THAT'S YOU.</h1>
+      <p class="dek">A riso print drips two inks and comes out one of one. A draep garment comes off the machine the same way — cut once, for one body, no reprint run. Cool is a copy of nothing. Then hang it where the whole world reads it.</p>
+      <div class="stamp">Edition of exactly 1 — yours</div>
+    </section>
+
+    <section>
+      <div class="k" style="padding-top:44px">Four pages, folded once</div>
+      <div class="zine">
+        <div class="art"><div class="no">Page 01 / Cool</div><h2>Custom-stitched is <span class="bl">cool</span></h2><p>Mass production is the toner run. You're the hand-pulled print everyone stares at.</p></div>
+        <div class="art pinkbox"><div class="no">Page 02 / Duty</div><h2>Beautify the world</h2><p>Your outfit is wheat-pasted on every street you walk. Make the city worth reading.</p></div>
+        <div class="art bluebox"><div class="no">Page 03 / Space</div><h2>A safe space</h2><p>No editors red-lining your draft here. Whatever you submit, it goes to print as-is.</p></div>
+        <div class="art"><div class="no">Page 04 / Your way</div><h2>Print it <span class="pk">your way</span></h2><p>You choose the inks, the fold, the misregistration. We just keep the drum spinning.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="k" style="padding:44px 0 20px">Ink drums</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#1F3BB3"></div><div class="nm">Riso Blue</div><div class="hx">#1F3BB3</div></div>
+        <div class="sw"><div class="chip" style="background:#C2185B"></div><div class="nm">Fluor Pink</div><div class="hx">#C2185B</div></div>
+        <div class="sw"><div class="chip" style="background:#23201A"></div><div class="nm">Photocopy Ink</div><div class="hx">#23201A</div></div>
+        <div class="sw"><div class="chip" style="background:#FAF5EC"></div><div class="nm">Newsprint</div><div class="hx">#FAF5EC</div></div>
+      </div>
+    </section>
+
+    <section class="type">
+      <div class="k">Type — Archivo Black + Space Mono</div>
+      <div class="big">PAINT THE WORLD <span class="pk">THE WAY YOU WANT!</span> — <span class="bl">MISREGISTERED ON PURPOSE.</span></div>
+      <div class="sub">Two inks, two voices. The heavy display shouts; the mono whispers the fine print. Both are yours.</div>
+    </section>
+
+    <section style="margin:44px 0 60px">
+      <div class="k">Cut-and-paste — components</div>
+      <div class="kit">
+        <div class="kit-row"><div class="kit-l">Buttons</div><div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" type="button">Submit to the zine</button>
+          <button class="btn ghost" type="button">Read issue 01</button>
+          <button class="btn-text" type="button">Photocopy pass-it-on →</button>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Stickers</div><div class="chips">
+          <span class="tagpill solid">1 of 1</span>
+          <span class="tagpill pink">Hand-pulled</span>
+          <span class="tagpill line">No reprints</span>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Submission</div><div class="field">
+          <label for="v11ink">Name the ink you'd print under</label>
+          <input id="v11ink" type="text" autocomplete="off">
+          <p class="hint">Two-drum press, infinite palettes. Name yours — no wrong answer reaches the bin.</p>
+        </div></div>
+        <div class="kit-row"><div class="kit-l">Margins note</div><div class="callout">
+          <b>From the print room.</b> The world is a wall of grey photocopies. You were cut to be the color misprint on it — paste yourself up exactly your way.
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>DRAEP — DIRECTION 11 OF 20</span>
+    <span><span class="barcode" aria-hidden="true"></span>&nbsp; PRICE: PRICELESS</span>
+  </footer>
+</div>
+</body>
+</html>
