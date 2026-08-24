@@ -94,6 +94,9 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
     "idle" | "rendering" | "done" | "error"
   >("idle");
   const [renderCtx, setRenderCtx] = useState<RenderCtx | null>(null);
+  // Server-supplied failure reason (quota 503 → "tap Retry in a minute");
+  // null → the generic renderFailed line.
+  const [renderError, setRenderError] = useState<string | null>(null);
   const [showRegenSheet, setShowRegenSheet] = useState(false);
 
   // ── Load the garment tree on mount ──────────────────────────────────
@@ -450,6 +453,7 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
       const targeted = !!opts?.skipViews?.length;
       setRenderCtx(ctx);
       if (!targeted) setRenderViews([]);
+      setRenderError(null);
       setRenderPhase("rendering");
       renderBlouseViews({
         frontSvg: ctx.frontSvg,
@@ -473,9 +477,14 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
             track({ event: "myod_render_succeeded", views: res.views.length });
           else track({ event: "myod_render_failed" });
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           // A failed gap-fill keeps the good views on screen; a failed full
-          // render drops to the error card.
+          // render drops to the error card. Surface the server's reason when
+          // it sent one (quota 503 tells the user when to tap Retry).
+          if (!targeted)
+            setRenderError(
+              err instanceof ApiError && err.message ? err.message : null,
+            );
           setRenderPhase(targeted ? "done" : "error");
           track({ event: "myod_render_failed" });
         });
@@ -712,6 +721,7 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
           <CompletionPage
             views={renderViews}
             phase={renderPhase}
+            errorMessage={renderPhase === "error" ? renderError : null}
             onRetry={() => renderCtx && startRender(renderCtx)}
             onRetryMissing={() => {
               if (!renderCtx || renderPhase === "rendering") return;
@@ -976,6 +986,7 @@ function viewLabel(v: string) {
 function CompletionPage({
   views,
   phase,
+  errorMessage,
   onRetry,
   onRetryMissing,
   onKeepEditing,
@@ -983,6 +994,8 @@ function CompletionPage({
 }: {
   views: MyodRenderView[];
   phase: "idle" | "rendering" | "done" | "error";
+  /** Server-supplied reason (e.g. quota 503) — shown instead of the generic line. */
+  errorMessage?: string | null;
   onRetry: () => void;
   onRetryMissing: () => void;
   onKeepEditing: () => void;
@@ -1100,7 +1113,7 @@ function CompletionPage({
           {phase === "error" ? (
             <div className="flex w-full items-center justify-between gap-2 rounded-card border border-error-border bg-error-bg px-3 py-2 text-left">
               <p className="text-caption text-error-text">
-                {strings.myod.renderFailed}
+                {errorMessage || strings.myod.renderFailed}
               </p>
               <button
                 type="button"
