@@ -29,6 +29,8 @@ const FULFILLMENT_PILL: Record<string, string> = {
   // measurement-visit states (shared with the job card on the order page)
   completed: "bg-success-bg text-success-text",
   needs_reassignment: "bg-warning-bg text-warning-text",
+  // held visit time on an unconfirmed order — captain assigned at payment
+  draft: "bg-warm-sand text-accent-text",
 };
 
 function humanStatus(status: string): string {

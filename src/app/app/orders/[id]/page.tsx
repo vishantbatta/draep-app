@@ -36,11 +36,13 @@ import {
   Calendar,
   ChatBubble,
   Check,
+  Clock,
   MapPin,
   Plus,
   Thread,
 } from "@/components/ui/icons";
-import { ApiError, addressesApi, ordersApi } from "@/lib/api";
+import { ApiError, addressesApi, checkoutApi, ordersApi } from "@/lib/api";
+import { loadCashfree } from "@/lib/cashfree";
 import {
   displayOrderNumber,
   formatDate,
@@ -49,7 +51,6 @@ import {
 } from "@/lib/order-display";
 import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
-import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
 import { AddressForm } from "@/components/contact/AddressForm";
 import { SlotSheet } from "@/components/order/SlotSheet";
 import type { Booking } from "@/types/booking";
@@ -147,15 +148,13 @@ function OrderDetailContent() {
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
 
-  const [invoiceBusy, setInvoiceBusy] = useState(false);
-  const [invoiceError, setInvoiceError] = useState<string | null>(null);
-
   /* ── Address + slot finish flow: deliver-to card → Continue → slot sheet,
      then the Pay-to-Book CTA once a visit is booked ────────────────────── */
   const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
   const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState<string | null>(null);
   const [slotOpen, setSlotOpen] = useState(false);
+  const [paying, setPaying] = useState(false);
 
   /* ── Address picker + add-address sheets (Change button) ──────────────── */
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -200,22 +199,6 @@ function OrderDetailContent() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  /* ── Invoice download — same data + generator as the /invoice page ────── */
-  async function handleDownloadInvoice() {
-    setInvoiceBusy(true);
-    setInvoiceError(null);
-    try {
-      const res = await fetch(`/api/v1/public/invoice/${id}`);
-      if (!res.ok) throw new Error(strings.orderDetail.invoiceError);
-      const input = (await res.json()) as InvoiceInput;
-      await generateInvoicePdf(input);
-    } catch {
-      setInvoiceError(strings.orderDetail.invoiceError);
-    } finally {
-      setInvoiceBusy(false);
-    }
-  }
 
   /* ── Loading / error states ──────────────────────────────────────────── */
   if (loading) {
@@ -316,9 +299,12 @@ function OrderDetailContent() {
       : null;
 
   /* ── Booked visit — drives the slot sheet mode and the Pay CTA ───────── */
+  // 'draft' is a held (unconfirmed) time — it preselects the sheet in PATCH
+  // mode and shows the Pay CTA; the captain is assigned at payment.
   const activeJob =
     detail.measurement_jobs.find(
       (j) =>
+        j.status === "draft" ||
         j.status === "scheduled" ||
         j.status === "in_progress" ||
         j.status === "needs_reassignment",
@@ -330,24 +316,61 @@ function OrderDetailContent() {
     activeJob?.scheduled_at != null
       ? {
           job_id: activeJob.id,
-          captain_id: "",
+          captain_id: null,
           captain_name: activeJob.captain_name,
           scheduled_at: activeJob.scheduled_at,
-          status: activeJob.status ?? "scheduled",
+          status: (activeJob.status ?? "scheduled") as Booking["status"],
         }
       : null;
-  const payAmount =
-    detail.balance_due > 0 ? detail.balance_due : (detail.total_price ?? 0);
+  const payAmount = detail.balance_due ?? (detail.total_price ?? 0);
+  const paidUp = hasActiveVisit && payAmount <= 0;
+
+  /* ── Pay ₹X to Book — Cashfree drop-in, then the paying page verifies ──── */
+  const handlePay = async () => {
+    if (paying) return;
+    setPaying(true);
+    setPlaceError(null);
+    try {
+      // Amount, name and phone are resolved server-side from the order —
+      // the client only receives the session to open.
+      const init = await checkoutApi.startOrderPayment(id);
+      if (!init.payment_session_id) {
+        throw new Error(strings.orderDetail.payInitError);
+      }
+      // Sandbox sessions (test-mode phones) need the SDK in sandbox mode;
+      // live sessions need production — the SDK's default is sandbox.
+      const cashfree = await loadCashfree(
+        init.environment === "TEST" ? "sandbox" : "production",
+      );
+      try {
+        await cashfree.checkout({
+          paymentSessionId: init.payment_session_id,
+          redirectTarget: "_modal",
+        });
+      } catch {
+        // Modal dismissed or payment failed inside Cashfree — don't assume;
+        // the paying page checks the server (and the gateway) before
+        // declaring anything.
+      }
+      router.push(`/app/orders/${id}/paying`);
+    } catch (err) {
+      setPlaceError(
+        err instanceof Error ? err.message : strings.orderDetail.payInitError,
+      );
+    } finally {
+      setPaying(false);
+    }
+  };
 
   const handleContinue = async () => {
-    if (placing) return;
+    if (placing || paying) return;
     if (!deliverTo) {
       // No address anywhere yet — the full-page form saves one and attaches it.
       router.push(`/app/orders/${id}/address`);
       return;
     }
     if (hasActiveVisit) {
-      // Pay-to-book — payment wiring lands here in the next step.
+      // Pay-to-book state (or already paid — nothing left to do here).
       return;
     }
     if (attached || !deliverTo.id) {
@@ -397,7 +420,7 @@ function OrderDetailContent() {
 
   return (
     <ScreenShell className="px-4 pt-6">
-      {/* Back + support — WhatsApp chat with the team */}
+      {/* Back + invoice + support */}
       <div className="flex items-center justify-between gap-3">
         <Link
           href="/app"
@@ -406,15 +429,25 @@ function OrderDetailContent() {
           <ArrowLeft size={16} />
           {strings.orderDetail.back}
         </Link>
-        <a
-          href="https://wa.me/918147497006"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-pill border-[1.5px] border-ink-navy px-3 text-caption font-semibold text-ink-navy transition-all duration-200 ease-brand hover:bg-mist-navy"
-        >
-          <ChatBubble size={16} />
-          {strings.orderDetail.support}
-        </a>
+        <div className="flex items-center gap-2">
+          {!isDraft && (
+            <Link
+              href={`/invoice/${detail.id}`}
+              className="inline-flex min-h-[44px] items-center text-caption font-semibold text-navy-interactive"
+            >
+              {strings.orderDetail.viewInvoice}
+            </Link>
+          )}
+          <a
+            href="https://wa.me/918147497006"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-pill border-[1.5px] border-ink-navy px-3 text-caption font-semibold text-ink-navy transition-all duration-200 ease-brand hover:bg-mist-navy"
+          >
+            <ChatBubble size={16} />
+            {strings.orderDetail.support}
+          </a>
+        </div>
       </div>
 
       {/* Header */}
@@ -620,33 +653,6 @@ function OrderDetailContent() {
         </section>
       )}
 
-      {/* Invoice actions — placed orders */}
-      {!isDraft && (
-        <div className="mt-5 space-y-2">
-          <Button
-            fullWidth
-            loading={invoiceBusy}
-            disabled={invoiceBusy}
-            onClick={() => void handleDownloadInvoice()}
-          >
-            {invoiceBusy
-              ? strings.orderDetail.invoiceBusy
-              : strings.orderDetail.downloadInvoice}
-          </Button>
-          <Link
-            href={`/invoice/${detail.id}`}
-            className="block py-1 text-center text-caption font-semibold text-navy-interactive underline"
-          >
-            {strings.orderDetail.viewInvoice}
-          </Link>
-          {invoiceError && (
-            <p className="text-center text-caption text-error-text" role="alert">
-              {invoiceError}
-            </p>
-          )}
-        </div>
-      )}
-
       {/* Address bar — pinned to the viewport bottom. Its state follows the
           attached/saved address only, never the order status. */}
       <div className="sticky bottom-0 z-20 -mx-4 -mb-6 mt-5 border-t border-hairline bg-chalk-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-6px_16px_-8px_rgba(23,42,72,0.25)]">
@@ -661,16 +667,21 @@ function OrderDetailContent() {
                 <MapPin size={16} />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-caption font-semibold text-muted">
-                  {strings.orderDetail.deliverTo}
-                </p>
-                <p className="mt-0.5 text-body font-medium text-ink-navy">
+                <p className="text-body font-medium text-ink-navy">
                   {deliverTo.line1}
                 </p>
                 {(deliverTo.line2 || deliverTo.cityLine) && (
                   <p className="text-caption text-muted">
                     {[deliverTo.line2, deliverTo.cityLine].filter(Boolean).join(", ")}
                   </p>
+                )}
+                {currentBooking && (
+                  <div className="mt-3 flex items-center gap-2 border-t border-hairline pt-3">
+                    <Clock size={14} className="flex-none text-muted" />
+                    <p className="text-caption font-medium text-ink-navy">
+                      {visitDateTimeLabel(currentBooking.scheduled_at)}
+                    </p>
+                  </div>
                 )}
               </div>
                 <button
@@ -690,19 +701,27 @@ function OrderDetailContent() {
           </Banner>
         )}
 
-        <Button
-          fullWidth
-          className="mt-3"
-          loading={placing}
-          disabled={placing}
-          onClick={() => void handleContinue()}
-        >
-          {!deliverTo
-            ? strings.orderDetail.addAddressCta
-            : hasActiveVisit
-              ? strings.orderDetail.payToBook(formatPrice(payAmount))
-              : strings.orderDetail.continueCta}
-        </Button>
+        {!paidUp && (
+          <Button
+            fullWidth
+            className="mt-3"
+            loading={placing || paying}
+            disabled={placing || paying}
+            onClick={() => {
+              if (hasActiveVisit) {
+                void handlePay();
+              } else {
+                void handleContinue();
+              }
+            }}
+          >
+            {!deliverTo
+              ? strings.orderDetail.addAddressCta
+              : hasActiveVisit
+                ? strings.orderDetail.payToBook(formatPrice(payAmount))
+                : strings.orderDetail.continueCta}
+          </Button>
+        )}
         {hasActiveVisit && deliverTo && (
           <button
             type="button"

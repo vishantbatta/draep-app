@@ -144,6 +144,9 @@ export const strings = {
     changeSlot: "Change slot",
     keepSlot: "Keep my slot",
     bookedHeading: "Your visit is scheduled",
+    // Draft-hold state — time picked, captain assigned at payment.
+    heldHeading: "Your visit time is held",
+    heldCaption: "We'll match you with a style captain when you complete payment.",
     continueCta: "Continue to payment",
   },
 
@@ -156,6 +159,8 @@ export const strings = {
     failureTitle: "Payment failed",
     failureBody: "No money was taken. Try again whenever you're ready.",
     retry: "Try again",
+    // Checkout blocked because the held slot was claimed elsewhere.
+    slotLostCta: "Pick a new time",
   },
 
   confirmed: {
@@ -277,12 +282,8 @@ export const strings = {
     refund: "Refund",
     paymentMethod: (method: string | null) =>
       method ? method.replace(/_/g, " ").toUpperCase() : "Payment",
-    downloadInvoice: "Download invoice",
-    invoiceBusy: "Preparing PDF…",
-    invoiceError: "Could not prepare the invoice. Please try again.",
     viewInvoice: "View invoice",
     continueDraft: "Continue designing",
-    deliverTo: "Deliver to",
     changeAddress: "Change",
     addNewAddress: "Add new address",
     selecting: "Saving…",
@@ -309,6 +310,7 @@ export const strings = {
     slotBookError: "Could not book this slot. Please try again.",
     changeSlot: "Change slot",
     payToBook: (amount: string) => `Pay ${amount} to Book`,
+    payInitError: "Could not start the payment. Please try again.",
     loadError: "Could not load this order.",
     notFound: "Order not found.",
     retry: "Try again",
@@ -316,6 +318,24 @@ export const strings = {
 
   errors: {
     generic: "Something went wrong. Please try again.",
+  },
+
+  payConfirm: {
+    // Post-Cashfree loading page (order-page "Pay ₹X to Book")
+    eyebrow: "Payment",
+    checkingTitle: "Confirming your payment",
+    checkingBody:
+      "We're checking with the payment gateway. This usually takes a few seconds — please keep this page open.",
+    successEyebrow: "Payment received",
+    successTitle: "Order confirmed",
+    successBody:
+      "Your payment went through and your home visit is booked. Taking you to your order…",
+    viewOrder: "View order",
+    failedEyebrow: "Payment pending",
+    failedTitle: "We couldn't confirm your payment",
+    failedBody:
+      "If money was debited, it will reflect on your order shortly. You can also go back and try again.",
+    backToOrder: "Back to order",
   },
 
   tryOn: {

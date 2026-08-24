@@ -105,10 +105,11 @@ export interface SlotsResponse {
 /** POST/PATCH /orders/{id}/booking response. */
 export interface Booking {
   job_id: string;
-  captain_id: string;
+  /** Null while the booking is a draft hold — no captain until promotion. */
+  captain_id: string | null;
   captain_name: string | null;
   scheduled_at: string; // ISO datetime
-  status: string; // "scheduled" | "in_progress" | etc.
+  status: "draft" | "scheduled" | "in_progress" | "needs_reassignment";
 }
 
 export interface BookingDraft {

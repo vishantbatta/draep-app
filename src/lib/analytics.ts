@@ -26,6 +26,10 @@ export type AnalyticsEvent =
     }
   | { event: "slot_selected"; date: string; window: string }
   | { event: "slot_booked"; job_id: string; captain: string }
+  // Visit time held on an unconfirmed order; captain is "unassigned" until
+  // the hold is promoted at payment (or admin confirm-slot).
+  | { event: "slot_held"; job_id: string; captain: string }
+  | { event: "slot_lost_at_checkout"; orderId: string }
   // Design Library funnel (spec §A)
   | { event: "library_card_tapped"; library_id: string }
   | { event: "library_drafted"; library_id: string }

@@ -26,7 +26,7 @@ import { TapeProgress } from "@/components/layout/TapeProgress";
 import { Button } from "@/components/ui/Button";
 import { SlotPicker } from "@/components/confirmed/SlotPicker";
 import { MonoNumber } from "@/components/ui/MonoNumber";
-import { Calendar, Check, HomeVisit } from "@/components/ui/icons";
+import { Calendar, Check, Clock, HomeVisit } from "@/components/ui/icons";
 import { useBookingStore } from "@/lib/booking-store";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
@@ -105,6 +105,9 @@ export default function SchedulePage() {
     ? existingBooking.captain_name
     : "Your Style Captain";
 
+  // Draft hold: time picked, captain only assigned when payment confirms.
+  const isDraftHold = existingBooking?.status === "draft";
+
   if (!hydrated || !draft) {
     return (
       <div className="column flex min-h-dvh items-center justify-center">
@@ -135,9 +138,9 @@ export default function SchedulePage() {
     setExistingBooking(b);
     setRescheduling(false);
     track({
-      event: "slot_booked",
+      event: b.status === "draft" ? "slot_held" : "slot_booked",
       job_id: b.job_id,
-      captain: b.captain_name ?? "auto",
+      captain: b.captain_name ?? (b.status === "draft" ? "unassigned" : "auto"),
     });
     // Proceed to payment once the slot is secured.
     router.push("/pay");
@@ -190,16 +193,24 @@ export default function SchedulePage() {
           <section className="mt-6 space-y-4">
             <div className="rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
               <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 flex-none items-center justify-center rounded-pill bg-success text-chalk-white">
-                  <Check size={20} strokeWidth={3} />
+                <div
+                  className={`flex h-10 w-10 flex-none items-center justify-center rounded-pill ${
+                    isDraftHold ? "bg-warm-sand text-accent-text" : "bg-success text-chalk-white"
+                  }`}
+                >
+                  {isDraftHold ? <Clock size={20} strokeWidth={2.5} /> : <Check size={20} strokeWidth={3} />}
                 </div>
                 <div className="flex-1">
-                  <p className="eyebrow text-success">{strings.schedule.bookedHeading}</p>
+                  <p className={`eyebrow ${isDraftHold ? "text-accent-text" : "text-success"}`}>
+                    {isDraftHold
+                      ? strings.schedule.heldHeading
+                      : strings.schedule.bookedHeading}
+                  </p>
                   <p className="mt-1 font-heading text-h3 text-ink-navy">
                     {visitLabel}
                   </p>
                   <p className="mt-0.5 text-caption text-muted">
-                    with {captainLabel}
+                    {isDraftHold ? strings.schedule.heldCaption : `with ${captainLabel}`}
                   </p>
                 </div>
               </div>

@@ -753,6 +753,7 @@ export type GarmentOrderStatus =
   | "delivered";
 
 export type JobStatus =
+  | "draft"
   | "scheduled"
   | "in_progress"
   | "completed"
@@ -2539,3 +2540,22 @@ export function sopVideoFileUrl(jobId: string, lang: SopVideoLang): string {
   return `${API_URL}/admin/sop-video/jobs/${jobId}/file/${lang}?token=${encodeURIComponent(token)}`;
 }
 
+
+/** A hold promoted by POST /admin/orders/{id}/confirm-slot. */
+export interface PromotedSlot {
+  job_id: string;
+  captain_id: string;
+  slot_id: string;
+  scheduled_at: string;
+}
+
+/**
+ * POST /admin/orders/{orderId}/confirm-slot — promote the order's draft slot
+ * hold into a real booked visit (auto-assigns a captain). 409 slot_taken when
+ * no captain is free at the held time; the hold is left in place either way.
+ */
+export async function confirmOrderSlot(
+  orderId: string,
+): Promise<{ order_id: string; promoted: PromotedSlot[] }> {
+  return adminFetch(`/admin/orders/${orderId}/confirm-slot`, { method: "POST" });
+}

@@ -10,6 +10,7 @@ import type {
   CheckoutVerifyIn,
   CheckoutVerifyOut,
   OrderStatusOut,
+  PayInitOut,
 } from "@/types/api";
 
 // POST /orders/{order_id}/checkout
@@ -41,4 +42,16 @@ export function verifyCheckout(
 // GET /orders/{order_id}/status
 export function getOrderStatus(orderId: string): Promise<OrderStatusOut> {
   return apiGet<OrderStatusOut>(`/orders/${orderId}/status`);
+}
+
+// POST /orders/{order_id}/pay — Cashfree session for the order-page balance
+export function startOrderPayment(orderId: string): Promise<PayInitOut> {
+  return apiPost<PayInitOut>(`/orders/${orderId}/pay`, {});
+}
+
+// GET /orders/{order_id}/payment/status — poll that syncs with Cashfree
+export function getVerifiedPaymentStatus(
+  orderId: string,
+): Promise<OrderStatusOut> {
+  return apiGet<OrderStatusOut>(`/orders/${orderId}/payment/status`);
 }

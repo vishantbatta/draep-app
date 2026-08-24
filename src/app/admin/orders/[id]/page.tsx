@@ -24,6 +24,7 @@ import {
   createTableRow,
   createGarmentOrder,
   createMeasurementJob,
+  confirmOrderSlot,
   deleteGarmentOrder,
   deleteTableRow,
   fetchOrderAdjustments,
@@ -104,6 +105,7 @@ const GARMENT_ORDER_STATUSES: GarmentOrderStatus[] = [
 ];
 
 const JOB_STATUSES: JobStatus[] = [
+  "draft",
   "scheduled",
   "in_progress",
   "completed",
@@ -111,7 +113,8 @@ const JOB_STATUSES: JobStatus[] = [
 ];
 
 const STATUS_STYLE: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-600",
+  // held visit time on an unconfirmed order — confirm it or wait for payment
+  draft: "bg-amber-100 text-amber-800",
   pending: "bg-amber-100 text-amber-800",
   scheduled: "bg-blue-100 text-blue-800",
   in_progress: "bg-indigo-100 text-indigo-800",
@@ -1091,6 +1094,17 @@ export default function OrderDetailPage() {
       flash("Measurement job updated");
     } catch (e) {
       alert(e instanceof Error ? e.message : "Update failed");
+    }
+  }
+
+  /** Promote the order's held visit time(s) to real captain bookings. */
+  async function handleConfirmSlot() {
+    try {
+      await confirmOrderSlot(orderId);
+      flash("Held slot confirmed — captain assigned");
+      loadAll();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not confirm slot");
     }
   }
 
@@ -2825,6 +2839,14 @@ export default function OrderDetailPage() {
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge value={job.status} />
+                    {job.status === "draft" && (
+                      <button
+                        onClick={() => void handleConfirmSlot()}
+                        className="rounded-md bg-amber-600 px-2 py-1 text-xs font-semibold text-chalk-white transition hover:bg-amber-700"
+                      >
+                        Confirm slot
+                      </button>
+                    )}
                     <select
                       value={job.status ?? ""}
                       onChange={(e) =>

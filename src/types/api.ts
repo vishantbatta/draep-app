@@ -294,7 +294,7 @@ export interface OrderTransaction {
 /** One style-captain measurement visit tied to the order. */
 export interface OrderMeasurementJob {
   id: string;
-  status: string | null; // scheduled | in_progress | completed | cancelled | needs_reassignment
+  status: string | null; // draft | scheduled | in_progress | completed | cancelled | needs_reassignment
   scheduled_at: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -363,6 +363,15 @@ export interface OrderStatusOut {
   payment_status: string | null;
   fulfillment_status: string | null;
   balance_due: number | null;
+}
+
+/** POST /orders/{id}/pay — Cashfree session for the order-page balance. */
+export interface PayInitOut {
+  transaction_id: string;
+  cf_order_id: string;
+  payment_session_id: string | null;
+  amount: number;
+  environment: string | null;
 }
 
 // ─── Pricing (be/app/schemas/pricing.py) ──────────────────────────────────────

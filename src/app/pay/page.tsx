@@ -45,6 +45,9 @@ export default function PayPage() {
   const [status, setStatus] = useState<PayStatus>("idle");
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Checkout rejected because the held slot died (no captain free) — the
+  // backend blocks payment BEFORE money moves and leaves the hold in place.
+  const [slotLost, setSlotLost] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const idempotencyRef = useRef<string | null>(null);
 
@@ -112,6 +115,15 @@ export default function PayPage() {
         idempotencyKey,
       );
     } catch (err) {
+      if (err instanceof ApiError && err.code === "slot_taken") {
+        // The held visit time was claimed by someone else before payment.
+        // Nothing was charged — send the customer back to re-pick.
+        setSlotLost(true);
+        setError(err.message);
+        setStatus("failed");
+        track({ event: "slot_lost_at_checkout", orderId: draft.orderId });
+        return;
+      }
       setError(
         err instanceof ApiError ? err.message : "Payment initiation failed. Try again.",
       );
@@ -201,6 +213,7 @@ export default function PayPage() {
   const retry = () => {
     setStatus("idle");
     setError(null);
+    setSlotLost(false);
     idempotencyRef.current = null;
     router.replace("/pay");
   };
@@ -266,11 +279,20 @@ export default function PayPage() {
           >
             {isBusy ? statusLabel : strings.pay.payCta(price.total)}
           </Button>
-          {status === "failed" && (
+          {slotLost ? (
+            <Button
+              onClick={() => router.push("/schedule")}
+              variant="secondary"
+              fullWidth
+              className="mt-2"
+            >
+              {strings.pay.slotLostCta}
+            </Button>
+          ) : status === "failed" ? (
             <Button onClick={retry} variant="secondary" fullWidth className="mt-2">
               {strings.pay.retry}
             </Button>
-          )}
+          ) : null}
         </div>
 
         <p className="mt-4 text-caption text-muted">
