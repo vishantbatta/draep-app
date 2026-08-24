@@ -735,6 +735,7 @@ export type FulfillmentStatus =
   | "scheduled"
   | "in_progress"
   | "completed"
+  | "delivered"
   | "cancelled";
 
 export type PaymentStatus =

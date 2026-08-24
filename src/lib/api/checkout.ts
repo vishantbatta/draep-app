@@ -11,6 +11,7 @@ import type {
   CheckoutVerifyOut,
   OrderStatusOut,
   PayInitOut,
+  PayMethodOut,
 } from "@/types/api";
 
 // POST /orders/{order_id}/checkout
@@ -47,6 +48,14 @@ export function getOrderStatus(orderId: string): Promise<OrderStatusOut> {
 // POST /orders/{order_id}/pay — Cashfree session for the order-page balance
 export function startOrderPayment(orderId: string): Promise<PayInitOut> {
   return apiPost<PayInitOut>(`/orders/${orderId}/pay`, {});
+}
+
+// POST /orders/{order_id}/pay-method — choose Cash on Delivery from the
+// order-page Pay sheet (confirms a draft booking + adds the COD fee)
+export function chooseCodPayment(orderId: string): Promise<PayMethodOut> {
+  return apiPost<PayMethodOut>(`/orders/${orderId}/pay-method`, {
+    method: "cod",
+  });
 }
 
 // GET /orders/{order_id}/payment/status — poll that syncs with Cashfree

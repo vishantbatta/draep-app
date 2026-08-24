@@ -17,7 +17,11 @@
  * it (PUT /orders/{id}/contact). Continue with no visit yet opens the
  * slot sheet — Select books the measurement visit (POST /orders/{id}/
  * booking; reschedules via PATCH when one exists) — after which the CTA
- * becomes "Pay ₹<balance> to Book". Placed orders also get invoice
+ * reads "Continue", which on a fresh unpaid order opens a method sheet:
+ * online (free, straight to the gateway) or Cash on Delivery, which
+ * confirms the booking immediately and adds the ₹50 advance fee — the CTA
+ * then reads "Pay ₹<advance> in Advance" and the fee is waived if that
+ * advance is captured before delivery. Placed orders also get invoice
  * actions above the bar.
  */
 
@@ -37,8 +41,11 @@ import {
   ChatBubble,
   Check,
   Clock,
+  HomeVisit,
   MapPin,
   Plus,
+  ShieldCheck,
+  Sparkles,
   Thread,
 } from "@/components/ui/icons";
 import { ApiError, addressesApi, checkoutApi, ordersApi } from "@/lib/api";
@@ -129,6 +136,10 @@ function JobRow({ label, children }: { label: string; children: ReactNode }) {
 
 /* ============================================================ */
 
+// Preview amount for the pay-choice sheet (mirrors BE settings.cod_fee_rupees);
+// the authoritative fee always comes back on the order's COD adjustment row.
+const COD_FEE_PREVIEW = 50;
+
 export default function OrderDetailPage() {
   // useSearchParams (?placed=1) needs a Suspense boundary during prerender;
   // the content below renders its own loading skeleton, so null suffices.
@@ -155,6 +166,12 @@ function OrderDetailContent() {
   const [placeError, setPlaceError] = useState<string | null>(null);
   const [slotOpen, setSlotOpen] = useState(false);
   const [paying, setPaying] = useState(false);
+
+  /* ── Pay-method choice sheet: online vs Cash on Delivery ──────────────── */
+  const [payChoiceOpen, setPayChoiceOpen] = useState(false);
+  const [codConfirmOpen, setCodConfirmOpen] = useState(false);
+  const [choosingCod, setChoosingCod] = useState(false);
+  const [choiceError, setChoiceError] = useState<string | null>(null);
 
   /* ── Address picker + add-address sheets (Change button) ──────────────── */
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -324,6 +341,25 @@ function OrderDetailContent() {
       : null;
   const payAmount = detail.balance_due ?? (detail.total_price ?? 0);
   const paidUp = hasActiveVisit && payAmount <= 0;
+  // Once the visit is a real booking (payment confirmed — no longer a
+  // pre-payment draft hold), the address and slot are locked; changes go
+  // through support.
+  const bookingLocked =
+    hasActiveVisit && (activeJob?.status !== "draft" || paidUp);
+
+  /* ── COD — the ₹50 booking-advance fee row, waivable until delivery ────── */
+  // The active fee is the order-level adjustment tagged source="cod"; it
+  // renders in the summary automatically with the other adjustments.
+  const codAdj = orderAdjustments.find((a) => a.source === "cod") ?? null;
+  const codFee = codAdj?.amount ?? 0;
+  const isDelivered = detail.fulfillment_status === "delivered";
+  // Advance CTA: pay the total minus the fee while it can still be waived.
+  const showCodCta = codAdj !== null && !isDelivered;
+  const advanceAmount = showCodCta ? Math.max(payAmount - codFee, 0) : payAmount;
+  // Fresh order, nothing paid yet (no online capture, no COD choice) → the
+  // Pay button opens the method choice instead of going straight to the
+  // gateway. Any payment already made → COD is off the table, pay directly.
+  const offerPayChoice = !codAdj && !isDelivered && detail.paid_amount === 0;
 
   /* ── Pay ₹X to Book — Cashfree drop-in, then the paying page verifies ──── */
   const handlePay = async () => {
@@ -359,6 +395,27 @@ function OrderDetailContent() {
       );
     } finally {
       setPaying(false);
+    }
+  };
+
+  /* ── Cash on Delivery — confirm the booking now, add the ₹50 fee; the
+     server confirms the order (draft hold → booked visit) and returns the
+     refreshed totals, so the CTA becomes "Pay ₹<advance> in Advance" ───── */
+  const handleChooseCod = async () => {
+    if (choosingCod) return;
+    setChoosingCod(true);
+    setChoiceError(null);
+    try {
+      await checkoutApi.chooseCodPayment(id);
+      setPayChoiceOpen(false);
+      setCodConfirmOpen(false);
+      await refreshDetail();
+    } catch (err) {
+      setChoiceError(
+        err instanceof Error ? err.message : strings.payChoice.codError,
+      );
+    } finally {
+      setChoosingCod(false);
     }
   };
 
@@ -654,7 +711,10 @@ function OrderDetailContent() {
       )}
 
       {/* Address bar — pinned to the viewport bottom. Its state follows the
-          attached/saved address only, never the order status. */}
+          attached/saved address only, never the order status. Fully paid →
+          nothing left to do down here, so the whole bar (card included)
+          goes away. */}
+      {!paidUp && (
       <div className="sticky bottom-0 z-20 -mx-4 -mb-6 mt-5 border-t border-hairline bg-chalk-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-6px_16px_-8px_rgba(23,42,72,0.25)]">
         {/* Deliver-to card — food-app style, above the Continue button */}
         {deliverTo && (
@@ -684,13 +744,15 @@ function OrderDetailContent() {
                   </div>
                 )}
               </div>
-                <button
-                  type="button"
-                  onClick={() => setPickerOpen(true)}
-                  className="flex-none rounded-pill px-2 py-1 text-caption font-semibold text-navy-interactive transition hover:bg-mist-navy"
-                >
-                  {strings.orderDetail.changeAddress}
-                </button>
+                {!bookingLocked && (
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen(true)}
+                    className="flex-none rounded-pill px-2 py-1 text-caption font-semibold text-navy-interactive transition hover:bg-mist-navy"
+                  >
+                    {strings.orderDetail.changeAddress}
+                  </button>
+                )}
             </div>
           </div>
         )}
@@ -709,7 +771,11 @@ function OrderDetailContent() {
             disabled={placing || paying}
             onClick={() => {
               if (hasActiveVisit) {
-                void handlePay();
+                if (offerPayChoice) {
+                  setPayChoiceOpen(true);
+                } else {
+                  void handlePay();
+                }
               } else {
                 void handleContinue();
               }
@@ -718,11 +784,22 @@ function OrderDetailContent() {
             {!deliverTo
               ? strings.orderDetail.addAddressCta
               : hasActiveVisit
-                ? strings.orderDetail.payToBook(formatPrice(payAmount))
+                ? showCodCta
+                  ? (
+                      <>
+                        {strings.orderDetail.payInAdvance(
+                          formatPrice(advanceAmount),
+                        )}{" "}
+                        <span className="ml-1 inline-block rounded-pill bg-ink-navy px-2 py-px text-[10px] font-semibold uppercase tracking-wider text-chalk-white">
+                          {strings.orderDetail.saveTag(formatPrice(codFee))}
+                        </span>
+                      </>
+                    )
+                  : strings.orderDetail.continueCta
                 : strings.orderDetail.continueCta}
           </Button>
         )}
-        {hasActiveVisit && deliverTo && (
+        {!bookingLocked && hasActiveVisit && deliverTo && (
           <button
             type="button"
             onClick={() => setSlotOpen(true)}
@@ -732,6 +809,7 @@ function OrderDetailContent() {
           </button>
         )}
       </div>
+      )}
 
       {/* Address picker — Change opens this; rows attach on tap */}
       <BottomSheet
@@ -840,7 +918,7 @@ function OrderDetailContent() {
 
       {/* Slot picker — Continue (or Change slot) opens this; Select books
           (or reschedules) the measurement visit, then the CTA becomes
-          "Pay ₹<balance> to Book" once the refreshed detail lands */}
+          "Continue" once the refreshed detail lands */}
       <SlotSheet
         open={slotOpen}
         onClose={() => setSlotOpen(false)}
@@ -855,6 +933,162 @@ function OrderDetailContent() {
           void refreshDetail();
         }}
       />
+
+      {/* Pay-method choice — Pay opens this on a fresh unpaid order. Online
+          (free) goes straight to the gateway; Cash on Delivery confirms the
+          booking right away and adds the ₹50 advance fee, which is waived
+          if the advance is paid before delivery. */}
+      <BottomSheet
+        open={payChoiceOpen}
+        onClose={() => setPayChoiceOpen(false)}
+        title={strings.payChoice.title}
+      >
+        <div className="pb-2">
+          <button
+            type="button"
+            disabled={choosingCod}
+            onClick={() => {
+              setPayChoiceOpen(false);
+              void handlePay();
+            }}
+            className="flex w-full items-center gap-3 rounded-card border-[1.5px] border-hairline bg-chalk-white p-4 text-left transition hover:bg-mist-navy/30 disabled:opacity-50"
+          >
+            <span
+              aria-hidden
+              className="flex h-9 w-9 flex-none items-center justify-center rounded-pill bg-warm-sand text-accent-text"
+            >
+              <ShieldCheck size={16} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-body font-medium text-ink-navy">
+                {strings.payChoice.onlineLabel}
+              </span>
+              <span className="block text-caption text-muted">
+                {strings.payChoice.onlineCaption}
+              </span>
+            </span>
+            <span className="flex-none rounded-pill bg-success-bg px-2.5 py-1 text-caption font-semibold text-success-text">
+              {strings.payChoice.onlineTag}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            disabled={choosingCod}
+            onClick={() => setCodConfirmOpen(true)}
+            className="mt-3 flex w-full items-center gap-3 rounded-card border-[1.5px] border-hairline bg-chalk-white p-4 text-left transition hover:bg-mist-navy/30 disabled:opacity-50"
+          >
+            <span
+              aria-hidden
+              className="flex h-9 w-9 flex-none items-center justify-center rounded-pill bg-warm-sand text-accent-text"
+            >
+              <HomeVisit size={16} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-body font-medium text-ink-navy">
+                {strings.payChoice.codLabel}
+              </span>
+              <span className="block text-caption text-muted">
+                {strings.payChoice.codCaption}
+              </span>
+            </span>
+            <span className="flex-none rounded-pill bg-warm-sand/80 px-2.5 py-1 text-caption font-semibold text-accent-text">
+              {strings.payChoice.codTag(formatPrice(COD_FEE_PREVIEW))}
+            </span>
+          </button>
+        </div>
+      </BottomSheet>
+
+      {/* COD soft-confirm — stacks above the choice sheet. The case for
+          paying online (fee waived, no dummy bookings, refundable) before
+          the customer commits to Cash on Delivery. */}
+      <BottomSheet
+        open={codConfirmOpen}
+        onClose={() => setCodConfirmOpen(false)}
+        title={strings.payChoice.codSheetTitle}
+      >
+        <div className="pb-2">
+          <div className="mt-2 flex items-start gap-3">
+            <span
+              aria-hidden
+              className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-pill bg-warm-sand text-accent-text"
+            >
+              <Sparkles size={16} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-body font-medium text-ink-navy">
+                {strings.payChoice.codSheetSaveTitle(formatPrice(COD_FEE_PREVIEW))}
+              </p>
+              <p className="text-caption text-muted">
+                {strings.payChoice.codSheetSaveBody}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-start gap-3">
+            <span
+              aria-hidden
+              className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-pill bg-warm-sand text-accent-text"
+            >
+              <Calendar size={16} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-body font-medium text-ink-navy">
+                {strings.payChoice.codSheetHonestTitle}
+              </p>
+              <p className="text-caption text-muted">
+                {strings.payChoice.codSheetHonestBody}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-start gap-3">
+            <span
+              aria-hidden
+              className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-pill bg-warm-sand text-accent-text"
+            >
+              <ShieldCheck size={16} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-body font-medium text-ink-navy">
+                {strings.payChoice.codSheetRefundTitle}
+              </p>
+              <p className="text-caption text-muted">
+                {strings.payChoice.codSheetRefundBody}
+              </p>
+            </div>
+          </div>
+
+          {choiceError && (
+            <Banner variant="error" className="mt-3">
+              <p className="text-caption">{choiceError}</p>
+            </Banner>
+          )}
+
+          <Button
+            fullWidth
+            className="mt-4"
+            disabled={choosingCod}
+            onClick={() => {
+              setCodConfirmOpen(false);
+              setPayChoiceOpen(false);
+              void handlePay();
+            }}
+          >
+            {strings.payChoice.codSheetOnlineCta}
+          </Button>
+          <Button
+            variant="secondary"
+            fullWidth
+            className="mt-2"
+            loading={choosingCod}
+            disabled={choosingCod}
+            onClick={() => void handleChooseCod()}
+          >
+            {strings.payChoice.codSheetConfirmCta}
+          </Button>
+        </div>
+      </BottomSheet>
     </ScreenShell>
   );
 }

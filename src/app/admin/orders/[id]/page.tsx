@@ -84,6 +84,7 @@ const FULFILLMENT_STATUSES: FulfillmentStatus[] = [
   "scheduled",
   "in_progress",
   "completed",
+  "delivered",
   "cancelled",
 ];
 

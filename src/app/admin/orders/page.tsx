@@ -25,6 +25,7 @@ const FULFILLMENT_STATUSES: FulfillmentStatus[] = [
   "scheduled",
   "in_progress",
   "completed",
+  "delivered",
   "cancelled",
 ];
 
@@ -44,6 +45,7 @@ const STATUS_STYLE: Record<string, string> = {
   scheduled: "bg-blue-100 text-blue-800",
   in_progress: "bg-indigo-100 text-indigo-800",
   completed: "bg-green-100 text-green-800",
+  delivered: "bg-emerald-100 text-emerald-800",
   cancelled: "bg-red-100 text-red-700",
   // Payment
   paid: "bg-green-100 text-green-800",

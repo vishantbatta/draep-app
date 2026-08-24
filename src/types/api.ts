@@ -277,6 +277,8 @@ export interface OrderDetailAdjustment {
   label: string | null;
   type: string | null; // discount | fee
   amount: number;
+  /** Provenance: manual (admin) | cod (booking-advance fee) | … */
+  source: string | null;
 }
 
 export interface OrderTransaction {
@@ -372,6 +374,16 @@ export interface PayInitOut {
   payment_session_id: string | null;
   amount: number;
   environment: string | null;
+}
+
+/** POST /orders/{id}/pay-method — response for the COD choice. */
+export interface PayMethodOut {
+  payment_status: string | null;
+  fulfillment_status: string | null;
+  total_price: number | null;
+  balance_due: number | null;
+  cod_fee: number;
+  advance_amount: number;
 }
 
 // ─── Pricing (be/app/schemas/pricing.py) ──────────────────────────────────────

@@ -309,11 +309,37 @@ export const strings = {
     slotRetry: "Try again",
     slotBookError: "Could not book this slot. Please try again.",
     changeSlot: "Change slot",
-    payToBook: (amount: string) => `Pay ${amount} to Book`,
+    // COD orders: the CTA pays the advance (total minus the ₹50 COD fee)
+    payInAdvance: (amount: string) => `Pay ${amount} in Advance`,
+    saveTag: (amount: string) => `Save ${amount}`,
     payInitError: "Could not start the payment. Please try again.",
     loadError: "Could not load this order.",
     notFound: "Order not found.",
     retry: "Try again",
+  },
+
+  payChoice: {
+    // Sheet opened by the order-page Pay button
+    title: "How would you like to pay?",
+    onlineLabel: "UPI · Credit Card · Wallet · Netbanking · Bank Transfer",
+    onlineTag: "Free",
+    onlineCaption: "Pay the advance online now — no charges.",
+    codLabel: "Cash on Delivery",
+    codTag: (amount: string) => `+ ${amount}`,
+    codCaption: "COD fee — pay any time before your slot to avoid it.",
+    codError: "Could not switch to Cash on Delivery. Please try again.",
+    // COD soft-confirm sheet — the save-money nudge before committing
+    codSheetTitle: "Cash on Delivery",
+    codSheetSaveTitle: (amount: string) => `Save ${amount} by paying online`,
+    codSheetSaveBody: "The COD fee is waived when you pay the advance online instead.",
+    codSheetHonestTitle: "It avoids dummy slot bookings",
+    codSheetHonestBody:
+      "The advance keeps visit slots for real bookings, so times stay open for everyone.",
+    codSheetRefundTitle: "Refundable, no questions asked",
+    codSheetRefundBody:
+      "If anything goes wrong, your advance comes straight back to you.",
+    codSheetOnlineCta: "Pay online instead",
+    codSheetConfirmCta: "Continue with Cash on Delivery",
   },
 
   errors: {
