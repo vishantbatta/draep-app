@@ -35,11 +35,16 @@ export function LoginGateSheet({
   open,
   onClose,
   onSuccess,
+  title,
+  message,
 }: {
   open: boolean;
   onClose: () => void;
   /** Called once the visitor has a user session. */
   onSuccess: () => void;
+  /** Per-surface overrides of the default gate copy (strings.loginGate.*). */
+  title?: string;
+  message?: string;
 }) {
   const sendOtp = useAuthStore((s) => s.sendOtp);
   const verifyOtp = useAuthStore((s) => s.verifyOtp);
@@ -154,8 +159,8 @@ export function LoginGateSheet({
   };
 
   return (
-    <BottomSheet open={open} onClose={onClose} title={strings.loginGate.title}>
-      <p className="text-caption text-muted">{strings.loginGate.message}</p>
+    <BottomSheet open={open} onClose={onClose} title={title ?? strings.loginGate.title}>
+      <p className="text-caption text-muted">{message ?? strings.loginGate.message}</p>
 
       {!otpSent ? (
         <div className="mt-3">
