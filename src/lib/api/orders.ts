@@ -120,6 +120,20 @@ export function removeAddon(
   });
 }
 
+// PUT /orders/{order_id}/garments/{garment_order_id}/note — set or clear the
+// customer's note on one garment order (the note editor on the /app order
+// page; editable at every order state). Empty/whitespace clears the note.
+export function updateOrderNote(
+  orderId: string,
+  garmentOrderId: string,
+  note: string | null,
+): Promise<OrderOut> {
+  return apiPut<OrderOut>(
+    `/orders/${orderId}/garments/${garmentOrderId}/note`,
+    { note: note ?? null },
+  );
+}
+
 // PUT /orders/{order_id}/address — attach an existing saved address to the
 // draft order (same address_id set the admin dashboard performs; no new
 // address row is created).

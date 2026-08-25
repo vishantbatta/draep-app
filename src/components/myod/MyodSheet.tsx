@@ -551,7 +551,6 @@ export function MyodSheet({
       const order = await createMyodOrder({
         garmentId: tree.id,
         selections,
-        configText: renderCtx.configText,
         assets: renderViews.map((v) => v.url),
       });
       track({ event: "myod_order_created", order_id: order.id });

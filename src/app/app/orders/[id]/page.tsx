@@ -35,7 +35,14 @@
  * above the bar.
  */
 
-import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
@@ -144,6 +151,142 @@ function JobRow({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/* ─── Loading state ──────────────────────────────────────────────────────── */
+
+/** Stagger for the skeleton's entry rise and sheen sweep (globals.css). */
+const odDelay = (ms: number): CSSProperties =>
+  ({ "--od-delay": `${ms}ms` }) as CSSProperties;
+
+/** One mist-navy slab — the chalk sheen is drawn by .od-block::after. */
+function Shimmer({ className = "" }: { className?: string }) {
+  return <div aria-hidden className={`od-block rounded-pill ${className}`} />;
+}
+
+/**
+ * The loading state is the page's own geometry rendered as slabs — back row,
+ * header (tape-gradient spinner standing in for the mono order number),
+ * status card, visit card, garment breakdown, summary, and the pinned bottom
+ * bar — so the real content drops in with zero jump. Each section rises in
+ * and catches the sheen one after the next (--od-delay), reading as a single
+ * wave down the page. Rendered both while the detail fetch is in flight and
+ * as the Suspense fallback, so even a hard load never shows a blank screen.
+ */
+function OrderLoadingSkeleton() {
+  return (
+    <ScreenShell className="px-4 pt-6">
+      <div
+        role="status"
+        aria-busy="true"
+        aria-label={strings.orderDetail.loadingSr}
+        className="flex min-h-[calc(100dvh-1.5rem)] flex-col"
+      >
+        {/* Back + support */}
+        <div className="od-rise flex items-center justify-between" style={odDelay(0)}>
+          <Shimmer className="h-4 w-24" />
+          <Shimmer className="h-9 w-28" />
+        </div>
+
+        {/* Header */}
+        <header className="od-rise mt-2" style={odDelay(60)}>
+          <p className="eyebrow">{strings.orderDetail.title}</p>
+          <div className="mt-1 flex items-center gap-3">
+            <span aria-hidden className="od-spinner h-9 w-9 flex-none" />
+            <Shimmer className="h-8 flex-1" />
+          </div>
+          <Shimmer className="mt-2 h-3.5 w-28" />
+        </header>
+
+        {/* Statuses */}
+        <section
+          className="od-rise mt-4 rounded-card border border-hairline bg-chalk-white p-4 shadow-card"
+          style={odDelay(120)}
+        >
+          {[0, 1].map((i) => (
+            <div key={i} className="mt-3 flex items-center justify-between first:mt-0">
+              <Shimmer className="h-3.5 w-24" />
+              <Shimmer className="h-6 w-20" />
+            </div>
+          ))}
+        </section>
+
+        {/* Home visit */}
+        <section
+          className="od-rise mt-3 rounded-card border border-hairline bg-chalk-white p-4 shadow-card"
+          style={odDelay(180)}
+        >
+          <Shimmer className="h-3 w-24" />
+          <div className="mt-3 flex items-center gap-2">
+            <Shimmer className="h-4 w-4 flex-none" />
+            <Shimmer className="h-4 w-2/3" />
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <Shimmer className="h-4 w-4 flex-none" />
+            <Shimmer className="h-4 w-1/2" />
+          </div>
+        </section>
+
+        {/* Garment breakdown */}
+        <section
+          className="od-rise mt-3 rounded-card border border-hairline bg-chalk-white p-4 shadow-card"
+          style={odDelay(240)}
+        >
+          <div className="flex items-center justify-between">
+            <Shimmer className="h-5 w-32" />
+            <Shimmer className="h-6 w-16" />
+          </div>
+          <div className="mt-4 space-y-2.5">
+            {["w-3/5", "w-1/2", "w-2/3"].map((w) => (
+              <div key={w} className="flex items-center justify-between">
+                <Shimmer className={`h-4 ${w}`} />
+                <Shimmer className="h-4 w-14" />
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 space-y-2 border-t border-hairline pt-3">
+            <div className="flex items-center justify-between">
+              <Shimmer className="h-3.5 w-16" />
+              <Shimmer className="h-3.5 w-12" />
+            </div>
+            <div className="flex items-center justify-between">
+              <Shimmer className="h-4 w-20" />
+              <Shimmer className="h-4 w-16" />
+            </div>
+          </div>
+        </section>
+
+        {/* Summary */}
+        <section
+          className="od-rise mt-3 rounded-card border border-hairline bg-chalk-white p-4 shadow-card"
+          style={odDelay(300)}
+        >
+          <Shimmer className="h-3 w-20" />
+          <div className="mt-3 space-y-2">
+            {[0, 1].map((i) => (
+              <div key={i} className="flex items-center justify-between">
+                <Shimmer className="h-3.5 w-28" />
+                <Shimmer className="h-3.5 w-14" />
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Flexible spacer keeps the bar pinned to the viewport bottom
+            while the skeleton is shorter than a screen. */}
+        <div aria-hidden className="min-h-5 flex-1" />
+
+        {/* Pinned bottom bar — draft card + CTA */}
+        <div
+          className="od-rise sticky bottom-0 z-20 -mx-4 -mb-6 border-t border-hairline bg-chalk-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-6px_16px_-8px_rgba(23,42,72,0.25)]"
+          style={odDelay(360)}
+        >
+          <Shimmer className="h-16 rounded-card" />
+          <Shimmer className="mt-3 h-12 w-full" />
+        </div>
+      </div>
+    </ScreenShell>
+  );
+}
+
 /* ============================================================ */
 
 // Preview amount for the pay-choice sheet (mirrors BE settings.cod_fee_rupees);
@@ -152,9 +295,10 @@ const COD_FEE_PREVIEW = 50;
 
 export default function OrderDetailPage() {
   // useSearchParams (?placed=1) needs a Suspense boundary during prerender;
-  // the content below renders its own loading skeleton, so null suffices.
+  // the same skeleton the loading state uses keeps hard loads from ever
+  // flashing a blank screen before the client component mounts.
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<OrderLoadingSkeleton />}>
       <OrderDetailContent />
     </Suspense>
   );
@@ -187,6 +331,37 @@ function OrderDetailContent() {
   const [addOpen, setAddOpen] = useState(false);
   const [pickingId, setPickingId] = useState<string | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
+
+  /* ── Garment note editor — the customer's message for the style captain.
+     MYOD orders start empty (the design lives in the selection items), so
+     this is both the add and the edit path; editable at any order state. */
+  const [noteEditingId, setNoteEditingId] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+
+  const openNoteEditor = (garmentOrderId: string, currentNote: string | null) => {
+    setNoteDraft(currentNote ?? "");
+    setNoteError(null);
+    setNoteEditingId(garmentOrderId);
+  };
+
+  const handleSaveNote = async () => {
+    if (noteSaving || noteEditingId == null) return;
+    setNoteSaving(true);
+    setNoteError(null);
+    try {
+      await ordersApi.updateOrderNote(id, noteEditingId, noteDraft);
+      setNoteEditingId(null);
+      await refreshDetail();
+    } catch (err) {
+      setNoteError(
+        err instanceof Error ? err.message : strings.orderDetail.noteError,
+      );
+    } finally {
+      setNoteSaving(false);
+    }
+  };
 
   // Saved addresses feed the deliver-to card when the order has none
   // attached. Non-fatal — on failure the card just stays hidden and
@@ -228,15 +403,7 @@ function OrderDetailContent() {
 
   /* ── Loading / error states ──────────────────────────────────────────── */
   if (loading) {
-    return (
-      <ScreenShell className="px-4 pt-6">
-        <div className="space-y-3" aria-busy="true">
-          <div className="h-8 w-40 animate-pulse rounded-pill bg-mist-navy/60" />
-          <div className="h-24 animate-pulse rounded-card bg-mist-navy/60" />
-          <div className="h-64 animate-pulse rounded-card bg-mist-navy/60" />
-        </div>
-      </ScreenShell>
-    );
+    return <OrderLoadingSkeleton />;
   }
 
   if (notFound || error || !detail) {
@@ -638,16 +805,35 @@ function OrderDetailContent() {
               </>
             )}
 
-            {g.user_note && (
+            {/* Customer note — the customer's message for the style
+                captain. Editable at every order state; MYOD orders start
+                empty (the design itself lives in the selection rows). */}
+            {g.user_note ? (
               <div className="mt-4 flex items-start gap-2 rounded-card bg-warm-sand/70 p-3">
                 <Thread size={16} className="mt-0.5 text-accent-text" />
-                <p className="flex-1 text-body text-ink">
+                <p className="min-w-0 flex-1 whitespace-pre-line break-words text-body text-ink">
                   <span className="text-caption text-muted">
                     {strings.orderDetail.noteTitle} —{" "}
                   </span>
                   {g.user_note}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => openNoteEditor(g.id, g.user_note)}
+                  className="flex-none rounded-pill px-2 py-1 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-95 active:bg-mist-navy"
+                >
+                  {strings.orderDetail.noteEditCta}
+                </button>
               </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => openNoteEditor(g.id, null)}
+                className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-[0.98] active:bg-mist-navy"
+              >
+                <Thread size={14} />
+                {strings.orderDetail.noteAddCta}
+              </button>
             )}
 
             <div className="mt-4 border-t border-hairline pt-2">
@@ -1159,6 +1345,44 @@ function OrderDetailContent() {
           >
             {strings.payChoice.codSheetConfirmCta}
           </Button>
+        </div>
+      </BottomSheet>
+
+      {/* Garment note editor — add or edit the customer's note for the
+          style captain. Saving clears whitespace-only input server-side. */}
+      <BottomSheet
+        open={noteEditingId !== null}
+        onClose={() => setNoteEditingId(null)}
+        title={strings.orderDetail.noteSheetTitle}
+        footer={
+          <Button
+            fullWidth
+            loading={noteSaving}
+            disabled={noteSaving}
+            onClick={() => void handleSaveNote()}
+          >
+            {strings.orderDetail.noteSave}
+          </Button>
+        }
+      >
+        <div className="pb-2">
+          <textarea
+            value={noteDraft}
+            onChange={(e) => setNoteDraft(e.target.value)}
+            rows={5}
+            maxLength={2000}
+            placeholder={strings.orderDetail.notePlaceholder}
+            autoFocus
+            className="w-full resize-none rounded-card border border-hairline-strong bg-chalk-white px-3 py-2.5 text-body text-ink-navy placeholder:text-muted focus:border-navy-interactive focus:outline-none"
+          />
+          <p className="mt-1.5 text-right text-caption text-muted">
+            {noteDraft.length}/2000
+          </p>
+          {noteError && (
+            <Banner variant="error" className="mt-2">
+              <p className="text-caption">{noteError}</p>
+            </Banner>
+          )}
         </div>
       </BottomSheet>
     </ScreenShell>

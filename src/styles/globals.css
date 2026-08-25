@@ -190,6 +190,80 @@
     }
   }
 
+  /* ─── Order detail loading skeleton ────────────────────────────────────
+     The skeleton mirrors the page's own geometry so the real content drops
+     in without a jump. Slabs (.od-block) are mist-navy with a chalk sheen
+     sweeping through them; --od-delay staggers both the entry rise
+     (.od-rise) and each sheen, so the whole page reads as one wave.
+     .od-spinner is the same tape-gradient arc BrandSpinner draws, CSS-only
+     so it also runs inside the pre-hydration Suspense fallback. */
+  .od-block {
+    position: relative;
+    overflow: hidden;
+    background: var(--mist-navy);
+  }
+  .od-block::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      100deg,
+      transparent 25%,
+      rgba(255, 255, 255, 0.8) 50%,
+      transparent 75%
+    );
+    animation: od-sheen 1.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    animation-delay: var(--od-delay, 0s);
+  }
+  .od-rise {
+    animation: od-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--od-delay, 0s);
+  }
+  .od-spinner {
+    border-radius: var(--radius-pill);
+    background: conic-gradient(
+      from 0deg,
+      rgba(248, 144, 16, 0) 0deg,
+      #f89010 230deg,
+      #d06010 360deg
+    );
+    -webkit-mask: radial-gradient(
+      farthest-side,
+      transparent calc(100% - 3px),
+      #000 calc(100% - 2.5px)
+    );
+    mask: radial-gradient(
+      farthest-side,
+      transparent calc(100% - 3px),
+      #000 calc(100% - 2.5px)
+    );
+    animation: od-spin 0.7s linear infinite;
+  }
+  @keyframes od-sheen {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes od-rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes od-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   /* Reduced motion: disable all landing-page animations. */
   @media (prefers-reduced-motion: reduce) {
     .lp-reveal {
@@ -199,8 +273,15 @@
     }
     .lp-float,
     .lp-float-2,
-    .lp-float-3 {
+    .lp-float-3,
+    .od-block::after,
+    .od-rise,
+    .od-spinner {
       animation: none !important;
+    }
+    .od-rise {
+      opacity: 1 !important;
+      transform: none !important;
     }
   }
 }

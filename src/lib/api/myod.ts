@@ -9,6 +9,7 @@
  *
  * POST /myod/order — turns a finished run into a pending order (selections
  * as items, renders as inspiration images) for booking on /app/orders/{id}.
+ * The garment note starts empty — the customer adds one on the order page.
  */
 
 import { apiPost } from "./client";
@@ -86,7 +87,6 @@ export interface MyodOrderParams {
   garmentId: string;
   /** Wizard selection state, keyed by component-or-addon id. */
   selections: Selections;
-  configText: string;
   /** Render photo URLs to attach as the design's inspiration images. */
   assets: string[];
 }
@@ -122,7 +122,6 @@ export async function createMyodOrder(
   return apiPost<MyodOrderResult>("/myod/order", {
     garment_id: params.garmentId,
     selections,
-    config_text: params.configText,
     assets: params.assets,
   });
 }

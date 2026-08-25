@@ -302,6 +302,7 @@ export const strings = {
 
   orderDetail: {
     title: "Order",
+    loadingSr: "Loading your order…",
     back: "Your orders",
     support: "Support",
     fulfillmentLabel: "Fulfilment status",
@@ -320,6 +321,13 @@ export const strings = {
     basePrice: "Base price",
     garmentTotal: "Garment total",
     noteTitle: "Your note",
+    noteAddCta: "Add a note",
+    noteEditCta: "Edit",
+    noteSheetTitle: "Your note",
+    notePlaceholder:
+      "Anything your style captain should know — fit preferences, occasion, styling ideas…",
+    noteSave: "Save note",
+    noteError: "Couldn't save your note. Please try again.",
     summaryTitle: "Payment summary",
     total: "Order total",
     paid: "Paid",
