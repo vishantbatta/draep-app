@@ -33,6 +33,7 @@ import { BottomSheet } from "@/components/ui/BottomSheet";
 import { Sparkles, Upload, Close } from "@/components/ui/icons";
 import { tryOn, refineTryOn } from "@/lib/api/tryon";
 import { orderFromLibrary } from "@/lib/api/library";
+import { ordersApi } from "@/lib/api";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
 
@@ -58,6 +59,20 @@ interface Props {
 }
 
 let _entryId = 0;
+
+/** Convert a try-on result (`data:image/png;base64,…`) into an uploadable
+ *  File. Returns null for non-base64 or malformed data URIs. */
+function dataUriToFile(dataUri: string, name: string): File | null {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(dataUri);
+  if (!match) return null;
+  const mime = match[1];
+  const ext =
+    mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
+  const bin = atob(match[2]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], `${name}.${ext}`, { type: mime });
+}
 
 export function TryOnSheet({
   open,
@@ -134,6 +149,24 @@ export function TryOnSheet({
         library_id: libraryId,
         order_id: out.order_id,
       });
+      // Attach the final try-on image so it reaches the tailor alongside the
+      // design's hero (attached server-side at order creation). Best effort —
+      // the order exists; never block the walk into booking on the upload.
+      const finalImage = feed.length ? feed[feed.length - 1].imageUrl : null;
+      const file = finalImage ? dataUriToFile(finalImage, "try-on") : null;
+      if (file) {
+        try {
+          const detail = await ordersApi.getOrderDetail(out.order_id);
+          const garmentOrderId = detail.garment_orders[0]?.id;
+          if (garmentOrderId) {
+            await ordersApi.uploadInspiration(out.order_id, garmentOrderId, [
+              file,
+            ]);
+          }
+        } catch {
+          // continue to booking without the photo
+        }
+      }
       router.push(`/app/orders/${out.order_id}`);
     } catch (err) {
       setOrderError(
@@ -142,7 +175,7 @@ export function TryOnSheet({
     } finally {
       setOrdering(false);
     }
-  }, [libraryId, ordering, router]);
+  }, [libraryId, feed, ordering, router]);
 
   /** Append a new image to the feed after a successful refinement. */
   const handleRefineResult = useCallback(
