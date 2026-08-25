@@ -335,6 +335,14 @@ export const strings = {
     selecting: "Saving…",
     continueCta: "Continue",
     addAddressCta: "Add delivery address",
+    // Bottom-bar CTA ladder (priority order): address → slot → booking
+    selectAddressCta: "Select Address",
+    selectSlotCta: "Select Slot",
+    confirmBookingCta: "Confirm Booking",
+    exploreMoreCta: "Explore More Designs",
+    payBalanceCta: (amount: string) => `Pay ${amount} Balance`,
+    // Prominent card above the CTA once COD is confirmed or the advance is paid
+    bookingConfirmedTitle: "Booking confirmed",
     attachError: "Could not set the delivery address. Please try again.",
     addressPageTitle: "Delivery address",
     addressPageHint:

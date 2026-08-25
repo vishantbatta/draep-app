@@ -10,19 +10,29 @@
  * generator the /invoice page uses, fetched from the same public invoice
  * endpoint.
  *
- * Every order ends in a pinned bottom bar whose state follows the address
- * and the visit, never the order status: attached (or a saved) address →
- * deliver-to card + Continue; no address at all → "Add delivery address"
- * routes to /app/orders/{id}/address, which saves the address AND attaches
- * it (PUT /orders/{id}/contact). Continue with no visit yet opens the
- * slot sheet — Select books the measurement visit (POST /orders/{id}/
- * booking; reschedules via PATCH when one exists) — after which the CTA
- * reads "Continue", which on a fresh unpaid order opens a method sheet:
- * online (free, straight to the gateway) or Cash on Delivery, which
- * confirms the booking immediately and adds the ₹50 advance fee — the CTA
- * then reads "Pay ₹<advance> in Advance" and the fee is waived if that
- * advance is captured before delivery. Placed orders also get invoice
- * actions above the bar.
+ * Every order ends in a pinned bottom bar whose state follows concrete facts
+ * (attached address → drafted slot → how the booking is confirmed), never the
+ * order status, in priority order:
+ *   1. nothing attached            → "Select Address" (picker sheet, or the
+ *                                     full-page address form when none saved)
+ *   2. no slot drafted             → "Select Slot" — Select books the
+ *                                     measurement visit (POST /orders/{id}/
+ *                                     booking; reschedules via PATCH)
+ *   3. slot held, nothing paid and
+ *      no COD choice               → "Confirm Booking" opens the method sheet
+ *                                     (online or Cash on Delivery). Until one
+ *                                     lands, the slot is only a draft hold —
+ *                                     the card above shows the time and
+ *                                     address, never "confirmed".
+ *   4. COD confirmed               → prominent confirmation card; the CTA
+ *                                     demotes to a secondary "Pay ₹<advance>
+ *                                     in Advance" (the ₹50 fee is waived if
+ *                                     captured before delivery)
+ *   5. advance paid                → prominent confirmation card; secondary
+ *                                     "Explore More Designs"
+ * A delivered order with a balance falls through to a plain pay-balance CTA;
+ * fully paid hides the bar entirely. Placed orders also get invoice actions
+ * above the bar.
  */
 
 import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
@@ -162,7 +172,6 @@ function OrderDetailContent() {
   /* ── Address + slot finish flow: deliver-to card → Continue → slot sheet,
      then the Pay-to-Book CTA once a visit is booked ────────────────────── */
   const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
-  const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState<string | null>(null);
   const [slotOpen, setSlotOpen] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -346,9 +355,6 @@ function OrderDetailContent() {
   // through support.
   const bookingLocked =
     hasActiveVisit && (activeJob?.status !== "draft" || paidUp);
-  // The slot row becomes a confirmation once the hold is a real booking —
-  // COD confirmed or payment captured (a 'draft' job is still just a hold).
-  const slotConfirmed = hasActiveVisit && activeJob?.status !== "draft";
 
   /* ── COD — the ₹50 booking-advance fee row, waivable until delivery ────── */
   // The active fee is the order-level adjustment tagged source="cod"; it
@@ -357,12 +363,39 @@ function OrderDetailContent() {
   const codFee = codAdj?.amount ?? 0;
   const isDelivered = detail.fulfillment_status === "delivered";
   // Advance CTA: pay the total minus the fee while it can still be waived.
-  const showCodCta = codAdj !== null && !isDelivered;
-  const advanceAmount = showCodCta ? Math.max(payAmount - codFee, 0) : payAmount;
-  // Fresh order, nothing paid yet (no online capture, no COD choice) → the
-  // Pay button opens the method choice instead of going straight to the
-  // gateway. Any payment already made → COD is off the table, pay directly.
-  const offerPayChoice = !codAdj && !isDelivered && detail.paid_amount === 0;
+  const advanceAmount = Math.max(payAmount - codFee, 0);
+
+  /* ── Bottom-bar state machine, priority order ────────────────────────────
+     Driven by concrete facts (attached address → drafted slot → how the
+     booking is confirmed), never the order status:
+       1 "address"  nothing attached             → Select Address
+       2 "slot"     attached, no slot drafted    → Select Slot
+       3 "confirm"  slot held, nothing paid and
+                    no COD choice yet            → Confirm Booking (the slot
+                                                    is still a draft hold)
+       4 "cod"      COD confirmed, advance due  → secondary Pay-advance (save pill)
+       5 "paid"     advance paid, balance left  → secondary Explore More Designs
+     A delivered order with a balance falls through to a plain pay-balance
+     CTA; fully paid (paidUp) hides the bar entirely. */
+  const codChosen = codAdj !== null;
+  const advancePaid = detail.paid_amount > 0;
+  const barState: "address" | "slot" | "confirm" | "cod" | "paid" | "balance" =
+    !attached
+      ? "address"
+      : isDelivered
+        ? "balance"
+        : currentBooking == null
+          ? "slot"
+          : advancePaid
+            ? "paid"
+            : codChosen
+              ? "cod"
+              : "confirm";
+  // The cards follow the same ladder, strictly: the prominent confirmation
+  // card only in the COD/paid states — a slot must exist AND be locked in
+  // before anything reads "confirmed". Without a slot it's the draft card
+  // with the address only; with an unpaid slot, address + held time.
+  const bookingConfirmed = barState === "cod" || barState === "paid";
 
   /* ── Pay ₹X to Book — Cashfree drop-in, then the paying page verifies ──── */
   const handlePay = async () => {
@@ -422,32 +455,14 @@ function OrderDetailContent() {
     }
   };
 
-  const handleContinue = async () => {
-    if (placing || paying) return;
-    if (!deliverTo) {
-      // No address anywhere yet — the full-page form saves one and attaches it.
-      router.push(`/app/orders/${id}/address`);
+  /* ── Select Address — saved addresses pick inline from the sheet;
+     with none saved, the full-page form saves one AND attaches it ────────── */
+  const handleSelectAddress = () => {
+    if (savedAddresses.length > 0) {
+      setPickerOpen(true);
       return;
     }
-    if (hasActiveVisit) {
-      // Pay-to-book state (or already paid — nothing left to do here).
-      return;
-    }
-    if (attached || !deliverTo.id) {
-      setSlotOpen(true);
-      return;
-    }
-    // Saved pick not attached yet — attach it, then straight into slot picking.
-    setPlacing(true);
-    setPlaceError(null);
-    try {
-      await ordersApi.attachOrderAddress(id, deliverTo.id);
-      setSlotOpen(true);
-    } catch (err) {
-      setPlaceError(err instanceof Error ? err.message : strings.orderDetail.attachError);
-    } finally {
-      setPlacing(false);
-    }
+    router.push(`/app/orders/${id}/address`);
   };
 
   /* ── Address picker sheet ──────────────────────────────────────────────── */
@@ -713,14 +728,19 @@ function OrderDetailContent() {
         </section>
       )}
 
-      {/* Address bar — pinned to the viewport bottom. Its state follows the
-          attached/saved address only, never the order status. Fully paid →
-          nothing left to do down here, so the whole bar (card included)
-          goes away. */}
-      {!paidUp && (
+      {/* Bottom bar — pinned to the viewport bottom. Its state follows
+          concrete facts (attached address → drafted slot → how the booking
+          is confirmed), never the order status. A paid advance keeps the
+          bar up ("Booking confirmed" + Explore More Designs) until
+          delivery; only a delivered order with nothing left to pay
+          hides it entirely. */}
+      {(!isDelivered || payAmount > 0) && (
       <div className="sticky bottom-0 z-20 -mx-4 -mb-6 mt-5 border-t border-hairline bg-chalk-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-6px_16px_-8px_rgba(23,42,72,0.25)]">
-        {/* Deliver-to card — food-app style, above the Continue button */}
-        {deliverTo && (
+        {/* Draft card — address + held time. Before COD is confirmed or the
+            advance is paid the slot is only a draft hold: no check, no
+            "confirmed" language, just the time and the address. With no slot
+            yet it degrades to the address alone. */}
+        {attached && !bookingConfirmed && (
           <div className="rounded-card border border-hairline bg-chalk-white p-4">
             <div className="flex items-start gap-3">
               <span
@@ -731,45 +751,63 @@ function OrderDetailContent() {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-body font-medium text-ink-navy">
-                  {deliverTo.line1}
+                  {deliverTo?.line1}
                 </p>
-                {(deliverTo.line2 || deliverTo.cityLine) && (
+                {(deliverTo?.line2 || deliverTo?.cityLine) && (
                   <p className="text-caption text-muted">
-                    {[deliverTo.line2, deliverTo.cityLine].filter(Boolean).join(", ")}
+                    {[deliverTo?.line2, deliverTo?.cityLine].filter(Boolean).join(", ")}
                   </p>
                 )}
                 {currentBooking && (
                   <div className="mt-3 flex items-center gap-2 border-t border-hairline pt-3">
-                    {slotConfirmed ? (
-                      <span
-                        aria-hidden
-                        className="flex h-5 w-5 flex-none items-center justify-center rounded-pill bg-success-bg text-success-text"
-                      >
-                        <Check size={12} strokeWidth={2.5} />
-                      </span>
-                    ) : (
-                      <Clock size={14} className="flex-none text-muted" />
-                    )}
+                    <Clock size={14} className="flex-none text-muted" />
                     <p className="text-caption font-medium text-ink-navy">
-                      {slotConfirmed
-                        ? strings.orderDetail.visitConfirmed(
-                            visitDateTimeLabel(currentBooking.scheduled_at),
-                            currentBooking.captain_name,
-                          )
-                        : visitDateTimeLabel(currentBooking.scheduled_at)}
+                      {visitDateTimeLabel(currentBooking.scheduled_at)}
                     </p>
                   </div>
                 )}
               </div>
-                {!bookingLocked && (
-                  <button
-                    type="button"
-                    onClick={() => setPickerOpen(true)}
-                    className="flex-none rounded-pill px-2 py-1 text-caption font-semibold text-navy-interactive transition hover:bg-mist-navy"
-                  >
-                    {strings.orderDetail.changeAddress}
-                  </button>
+              {!bookingLocked && (
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(true)}
+                  className="flex-none rounded-pill px-2 py-1 text-caption font-semibold text-navy-interactive transition hover:bg-mist-navy"
+                >
+                  {strings.orderDetail.changeAddress}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Prominent confirmation card — the hold became a real booking
+            (COD confirmed or advance captured): time + address, front and
+            centre above the CTA. */}
+        {attached && bookingConfirmed && (
+          <div className="rounded-card border-[1.5px] border-success/30 bg-success-bg p-4">
+            <div className="flex items-start gap-3">
+              <span
+                aria-hidden
+                className="mt-0.5 flex h-6 w-6 flex-none items-center justify-center rounded-pill bg-success text-chalk-white"
+              >
+                <Check size={13} strokeWidth={2.5} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-body font-semibold text-ink-navy">
+                  {strings.orderDetail.bookingConfirmedTitle}
+                </p>
+                {currentBooking && (
+                  <p className="mt-1 flex items-center gap-1.5 text-caption text-ink/80">
+                    <Calendar size={13} className="flex-none text-accent-text" />
+                    {visitDateTimeLabel(currentBooking.scheduled_at)}
+                  </p>
                 )}
+                <p className="mt-1 text-caption text-ink/70">
+                  {[deliverTo?.line1, deliverTo?.line2, deliverTo?.cityLine]
+                    .filter(Boolean)
+                    .join(", ")}
+                </p>
+              </div>
             </div>
           </div>
         )}
@@ -780,43 +818,60 @@ function OrderDetailContent() {
           </Banner>
         )}
 
-        {!paidUp && (
+        {/* CTA ladder — one control per state, priority order. */}
+        {barState === "address" && (
+          <Button fullWidth className="mt-3" onClick={handleSelectAddress}>
+            {strings.orderDetail.selectAddressCta}
+          </Button>
+        )}
+        {barState === "slot" && (
+          <Button fullWidth className="mt-3" onClick={() => setSlotOpen(true)}>
+            {strings.orderDetail.selectSlotCta}
+          </Button>
+        )}
+        {barState === "confirm" && (
+          <Button fullWidth className="mt-3" onClick={() => setPayChoiceOpen(true)}>
+            {strings.orderDetail.confirmBookingCta}
+          </Button>
+        )}
+        {barState === "cod" && (
+          <Button
+            variant="secondary"
+            fullWidth
+            className="mt-3"
+            loading={paying}
+            disabled={paying}
+            onClick={() => void handlePay()}
+          >
+            {strings.orderDetail.payInAdvance(formatPrice(advanceAmount))}{" "}
+            <span className="ml-1 inline-block rounded-pill bg-ink-navy px-2 py-px text-[10px] font-semibold uppercase tracking-wider text-chalk-white">
+              {strings.orderDetail.saveTag(formatPrice(codFee))}
+            </span>
+          </Button>
+        )}
+        {barState === "paid" && (
+          <Button
+            variant="secondary"
+            fullWidth
+            className="mt-3"
+            onClick={() => router.push("/app/explore")}
+          >
+            {strings.orderDetail.exploreMoreCta}
+          </Button>
+        )}
+        {barState === "balance" && (
           <Button
             fullWidth
             className="mt-3"
-            loading={placing || paying}
-            disabled={placing || paying}
-            onClick={() => {
-              if (hasActiveVisit) {
-                if (offerPayChoice) {
-                  setPayChoiceOpen(true);
-                } else {
-                  void handlePay();
-                }
-              } else {
-                void handleContinue();
-              }
-            }}
+            loading={paying}
+            disabled={paying}
+            onClick={() => void handlePay()}
           >
-            {!deliverTo
-              ? strings.orderDetail.addAddressCta
-              : hasActiveVisit
-                ? showCodCta
-                  ? (
-                      <>
-                        {strings.orderDetail.payInAdvance(
-                          formatPrice(advanceAmount),
-                        )}{" "}
-                        <span className="ml-1 inline-block rounded-pill bg-ink-navy px-2 py-px text-[10px] font-semibold uppercase tracking-wider text-chalk-white">
-                          {strings.orderDetail.saveTag(formatPrice(codFee))}
-                        </span>
-                      </>
-                    )
-                  : strings.orderDetail.continueCta
-                : strings.orderDetail.continueCta}
+            {strings.orderDetail.payBalanceCta(formatPrice(payAmount))}
           </Button>
         )}
-        {!bookingLocked && hasActiveVisit && deliverTo && (
+
+        {!bookingLocked && currentBooking && attached && (
           <button
             type="button"
             onClick={() => setSlotOpen(true)}
