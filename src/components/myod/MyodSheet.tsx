@@ -1422,6 +1422,14 @@ function CompletionPage({
           <p className="text-center text-caption leading-snug text-muted">
             Every choice you made, reflected in three views of your blouse.
           </p>
+          {/* The AI renders are a visual estimate — the stitched garment
+              follows the recorded selections, not the image itself. */}
+          <div className="flex w-full items-start gap-2 rounded-card border border-warning-border bg-warning-bg px-3 py-2 text-left">
+            <Sparkles size={14} className="mt-0.5 flex-none text-warning" />
+            <p className="text-caption leading-snug text-warning-text">
+              {strings.myod.finalIndicativeNote}
+            </p>
+          </div>
           {phase === "error" ? (
             <div className="flex w-full items-center justify-between gap-2 rounded-card border border-error-border bg-error-bg px-3 py-2 text-left">
               <p className="text-caption text-error-text">

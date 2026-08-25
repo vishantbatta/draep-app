@@ -505,6 +505,8 @@ export const strings = {
     renderFailed: "We couldn't render the preview images.",
     renderMissed: "Didn't render",
     renderRetry: "Retry",
+    finalIndicativeNote:
+      "This preview is indicative only — your blouse will be stitched on the selections you made. You can review them on the order page.",
     regenerate: "Regenerate",
     completeOrder: "Complete Order",
     // Pricing shown alongside options and as a running total
