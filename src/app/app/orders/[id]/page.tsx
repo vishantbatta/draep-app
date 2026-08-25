@@ -346,6 +346,9 @@ function OrderDetailContent() {
   // through support.
   const bookingLocked =
     hasActiveVisit && (activeJob?.status !== "draft" || paidUp);
+  // The slot row becomes a confirmation once the hold is a real booking —
+  // COD confirmed or payment captured (a 'draft' job is still just a hold).
+  const slotConfirmed = hasActiveVisit && activeJob?.status !== "draft";
 
   /* ── COD — the ₹50 booking-advance fee row, waivable until delivery ────── */
   // The active fee is the order-level adjustment tagged source="cod"; it
@@ -737,9 +740,23 @@ function OrderDetailContent() {
                 )}
                 {currentBooking && (
                   <div className="mt-3 flex items-center gap-2 border-t border-hairline pt-3">
-                    <Clock size={14} className="flex-none text-muted" />
+                    {slotConfirmed ? (
+                      <span
+                        aria-hidden
+                        className="flex h-5 w-5 flex-none items-center justify-center rounded-pill bg-success-bg text-success-text"
+                      >
+                        <Check size={12} strokeWidth={2.5} />
+                      </span>
+                    ) : (
+                      <Clock size={14} className="flex-none text-muted" />
+                    )}
                     <p className="text-caption font-medium text-ink-navy">
-                      {visitDateTimeLabel(currentBooking.scheduled_at)}
+                      {slotConfirmed
+                        ? strings.orderDetail.visitConfirmed(
+                            visitDateTimeLabel(currentBooking.scheduled_at),
+                            currentBooking.captain_name,
+                          )
+                        : visitDateTimeLabel(currentBooking.scheduled_at)}
                     </p>
                   </div>
                 )}

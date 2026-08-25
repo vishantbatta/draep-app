@@ -309,6 +309,9 @@ export const strings = {
     slotRetry: "Try again",
     slotBookError: "Could not book this slot. Please try again.",
     changeSlot: "Change slot",
+    // Bottom-card slot row once the hold is a real booking (COD confirmed / paid)
+    visitConfirmed: (time: string | null, captain: string | null) =>
+      captain ? `Visit confirmed · ${time} · ${captain}` : `Visit confirmed · ${time}`,
     // COD orders: the CTA pays the advance (total minus the ₹50 COD fee)
     payInAdvance: (amount: string) => `Pay ${amount} in Advance`,
     saveTag: (amount: string) => `Save ${amount}`,
