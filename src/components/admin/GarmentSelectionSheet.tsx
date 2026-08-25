@@ -109,6 +109,34 @@ export type SelectionSeedItem = Pick<
   | "placement"
 >;
 
+/**
+ * Row-level persistence for persist mode's save diff. The default writes
+ * through the admin table editor; the /app order page passes a customer
+ * adapter backed by the customer selection endpoints (same three ops,
+ * customer auth) so the identical sheet + UX serves both audiences.
+ */
+export interface SelectionRowPersistence {
+  deleteRow(item: GarmentOrderItemRow): Promise<void>;
+  createRow(payload: Record<string, unknown>): Promise<GarmentOrderItemRow>;
+  updateRow(
+    existing: GarmentOrderItemRow,
+    payload: Record<string, unknown>,
+  ): Promise<GarmentOrderItemRow>;
+}
+
+/** Admin default — the original behaviour (admin table editor CRUD). */
+const adminTablePersistence: SelectionRowPersistence = {
+  deleteRow: (item) => deleteTableRow("garment_orders_items", item.id),
+  createRow: (payload) =>
+    createTableRow<GarmentOrderItemRow>("garment_orders_items", payload),
+  // The table editor returns no body — reuse the payload as the row state,
+  // exactly what the pre-adapter code pushed into updatedItems.
+  updateRow: async (existing, payload) => {
+    await updateTableRow("garment_orders_items", existing.id, payload);
+    return { ...existing, ...payload } as GarmentOrderItemRow;
+  },
+};
+
 interface GarmentSelectionSheetProps {
   open: boolean;
   garmentId: string;
@@ -131,6 +159,11 @@ interface GarmentSelectionSheetProps {
   onClose: () => void;
   /** persist mode: called after a successful save with the refreshed rows. */
   onSaveComplete?: (items: GarmentOrderItemRow[]) => void;
+  /**
+   * Persist mode's row writer. Defaults to the admin table editor; the
+   * customer order page passes its own adapter (customer endpoints).
+   */
+  persistence?: SelectionRowPersistence;
   /** Draft mode: no writes; Apply hands the parent the desired items. */
   draftMode?: boolean;
   /** When true, shows a subtle "Saving order…" hint (external submit). */
@@ -184,6 +217,22 @@ function normalizePlacement(
 ): string | null {
   if (Array.isArray(p)) return p[0] ?? null;
   return p ?? null;
+}
+
+/**
+ * Desired items always carry a freshly-built snapshot ("Blouse length →
+ * Regular"), but rows written by the customer flow / older admin flows store
+ * none (NULL). A null stored snapshot can't differ from a built one —
+ * counting it would flag every seeded row as changed the moment the sheet
+ * opens ("Save 8 changes" on a untouched order). Compare only when a stored
+ * snapshot exists, the same spirit as the price exclusion in handleSave.
+ */
+function snapshotDiffers(
+  existing: string | Record<string, string> | null | undefined,
+  desired: string | Record<string, string> | null,
+): boolean {
+  if (existing == null) return false;
+  return existing !== (desired ?? null);
 }
 
 /** Normalize seed items (rows or drafts) into full rows for the diff base. */
@@ -320,6 +369,7 @@ export function GarmentSelectionSheet({
   aiPanel,
   onClose,
   onSaveComplete,
+  persistence,
   draftMode = false,
   draftSaving = false,
   onDraftChange,
@@ -598,7 +648,7 @@ export function GarmentSelectionSheet({
         existing.variation_type_id !== d.variation_type_id ||
         existing.addon_variation_id !== d.addon_variation_id ||
         normalizePlacement(existing.placement) !== (d.placement?.[0] ?? null) ||
-        (existing.label_snapshot ?? null) !== (d.label_snapshot ?? null)
+        snapshotDiffers(existing.label_snapshot, d.label_snapshot)
       ) {
         n++;
       }
@@ -750,11 +800,12 @@ export function GarmentSelectionSheet({
       const desiredKeys = new Set(desiredItems.map(desiredKey));
 
       const updatedItems: GarmentOrderItemRow[] = [];
+      const rowOps = persistence ?? adminTablePersistence;
 
       // 1. Delete items that are no longer desired
       for (const it of existingItems) {
         if (!desiredKeys.has(existingKey(it))) {
-          await deleteTableRow("garment_orders_items", it.id);
+          await rowOps.deleteRow(it);
         }
       }
 
@@ -785,20 +836,13 @@ export function GarmentSelectionSheet({
             existing.variation_type_id !== d.variation_type_id ||
             existing.addon_variation_id !== d.addon_variation_id ||
             normalizePlacement(existing.placement) !== (d.placement?.[0] ?? null) ||
-            (existing.label_snapshot ?? null) !== (d.label_snapshot ?? null);
+            snapshotDiffers(existing.label_snapshot, d.label_snapshot);
           if (needsUpdate) {
-            await updateTableRow(
-              "garment_orders_items",
-              existing.id,
-              payload,
-            );
+            await rowOps.updateRow(existing, payload);
           }
           updatedItems.push({ ...existing, ...payload } as GarmentOrderItemRow);
         } else {
-          const created = await createTableRow<GarmentOrderItemRow>(
-            "garment_orders_items",
-            payload,
-          );
+          const created = await rowOps.createRow(payload);
           updatedItems.push(created);
         }
       }
@@ -811,7 +855,7 @@ export function GarmentSelectionSheet({
     } finally {
       setSaving(false);
     }
-  }, [tree, desiredItems, existingItems, garmentOrderId, onSaveComplete]);
+  }, [tree, desiredItems, existingItems, garmentOrderId, onSaveComplete, persistence]);
 
   /** Draft mode: hand the parent the desired items + total, then close. */
   function applyDraft() {
@@ -839,6 +883,7 @@ export function GarmentSelectionSheet({
           {error}
         </div>
       ) : tree ? (
+        <>
         <div className="space-y-4">
           {/* Header: garment + live computed total */}
           <div className="flex items-center justify-between gap-3 rounded-card border border-hairline bg-mist-navy/20 px-3 py-2">
@@ -1102,9 +1147,16 @@ export function GarmentSelectionSheet({
               price refreshes below.
             </div>
           )}
+            </>
+          )}
+        </div>
 
-          {/* ── Footer ─────────────────────────────────────────────────── */}
-          <div className="flex gap-2 pt-1">
+        {/* ── Footer — pinned to the sheet's bottom edge while the catalog
+            scrolls above it (same sticky idiom as the order page CTA bar).
+            Outside the space-y-4 wrapper so its margin doesn't leak a
+            transparent gap above the border. ───────────────────────────── */}
+        {tab !== "reference" && (
+          <div className="sticky bottom-0 z-20 -mx-4 -mb-6 flex gap-2 border-t border-hairline bg-chalk-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-6px_16px_-8px_rgba(23,42,72,0.25)]">
             {savedCount !== null ? (
               <button
                 onClick={onClose}
@@ -1162,9 +1214,8 @@ export function GarmentSelectionSheet({
               </>
             )}
           </div>
-            </>
-          )}
-        </div>
+        )}
+        </>
       ) : null}
     </BottomSheet>
   );

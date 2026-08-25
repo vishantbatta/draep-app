@@ -51,13 +51,15 @@ export function validateOrder(orderId: string): Promise<ValidateOut> {
   return apiPost<ValidateOut>(`/orders/${orderId}/validate`);
 }
 
-// PUT /orders/{order_id}/selections/{component_id}
+// PUT /orders/{order_id}/selections/{component_id}?garment_order_id=…
+// garmentOrderId targets a specific garment card (the /app order page edit
+// flow); omitted = the order's first garment order (review-screen behaviour).
 export function updateSelection(
   orderId: string,
   componentId: string,
   variationId: string,
   variationTypeId?: string | null,
-  signal?: AbortSignal,
+  garmentOrderId?: string,
 ): Promise<OrderOut> {
   return apiPut<OrderOut>(
     `/orders/${orderId}/selections/${componentId}`,
@@ -65,7 +67,7 @@ export function updateSelection(
       variation_id: variationId,
       variation_type_id: variationTypeId ?? null,
     },
-    { signal },
+    { query: { garment_order_id: garmentOrderId } },
   );
 }
 
@@ -73,8 +75,11 @@ export function updateSelection(
 export function resetSelection(
   orderId: string,
   componentId: string,
+  garmentOrderId?: string,
 ): Promise<OrderOut> {
-  return apiDelete<OrderOut>(`/orders/${orderId}/selections/${componentId}`);
+  return apiDelete<OrderOut>(`/orders/${orderId}/selections/${componentId}`, {
+    query: { garment_order_id: garmentOrderId },
+  });
 }
 
 // PUT /orders/{order_id}/add-ons/{add_on_id}
@@ -83,6 +88,7 @@ export function upsertAddon(
   addOnId: string,
   addOnVariationId?: string | null,
   placement?: string | null,
+  garmentOrderId?: string,
 ): Promise<OrderOut> {
   return apiPut<OrderOut>(
     `/orders/${orderId}/add-ons/${addOnId}`,
@@ -90,6 +96,7 @@ export function upsertAddon(
       add_on_variation_id: addOnVariationId ?? null,
       placement: placement ?? null,
     },
+    { query: { garment_order_id: garmentOrderId } },
   );
 }
 
@@ -99,6 +106,7 @@ export function patchAddon(
   addOnId: string,
   addOnVariationId?: string | null,
   placement?: string | null,
+  garmentOrderId?: string,
 ): Promise<OrderOut> {
   return apiPatch<OrderOut>(
     `/orders/${orderId}/add-ons/${addOnId}`,
@@ -106,17 +114,19 @@ export function patchAddon(
       add_on_variation_id: addOnVariationId ?? null,
       placement: placement ?? null,
     },
+    { query: { garment_order_id: garmentOrderId } },
   );
 }
 
-// DELETE /orders/{order_id}/add-ons/{add_on_id}?placement=...
+// DELETE /orders/{order_id}/add-ons/{add_on_id}?placement=…
 export function removeAddon(
   orderId: string,
   addOnId: string,
   placement?: string | null,
+  garmentOrderId?: string,
 ): Promise<OrderOut> {
   return apiDelete<OrderOut>(`/orders/${orderId}/add-ons/${addOnId}`, {
-    query: placement ? { placement } : undefined,
+    query: { placement: placement ?? undefined, garment_order_id: garmentOrderId },
   });
 }
 

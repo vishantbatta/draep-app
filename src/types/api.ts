@@ -258,6 +258,13 @@ export interface OrderDetailItem {
   price: number | null;
   custom_input: Record<string, unknown> | null;
   source: string | null;
+  /** Raw ids — seed the order page's selection editor (GarmentSelectionSheet). */
+  item_id: string | null;
+  garment_style_component_id: string | null;
+  variation_id: string | null;
+  variation_type_id: string | null;
+  addon_id: string | null;
+  addon_variation_id: string | null;
 }
 
 export interface OrderDetailGarmentOrder {

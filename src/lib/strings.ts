@@ -328,6 +328,8 @@ export const strings = {
       "Anything your style captain should know — fit preferences, occasion, styling ideas…",
     noteSave: "Save note",
     noteError: "Couldn't save your note. Please try again.",
+    selectionsEditCta: "Edit selections",
+    selectionsCloseCta: "Close selections",
     summaryTitle: "Payment summary",
     total: "Order total",
     paid: "Paid",

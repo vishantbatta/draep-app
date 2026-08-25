@@ -60,12 +60,14 @@ import {
   Clock,
   HomeVisit,
   MapPin,
+  Pencil,
   Plus,
   ShieldCheck,
   Sparkles,
   Thread,
 } from "@/components/ui/icons";
 import { ApiError, addressesApi, checkoutApi, ordersApi } from "@/lib/api";
+import type { GarmentOrderItemRow } from "@/lib/admin-api";
 import { loadCashfree } from "@/lib/cashfree";
 import {
   displayOrderNumber,
@@ -77,10 +79,16 @@ import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
 import { AddressForm } from "@/components/contact/AddressForm";
 import { SlotSheet } from "@/components/order/SlotSheet";
+import {
+  GarmentSelectionSheet,
+  type SelectionRowPersistence,
+  type SelectionSeedItem,
+} from "@/components/admin/GarmentSelectionSheet";
 import type { Booking } from "@/types/booking";
 import type {
   Address,
   CustomerOrderDetail,
+  OrderDetailGarmentOrder,
   OrderDetailItem,
 } from "@/types/api";
 
@@ -304,6 +312,89 @@ export default function OrderDetailPage() {
   );
 }
 
+/* ─── Selection editing (same sheet as the admin dashboard) ────────────────── */
+
+/** Map the order-detail display rows to the seed shape the selection sheet
+ * reads. Only rows carrying their raw catalog ids can seed; the id fields
+ * are omitted on the wire only for exotic rows (custom-input-only). */
+function seedSelectionItems(g: OrderDetailGarmentOrder): SelectionSeedItem[] {
+  return g.items
+    .filter((i) =>
+      i.type === "selection" ? i.variation_id != null : i.addon_id != null,
+    )
+    .map((i) => ({
+      type: i.type === "selection" ? "variation" : "add_on",
+      garment_style_component_id: i.garment_style_component_id,
+      variation_id: i.variation_id,
+      variation_type_id: i.variation_type_id,
+      addon_id: i.addon_id,
+      addon_variation_id: i.addon_variation_id,
+      placement: i.placement,
+    }));
+}
+
+/**
+ * Customer-side row writer for the selection sheet — the same three ops the
+ * admin table editor performs, routed through the customer selection
+ * endpoints (scoped to one garment order of this order). The endpoints
+ * return the order envelope rather than the written row, so writeRow
+ * synthesizes one for the sheet's internal diff state; the page refetches
+ * the full detail right after save, so ids/labels re-derive from the server.
+ */
+function makeCustomerPersistence(
+  orderId: string,
+  garmentOrderId: string,
+): SelectionRowPersistence {
+  const writeRow = async (
+    existing: GarmentOrderItemRow | undefined,
+    payload: Record<string, unknown>,
+  ): Promise<GarmentOrderItemRow> => {
+    if (payload.type === "add_on") {
+      await ordersApi.upsertAddon(
+        orderId,
+        payload.addon_id as string,
+        (payload.addon_variation_id as string | null) ?? null,
+        ((payload.placement as string[] | null) ?? [])[0] ?? null,
+        garmentOrderId,
+      );
+    } else {
+      await ordersApi.updateSelection(
+        orderId,
+        payload.garment_style_component_id as string,
+        payload.variation_id as string,
+        (payload.variation_type_id as string | null) ?? null,
+        garmentOrderId,
+      );
+    }
+    return { ...(existing ?? {}), ...payload } as GarmentOrderItemRow;
+  };
+
+  return {
+    async deleteRow(item) {
+      if (item.type === "add_on") {
+        await ordersApi.removeAddon(
+          orderId,
+          item.addon_id ?? "",
+          item.placement?.[0] ?? null,
+          garmentOrderId,
+        );
+      } else {
+        // The customer API has no "remove component" — DELETE resets the
+        // component to its catalog default, the closest safe outcome. (The
+        // sheet only emits this op for server rows with no counterpart in
+        // the current tree, so it rarely fires.)
+        await ordersApi.resetSelection(
+          orderId,
+          item.garment_style_component_id ?? "",
+          garmentOrderId,
+        );
+      }
+    },
+    createRow: (payload) => writeRow(undefined, payload),
+    updateRow: (existing, payload) => writeRow(existing, payload),
+  };
+}
+
 function OrderDetailContent() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -339,6 +430,10 @@ function OrderDetailContent() {
   const [noteDraft, setNoteDraft] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
+
+  /* ── Selection editing — the same GarmentSelectionSheet the admin
+     dashboard uses, persisted through the customer selection endpoints. */
+  const [editingGOId, setEditingGOId] = useState<string | null>(null);
 
   const openNoteEditor = (garmentOrderId: string, currentNote: string | null) => {
     setNoteDraft(currentNote ?? "");
@@ -436,6 +531,10 @@ function OrderDetailContent() {
 
   /* ── Detail ──────────────────────────────────────────────────────────── */
   const isDraft = detail.fulfillment_status === "draft";
+  // Selection editing mirrors the server gate exactly: editable while no
+  // money has moved (paid orders would desync items from the invoice).
+  const selectionsEditable =
+    detail.payment_status !== "paid" && detail.paid_amount === 0;
   // The slot drives the visit time; orders booked before slots were linked
   // (slot: null) still have it on the measurement job, so fall back there.
   const visit =
@@ -805,6 +904,24 @@ function OrderDetailContent() {
               </>
             )}
 
+            {/* Edit selections — same sheet + flow as the admin dashboard's
+                edit-selections, persisted via the customer endpoints. Only
+                while no money has moved (paid orders are locked). */}
+            {selectionsEditable && g.garment_id && (
+              <button
+                type="button"
+                onClick={() =>
+                  setEditingGOId((cur) => (cur === g.id ? null : g.id))
+                }
+                className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-[0.98] active:bg-mist-navy"
+              >
+                <Pencil size={14} />
+                {editingGOId === g.id
+                  ? strings.orderDetail.selectionsCloseCta
+                  : strings.orderDetail.selectionsEditCta}
+              </button>
+            )}
+
             {/* Customer note — the customer's message for the style
                 captain. Editable at every order state; MYOD orders start
                 empty (the design itself lives in the selection rows). */}
@@ -834,6 +951,26 @@ function OrderDetailContent() {
                 <Thread size={14} />
                 {strings.orderDetail.noteAddCta}
               </button>
+            )}
+
+            {/* The selection editor — identical UX to the admin dashboard
+                (catalog tree, component pills, add-on matrix), saving through
+                the customer selection endpoints instead of the admin tables.
+                Prices never round-trip: totals re-derive server-side and the
+                refetch repaints the card. */}
+            {selectionsEditable && g.garment_id && (
+              <GarmentSelectionSheet
+                open={editingGOId === g.id}
+                garmentId={g.garment_id}
+                garmentOrderId={g.id}
+                initialItems={seedSelectionItems(g)}
+                basePrice={g.base_price}
+                persistence={makeCustomerPersistence(detail.id, g.id)}
+                onClose={() => setEditingGOId(null)}
+                onSaveComplete={() => {
+                  void refreshDetail();
+                }}
+              />
             )}
 
             <div className="mt-4 border-t border-hairline pt-2">
