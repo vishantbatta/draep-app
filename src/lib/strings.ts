@@ -499,7 +499,7 @@ export const strings = {
     completeOrder: "Complete Order",
     // Pricing shown alongside options and as a running total
     estTotal: "Estimated total",
-    priceBaseNote: "incl. base",
+    priceTaxNote: "including taxes",
     priceSheetTitle: "Price breakdown",
     priceBaseLine: "Base blouse",
     priceSheetNote:

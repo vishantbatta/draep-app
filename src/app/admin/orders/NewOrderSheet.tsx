@@ -161,6 +161,9 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
   const [addressesLoading, setAddressesLoading] = useState(false);
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
   const [showNewAddressForm, setShowNewAddressForm] = useState(false);
+  // Like the Measurement Job step's "Skip for now" — the order is created
+  // with no address (added later from the order page).
+  const [skipAddress, setSkipAddress] = useState(false);
   const [newAddr, setNewAddr] = useState({
     address_line_1: "",
     address_line_2: "",
@@ -206,6 +209,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
     setAddresses([]);
     setSelectedAddressId("");
     setShowNewAddressForm(false);
+    setSkipAddress(false);
     setNewAddr({ address_line_1: "", address_line_2: "", city: "", state: "", pincode: "" });
     setAddrSearch("");
     setAddrResults([]);
@@ -253,10 +257,12 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
           perPage: 1,
         });
         const user = rows[0] ?? null;
-        if (user && user.role && user.role !== "customer") {
-          // Exists but is not a customer (e.g. style_captain, admin)
+        const userRoles = user?.roles ?? [];
+        const isCustomer = userRoles.includes("customer");
+        if (user && !isCustomer) {
+          // Exists but holds no customer role (e.g. style_captain, admin)
           setFoundUser(null);
-          setNonCustomerRole(user.role);
+          setNonCustomerRole(userRoles[0] ?? "staff");
           setUserSearched(true);
         } else {
           setFoundUser(user);
@@ -368,6 +374,9 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
       case 1: // Garments
         return garmentDrafts.length > 0 && garmentDrafts.every((g) => g.garmentId);
       case 2: // Address
+        // "Skip for now" passes the step (a fully-typed new-address form
+        // still wins at submit time — see handleSubmit).
+        if (skipAddress) return true;
         // The new-address form is active when:
         //   - user explicitly toggled it on, OR
         //   - there are no existing addresses to choose from, OR
@@ -390,7 +399,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
       default:
         return false;
     }
-  }, [step, foundUser, userSearched, newUserName, garmentDrafts, showNewAddressForm, newAddr, selectedAddressId, jobChoice, selectedSlot]);
+  }, [step, foundUser, userSearched, newUserName, garmentDrafts, showNewAddressForm, newAddr, selectedAddressId, skipAddress, jobChoice, selectedSlot]);
 
   // ── Garment draft helpers ──────────────────────────────────────────────────
   function addGarmentDraft() {
@@ -526,7 +535,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
           name: newUserName.trim(),
           phone: phoneInput.trim(),
           country_code: countryCode,
-          role: "customer",
+          roles: ["customer"],
           // New customer → acquisition is first-touch; mirror onto the user.
           ...acquisitionPayload(acquisition),
         });
@@ -662,18 +671,27 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
           name: newUserName.trim(),
           phone: phoneInput.trim(),
           country_code: countryCode,
-          role: "customer",
+          roles: ["customer"],
           // New customer → acquisition is first-touch; mirror onto the user.
           ...acquisitionPayload(acquisition),
         });
         customerId = newUser.id;
       }
 
-      // 2. Resolve address
+      // 2. Resolve address. "Skip for now" creates no address row and leaves
+      // order.address_id null (added later from the order page) — but a
+      // fully-typed new-address form wins over the skip toggle.
       let addressId: string | null = null;
       const isNewAddressMode =
         showNewAddressForm || !foundUser || addresses.length === 0;
-      if (isNewAddressMode) {
+      const completeNewAddress = !!(
+        newAddr.address_line_1.trim() &&
+        newAddr.city.trim() &&
+        newAddr.state.trim() &&
+        newAddr.pincode.trim()
+      );
+      const useAddress = !skipAddress || completeNewAddress || !!selectedAddressId;
+      if (useAddress && isNewAddressMode) {
         const created = await createTableRow<AddressRow>("addresses", {
           user_id: customerId,
           address_line_1: newAddr.address_line_1.trim() || null,
@@ -684,7 +702,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
           coordinates: pinCoords ?? null,
         });
         addressId = created.id;
-      } else {
+      } else if (useAddress) {
         addressId = selectedAddressId || null;
       }
 
@@ -1085,6 +1103,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
               <button
                 onClick={() => {
                   setShowNewAddressForm(false);
+                  setSkipAddress(false);
                   setNewAddr({ address_line_1: "", address_line_2: "", city: "", state: "", pincode: "" });
                   setAddrSearch("");
                   setPinCoords(null);
@@ -1101,6 +1120,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
               <button
                 onClick={() => {
                   setShowNewAddressForm(true);
+                  setSkipAddress(false);
                   setSelectedAddressId("");
                 }}
                 className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition ${
@@ -1135,7 +1155,10 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
                     name="address"
                     value={addr.id}
                     checked={selectedAddressId === addr.id}
-                    onChange={(e) => setSelectedAddressId(e.target.value)}
+                    onChange={(e) => {
+                      setSkipAddress(false);
+                      setSelectedAddressId(e.target.value);
+                    }}
                     className="mt-0.5"
                   />
                   <div className="text-xs text-ink">
@@ -1319,6 +1342,28 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
           {foundUser && addressesLoading && addresses.length === 0 && (
             <div className="text-center text-xs text-muted py-2">Loading addresses…</div>
           )}
+
+          {/* ── Skip (like the Measurement Job step) ─────────────────────── */}
+          <label className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition ${
+            skipAddress
+              ? "border-ink-navy bg-mist-navy/20"
+              : "border-hairline-strong bg-chalk-white hover:bg-mist-navy/10"
+          }`}>
+            <input
+              type="radio"
+              name="addressChoice"
+              value="skip"
+              checked={skipAddress}
+              onChange={() => setSkipAddress(true)}
+              className="mt-0.5"
+            />
+            <div>
+              <div className="text-sm font-medium text-ink-navy">Skip for now</div>
+              <div className="text-[11px] text-muted">
+                Create the order without an address — add it later from the order page.
+              </div>
+            </div>
+          </label>
         </div>
       )}
 

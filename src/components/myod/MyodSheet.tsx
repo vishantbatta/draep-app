@@ -859,7 +859,7 @@ export function MyodSheet({
                 {strings.myod.estTotal}
               </span>
               <span className="text-[11px] leading-tight text-muted">
-                {strings.myod.priceBaseNote} {formatPrice(priceBreakdown.base)}
+                {strings.myod.priceTaxNote}
               </span>
             </span>
             <span className="flex items-center gap-1 font-heading text-h3 font-semibold leading-none text-ink-navy">
