@@ -163,7 +163,7 @@ export function AppTabs() {
  * circular well behind its icon (Brand Book §4 — orange as the spice, a
  * small area on a light surface, never flattened) with the ember CTA glow.
  * Inactive tabs use the Brand Book secondary text color and lift to full
- * ink on hover with a mist-navy wash.
+ * ink with a mist-navy wash while pressed.
  */
 function BottomTabBar({
   tab,
@@ -201,7 +201,7 @@ function BottomTabBar({
                 className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-200 ease-brand ${
                   active
                     ? "bg-tape text-chalk-white shadow-primary"
-                    : "text-muted group-hover:bg-mist-navy group-hover:text-ink-navy"
+                    : "text-muted group-active:bg-mist-navy group-active:text-ink-navy"
                 }`}
               >
                 {it.icon}
@@ -210,7 +210,7 @@ function BottomTabBar({
                 className={`text-[11px] leading-none transition-colors duration-200 ease-brand ${
                   active
                     ? "font-semibold text-ink-navy"
-                    : "font-medium text-muted group-hover:text-ink-navy"
+                    : "font-medium text-muted group-active:text-ink-navy"
                 }`}
               >
                 {it.label}
@@ -502,7 +502,7 @@ function ProfileTab() {
           <Link
             href="/app/account"
             aria-label={strings.dashboard.account}
-            className="flex h-11 w-11 flex-none items-center justify-center rounded-pill text-ink-navy transition hover:bg-mist-navy"
+            className="flex h-11 w-11 flex-none items-center justify-center rounded-pill text-ink-navy transition-all ease-brand active:scale-95 active:bg-mist-navy"
           >
             <User size={18} />
           </Link>

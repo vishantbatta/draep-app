@@ -1419,7 +1419,7 @@ function CompletionPage({
                     className={`relative aspect-[3/4] h-full touch-pan-y overflow-hidden rounded-card bg-mist-navy shadow-card transition-all ease-brand ${
                       active === v.view
                         ? "ring-2 ring-draep-orange ring-offset-2 ring-offset-warm-sand"
-                        : "opacity-60 hover:opacity-100"
+                        : "opacity-60 active:opacity-100"
                     }`}
                   >
                     {v.url ? (
@@ -1550,7 +1550,7 @@ function CompletionPage({
               type="button"
               onClick={onRegenerate}
               disabled={busy || orderBusy}
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-pill border border-hairline-strong bg-chalk-white px-2 text-caption font-semibold text-ink-navy transition-all ease-brand hover:border-navy-interactive active:scale-[0.98] disabled:opacity-60"
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-pill border border-hairline-strong bg-chalk-white px-2 text-caption font-semibold text-ink-navy transition-all ease-brand active:scale-[0.98] active:border-navy-interactive disabled:opacity-60"
             >
               {busy ? <BrandSpinner size={16} /> : <Sparkles size={16} />}
               {strings.myod.regenerate}
@@ -1569,7 +1569,7 @@ function CompletionPage({
           <button
             type="button"
             onClick={onKeepEditing}
-            className="mx-auto text-caption font-semibold text-navy-interactive underline-offset-4 transition-colors hover:text-ink-navy hover:underline"
+            className="mx-auto text-caption font-semibold text-navy-interactive underline-offset-4 transition-opacity ease-brand active:opacity-60"
           >
             {strings.myod.finalKeepEditing}
           </button>
@@ -1592,7 +1592,7 @@ function CompletionPage({
               type="button"
               onClick={() => setLightbox(null)}
               aria-label="Close full size view"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/10 text-chalk-white transition-colors hover:bg-white/20"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/10 text-chalk-white transition-all ease-brand active:scale-95 active:bg-white/20"
             >
               <Close size={18} />
             </button>
@@ -1603,7 +1603,7 @@ function CompletionPage({
                 type="button"
                 onClick={() => step(-1)}
                 aria-label="Previous view"
-                className="absolute left-1 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-chalk-white transition-colors hover:bg-white/20"
+                className="absolute left-1 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-chalk-white transition-all ease-brand active:scale-95 active:bg-white/20"
               >
                 <ArrowLeft size={18} />
               </button>
@@ -1619,7 +1619,7 @@ function CompletionPage({
                 type="button"
                 onClick={() => step(1)}
                 aria-label="Next view"
-                className="absolute right-1 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-chalk-white transition-colors hover:bg-white/20"
+                className="absolute right-1 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-chalk-white transition-all ease-brand active:scale-95 active:bg-white/20"
               >
                 <ArrowRight size={18} />
               </button>
@@ -1743,7 +1743,7 @@ function StepCards({
             <button
               type="button"
               onClick={onBack}
-              className="flex items-center gap-1 rounded-pill border border-hairline bg-chalk-white px-2.5 py-1 text-caption font-medium text-navy-interactive shadow-card transition-all ease-brand hover:border-navy-interactive hover:text-ink-navy active:scale-[0.97]"
+              className="flex items-center gap-1 rounded-pill border border-hairline bg-chalk-white px-2.5 py-1 text-caption font-medium text-navy-interactive shadow-card transition-all ease-brand active:scale-[0.97] active:border-navy-interactive"
             >
               <ArrowLeft size={14} />
               <span>Back</span>
@@ -1958,7 +1958,7 @@ function ExtrasRow({
         "group flex w-full items-center gap-3 rounded-card border bg-chalk-white p-2.5 text-left shadow-card transition-all ease-brand active:scale-[0.99] disabled:opacity-50 " +
         (isSet
           ? "border-accent-text/40"
-          : "border-hairline hover:border-navy-interactive hover:shadow-brand")
+          : "border-hairline active:border-navy-interactive active:shadow-brand")
       }
     >
       {/* Thumbnail / placeholder */}
@@ -2008,7 +2008,7 @@ function ExtrasRow({
             }
           }}
           aria-label={`Clear ${component.label}`}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-mist-navy hover:text-ink-navy"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-all ease-brand active:scale-90 active:bg-mist-navy active:text-ink-navy"
         >
           <Close size={14} />
         </span>
@@ -2096,7 +2096,7 @@ function TypeSheet({
                 "group/sub flex flex-col overflow-hidden rounded-card border text-left transition-all ease-brand active:scale-[0.98] disabled:opacity-50 " +
                 (selected
                   ? "border-accent-text bg-chalk-white shadow-card"
-                  : "border-hairline bg-chalk-white hover:border-navy-interactive")
+                  : "border-hairline bg-chalk-white active:border-navy-interactive")
               }
             >
               <div className="relative aspect-square w-full bg-mist-navy">
@@ -2105,7 +2105,7 @@ function TypeSheet({
                   <img
                     src={sub.assetUrl}
                     alt=""
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover/sub:scale-105"
+                    className="h-full w-full object-cover"
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center">
@@ -2178,7 +2178,7 @@ function AxisValueCard({
         "group/axis flex flex-col overflow-hidden rounded-card border text-left transition-all ease-brand active:scale-[0.98] disabled:opacity-40 " +
         (selected
           ? "border-accent-text bg-chalk-white shadow-card"
-          : "border-hairline bg-chalk-white hover:border-navy-interactive")
+          : "border-hairline bg-chalk-white active:border-navy-interactive")
       }
     >
       <div className="relative h-28 w-full bg-mist-navy">
@@ -2187,7 +2187,7 @@ function AxisValueCard({
           <img
             src={img}
             alt=""
-            className="h-full w-full object-cover transition-transform duration-300 group-hover/axis:scale-105"
+            className="h-full w-full object-cover"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
@@ -2680,7 +2680,7 @@ function ExtrasPicker({
                 "group relative flex w-full flex-row items-stretch overflow-hidden rounded-card border text-left transition-all ease-brand disabled:opacity-50 " +
                 (selected
                   ? "border-accent-text bg-chalk-white shadow-card"
-                  : "border-hairline bg-chalk-white shadow-card hover:border-navy-interactive hover:shadow-brand")
+                  : "border-hairline bg-chalk-white shadow-card active:border-navy-interactive active:shadow-brand")
               }
             >
               {selected && (
@@ -2726,7 +2726,7 @@ function ExtrasPicker({
                     <img
                       src={opt.assetUrl}
                       alt=""
-                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      className="h-full w-full object-cover"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center">
@@ -2834,7 +2834,7 @@ function PickerFooter({
                   "rounded-pill border px-2.5 py-1 text-caption leading-tight transition-all ease-brand active:scale-[0.97] disabled:opacity-50 " +
                   (sel
                     ? "border-transparent bg-tape text-chalk-white"
-                    : "border-hairline-strong bg-chalk-white text-ink hover:border-navy-interactive")
+                    : "border-hairline-strong bg-chalk-white text-ink active:border-navy-interactive")
                 }
                 style={
                   sel ? { backgroundImage: "var(--tape-gradient)" } : undefined
@@ -2851,7 +2851,7 @@ function PickerFooter({
           type="button"
           onClick={onConfirm}
           disabled={!canConfirm}
-          className="rounded-pill bg-tape px-5 py-2.5 text-body font-semibold text-chalk-white shadow-primary transition-all ease-brand hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+          className="rounded-pill bg-tape px-5 py-2.5 text-body font-semibold text-chalk-white shadow-primary transition-all ease-brand active:scale-[0.98] disabled:opacity-50"
           style={{ backgroundImage: "var(--tape-gradient)" }}
         >
           {confirmLabel}
@@ -2977,7 +2977,7 @@ function ComponentCards({
                 "group relative flex w-full flex-row items-stretch overflow-hidden rounded-card border text-left transition-all ease-brand disabled:opacity-50 " +
                 (selected
                   ? "border-accent-text bg-chalk-white shadow-card"
-                  : "border-hairline bg-chalk-white shadow-card hover:border-navy-interactive hover:shadow-brand")
+                  : "border-hairline bg-chalk-white shadow-card active:border-navy-interactive active:shadow-brand")
               }
             >
               {selected && (
@@ -3011,7 +3011,7 @@ function ComponentCards({
                     <img
                       src={opt.assetUrl}
                       alt=""
-                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      className="h-full w-full object-cover"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center">
@@ -3180,7 +3180,7 @@ function ErrorStage({
       <button
         type="button"
         onClick={onRetry}
-        className="mt-1 rounded-pill bg-tape px-5 py-2.5 text-body font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98]"
+        className="mt-1 rounded-pill bg-tape px-5 py-2.5 text-body font-semibold text-chalk-white shadow-primary transition-all ease-brand active:scale-[0.98]"
         style={{ backgroundImage: "var(--tape-gradient)" }}
       >
         {strings.myod.errorRetry}

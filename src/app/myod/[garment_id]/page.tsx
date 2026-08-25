@@ -36,7 +36,7 @@ export default function MyodPage() {
             type="button"
             onClick={() => router.push("/library")}
             aria-label="Back to library"
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-chalk-white/25 bg-chalk-white/10 text-chalk-white transition-colors hover:bg-chalk-white/20"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-chalk-white/25 bg-chalk-white/10 text-chalk-white transition-all ease-brand active:scale-95 active:bg-chalk-white/20"
           >
             <ArrowLeft size={20} />
           </button>

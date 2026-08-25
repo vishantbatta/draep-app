@@ -593,7 +593,7 @@ function DetailFooter({
           type="button"
           onClick={onTryOn}
           disabled={ordering}
-          className="flex items-center justify-center gap-2 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-semibold text-ink-navy transition-all hover:border-navy-interactive active:scale-[0.98] disabled:opacity-50"
+          className="flex items-center justify-center gap-2 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-semibold text-ink-navy transition-all ease-brand active:scale-[0.98] active:border-navy-interactive disabled:opacity-50"
         >
           <Sparkles size={16} className="text-draep-orange" />
           {strings.tryOn.cta}
@@ -603,7 +603,7 @@ function DetailFooter({
           type="button"
           onClick={onOrder}
           disabled={ordering}
-          className="flex items-center justify-center gap-2 rounded-pill px-4 py-3 text-body font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-60"
+          className="flex items-center justify-center gap-2 rounded-pill px-4 py-3 text-body font-semibold text-chalk-white shadow-primary transition-all ease-brand active:scale-[0.98] disabled:opacity-60"
           style={{ backgroundImage: "var(--tape-gradient)" }}
         >
           {ordering && (
@@ -646,7 +646,7 @@ function LibraryCard({
     <button
       type="button"
       onClick={onSelect}
-      className="group flex w-full flex-col overflow-hidden rounded-card border border-hairline bg-chalk-white text-left shadow-card transition-all ease-brand hover:-translate-y-0.5 hover:shadow-brand active:scale-[0.99]"
+      className="group flex w-full flex-col overflow-hidden rounded-card border border-hairline bg-chalk-white text-left shadow-card transition-all ease-brand active:scale-[0.99] active:shadow-brand"
     >
       {/* ── Image zone — hugs the photo's own aspect ratio ────── */}
       <div className="relative w-full overflow-hidden bg-mist-navy">
@@ -656,7 +656,7 @@ function LibraryCard({
             src={item.hero_image_url}
             alt={title}
             loading="lazy"
-            className="relative block h-auto w-full object-cover transition-transform duration-500 ease-brand group-hover:scale-[1.03]"
+            className="relative block h-auto w-full object-cover"
           />
         ) : (
           // No photo — soft catalogue placeholder (Brand Book §6 .ph)
@@ -677,7 +677,7 @@ function LibraryCard({
         )}
 
         {/* Open affordance */}
-        <span className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-chalk-white/90 text-ink-navy shadow-card transition-colors group-hover:bg-chalk-white">
+        <span className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-chalk-white/90 text-ink-navy shadow-card transition-transform ease-brand active:scale-90">
           <ChevronRight size={14} />
         </span>
       </div>
@@ -884,7 +884,7 @@ function MyodBanner() {
     <Link
       href="/myod/blouse"
       onClick={() => track({ event: "myod_opened", source: "library" })}
-      className="group mb-4 flex w-full flex-col overflow-hidden rounded-card border border-hairline bg-chalk-white text-left shadow-card transition-all ease-brand hover:-translate-y-0.5 hover:shadow-brand active:scale-[0.99]"
+      className="group mb-4 flex w-full flex-col overflow-hidden rounded-card border border-hairline bg-chalk-white text-left shadow-card transition-all ease-brand active:scale-[0.99] active:shadow-brand"
     >
       {/* Tape-strip seam — the brand signature (draep.html .tape-strip) */}
       <div aria-hidden className="lp-tape-strip" />
@@ -905,7 +905,7 @@ function MyodBanner() {
           </p>
 
           {/* CTA — tape-gradient pill, the single gradient element (Brand Book §8) */}
-          <span className="mt-3 inline-flex items-center gap-1.5 rounded-pill bg-tape px-3.5 py-1.5 text-caption font-semibold text-chalk-white shadow-primary transition-transform ease-brand group-hover:translate-x-0.5"
+          <span className="mt-3 inline-flex items-center gap-1.5 rounded-pill bg-tape px-3.5 py-1.5 text-caption font-semibold text-chalk-white shadow-primary"
             style={{ backgroundImage: "var(--tape-gradient)" }}
           >
             {strings.myod.bannerCta}
@@ -961,7 +961,7 @@ function FilterBar({
       <button
         type="button"
         onClick={() => onOpen(null)}
-        className="flex shrink-0 items-center gap-1.5 rounded-pill border-2 border-ink-navy bg-warm-sand px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-ink-navy shadow-card transition-all hover:shadow-brand active:scale-[0.97]"
+        className="flex shrink-0 items-center gap-1.5 rounded-pill border-2 border-ink-navy bg-warm-sand px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-ink-navy shadow-card transition-all ease-brand active:scale-[0.97] active:shadow-brand"
       >
         <Tune size={14} className="text-draep-orange" />
         {strings.libraryFilters.allFilters}
@@ -993,7 +993,7 @@ function UpfrontChip({
       className={`flex shrink-0 items-center gap-1.5 rounded-pill border px-3 py-1.5 text-caption font-semibold transition-all active:scale-[0.97] ${
         active
           ? "border-ink-navy bg-ink-navy text-chalk-white"
-          : "border-hairline-strong bg-chalk-white text-ink-navy hover:border-navy-interactive"
+          : "border-hairline-strong bg-chalk-white text-ink-navy active:border-navy-interactive"
       }`}
     >
       {label}
@@ -1040,7 +1040,7 @@ function ActiveFilterChips({
           key={`${a.key}:${a.value}`}
           type="button"
           onClick={() => onRemove(a.key, a.value)}
-          className="flex items-center gap-1 rounded-pill border border-hairline bg-chalk-white px-2.5 py-1 text-[11px] font-medium text-ink-navy transition-colors hover:border-navy-interactive"
+          className="flex items-center gap-1 rounded-pill border border-hairline bg-chalk-white px-2.5 py-1 text-[11px] font-medium text-ink-navy transition-all ease-brand active:scale-95 active:border-navy-interactive"
         >
           <span className="max-w-40 truncate">{a.label}</span>
           <Close size={10} className="shrink-0 text-muted" />
@@ -1049,7 +1049,7 @@ function ActiveFilterChips({
       <button
         type="button"
         onClick={onClearAll}
-        className="rounded-pill px-2 py-1 text-[11px] font-semibold text-draep-orange underline-offset-2 hover:underline"
+        className="rounded-pill px-2 py-1 text-[11px] font-semibold text-draep-orange underline-offset-2 transition-opacity ease-brand active:opacity-60"
       >
         {strings.libraryFilters.clearAll}
       </button>
@@ -1097,7 +1097,7 @@ function NoMatchesState({ onClear }: { onClear: () => void }) {
       <button
         type="button"
         onClick={onClear}
-        className="rounded-pill border border-hairline-strong bg-chalk-white px-4 py-2 text-caption font-medium text-ink-navy transition-colors hover:border-navy-interactive"
+        className="rounded-pill border border-hairline-strong bg-chalk-white px-4 py-2 text-caption font-medium text-ink-navy transition-all ease-brand active:scale-[0.97] active:border-navy-interactive"
       >
         {strings.libraryFilters.clearFilters}
       </button>
@@ -1167,7 +1167,7 @@ function ListError({
       <button
         type="button"
         onClick={onRetry}
-        className="rounded-pill border border-hairline-strong bg-chalk-white px-4 py-2 text-caption font-medium text-ink-navy transition-colors hover:border-navy-interactive"
+        className="rounded-pill border border-hairline-strong bg-chalk-white px-4 py-2 text-caption font-medium text-ink-navy transition-all ease-brand active:scale-[0.97] active:border-navy-interactive"
       >
         Try again
       </button>

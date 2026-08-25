@@ -517,7 +517,7 @@ function OrderDetailContent() {
             href="https://wa.me/918147497006"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-pill border-[1.5px] border-ink-navy px-3 text-caption font-semibold text-ink-navy transition-all duration-200 ease-brand hover:bg-mist-navy"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-pill border-[1.5px] border-ink-navy px-3 text-caption font-semibold text-ink-navy transition-all duration-200 ease-brand active:scale-[0.97] active:bg-mist-navy"
           >
             <ChatBubble size={16} />
             {strings.orderDetail.support}
@@ -771,7 +771,7 @@ function OrderDetailContent() {
                 <button
                   type="button"
                   onClick={() => setPickerOpen(true)}
-                  className="flex-none rounded-pill px-2 py-1 text-caption font-semibold text-navy-interactive transition hover:bg-mist-navy"
+                    className="flex-none rounded-pill px-2 py-1 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-95 active:bg-mist-navy"
                 >
                   {strings.orderDetail.changeAddress}
                 </button>
@@ -902,7 +902,7 @@ function OrderDetailContent() {
                 className={`mt-3 flex w-full items-start gap-3 rounded-card border-[1.5px] p-4 text-left transition ${
                   selected
                     ? "border-navy-interactive bg-mist-navy/50"
-                    : "border-hairline bg-chalk-white hover:bg-mist-navy/30"
+                    : "border-hairline bg-chalk-white active:bg-mist-navy/30"
                 }`}
               >
                 <span
@@ -945,7 +945,7 @@ function OrderDetailContent() {
           <button
             type="button"
             onClick={() => setAddOpen(true)}
-            className="mt-3 flex w-full items-center gap-3 rounded-card border border-dashed border-hairline-strong bg-chalk-white/70 p-4 text-left transition hover:bg-mist-navy/40"
+            className="mt-3 flex w-full items-center gap-3 rounded-card border border-dashed border-hairline-strong bg-chalk-white/70 p-4 text-left transition-all ease-brand active:scale-[0.99] active:bg-mist-navy/40"
           >
             <span
               aria-hidden
@@ -1023,7 +1023,7 @@ function OrderDetailContent() {
               setPayChoiceOpen(false);
               void handlePay();
             }}
-            className="flex w-full items-center gap-3 rounded-card border-[1.5px] border-hairline bg-chalk-white p-4 text-left transition hover:bg-mist-navy/30 disabled:opacity-50"
+            className="flex w-full items-center gap-3 rounded-card border-[1.5px] border-hairline bg-chalk-white p-4 text-left transition-all ease-brand active:scale-[0.99] active:bg-mist-navy/30 disabled:opacity-50"
           >
             <span
               aria-hidden
@@ -1048,7 +1048,7 @@ function OrderDetailContent() {
             type="button"
             disabled={choosingCod}
             onClick={() => setCodConfirmOpen(true)}
-            className="mt-3 flex w-full items-center gap-3 rounded-card border-[1.5px] border-hairline bg-chalk-white p-4 text-left transition hover:bg-mist-navy/30 disabled:opacity-50"
+            className="mt-3 flex w-full items-center gap-3 rounded-card border-[1.5px] border-hairline bg-chalk-white p-4 text-left transition-all ease-brand active:scale-[0.99] active:bg-mist-navy/30 disabled:opacity-50"
           >
             <span
               aria-hidden
