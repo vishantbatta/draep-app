@@ -62,6 +62,7 @@ type Phase = "loading-tree" | "ready" | "generating" | "error";
 export function MyodSheet({
   garmentId,
   footerInset,
+  onBackChange,
 }: {
   garmentId?: string;
   /**
@@ -71,6 +72,13 @@ export function MyodSheet({
    * bar drops its own in that case.
    */
   footerInset?: string;
+  /**
+   * Hosts that render their own Back affordance (the /app create tab puts it
+   * in the page header) get the current step-back action reported here — a
+   * callable while a previous step exists, null otherwise. While set,
+   * MyodSheet hides its own in-flow Back pill.
+   */
+  onBackChange?: (back: (() => void) | null) => void;
 }) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("loading-tree");
@@ -214,6 +222,28 @@ export function MyodSheet({
   }, [garmentId]);
 
   const activeStep: DesignStep | undefined = steps[activeStepIdx];
+
+  // ── Hosted Back button ─────────────────────────────────────────────
+  // Report the step-back action to the host header while a previous step
+  // exists (and suppress our own in-flow pill). The effect only fires on
+  // availability flips — the reported closure reads no render state.
+  const hostedBackAvailable =
+    !!onBackChange &&
+    !finished &&
+    activeStepIdx > 0 &&
+    phase !== "loading-tree" &&
+    !(phase === "error" && !frontSvg);
+  useEffect(() => {
+    if (!onBackChange) return;
+    onBackChange(
+      hostedBackAvailable
+        ? () => setActiveStepIdx((i) => Math.max(0, i - 1))
+        : null,
+    );
+  }, [hostedBackAvailable, onBackChange]);
+  // Clear the hosted button if the configurator unmounts (tab closes).
+  useEffect(() => () => onBackChange?.(null), [onBackChange]);
+
   // Default selection per component — used to resolve the EFFECTIVE config
   // (explicit ∪ defaults) when deciding whether an edit changes the design.
   const defaultsMap = useMemo(() => defaultSelections(steps), [steps]);
@@ -791,9 +821,12 @@ export function MyodSheet({
               disabled={false}
               generating={phase === "generating"}
               onBack={
-                activeStepIdx > 0
-                  ? () => setActiveStepIdx((i) => Math.max(0, i - 1))
-                  : undefined
+                // Hosted (header) Back owns this while onBackChange is set.
+                onBackChange
+                  ? undefined
+                  : activeStepIdx > 0
+                    ? () => setActiveStepIdx((i) => Math.max(0, i - 1))
+                    : undefined
               }
               onSelect={handleSelectOption}
             />

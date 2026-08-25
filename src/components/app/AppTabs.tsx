@@ -39,6 +39,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { MonoNumber } from "@/components/ui/MonoNumber";
 import {
+  ArrowLeft,
   Calendar,
   Check,
   ChevronRight,
@@ -241,6 +242,18 @@ function CreateTab() {
     track({ event: "myod_opened", source: "app_create_tab" });
   }, []);
 
+  // Step-back action reported by the configurator. While set, the header
+  // shows it in place of the scissors badge; the configurator hides its
+  // own in-flow Back pill. Boxed in an object on purpose: a bare function
+  // passed to setState would be INVOKED as a state updater (reverting the
+  // step it belongs to) — an object is stored as-is.
+  const [headerBack, setHeaderBack] = useState<{ back: (() => void) | null }>({
+    back: null,
+  });
+  const handleBackChange = useCallback((back: (() => void) | null) => {
+    setHeaderBack({ back });
+  }, []);
+
   return (
     <div className="column flex h-full flex-col bg-warm-sand">
       {/* Slim navy header — badge + title, tape seam (Brand Book §6) */}
@@ -251,13 +264,24 @@ function CreateTab() {
           style={{ background: "var(--tape-gradient)" }}
         />
         <div className="relative z-10 flex items-center gap-3 px-4 py-2.5">
-          <span
-            aria-hidden
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-chalk-white shadow-[0_1px_2px_rgba(208,96,16,0.3)]"
-            style={{ backgroundImage: "var(--tape-gradient)" }}
-          >
-            <Scissors size={18} />
-          </span>
+          {headerBack.back ? (
+            <button
+              type="button"
+              onClick={headerBack.back}
+              className="flex flex-none items-center gap-1 rounded-pill border border-hairline bg-chalk-white px-2.5 py-1 text-caption font-medium text-navy-interactive shadow-card transition-all ease-brand active:scale-[0.97] active:border-navy-interactive"
+            >
+              <ArrowLeft size={14} />
+              <span>Back</span>
+            </button>
+          ) : (
+            <span
+              aria-hidden
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-chalk-white shadow-[0_1px_2px_rgba(208,96,16,0.3)]"
+              style={{ backgroundImage: "var(--tape-gradient)" }}
+            >
+              <Scissors size={18} />
+            </span>
+          )}
           <div className="min-w-0">
             <span className="font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white/80">
               MYOD
@@ -273,7 +297,7 @@ function CreateTab() {
 
       {/* Body: the configurator */}
       <div className="min-h-0 flex-1 overflow-y-auto pt-4">
-        <MyodSheet footerInset={TAB_BAR_INSET} />
+        <MyodSheet footerInset={TAB_BAR_INSET} onBackChange={handleBackChange} />
       </div>
     </div>
   );
