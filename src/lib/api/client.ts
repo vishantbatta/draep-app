@@ -102,8 +102,11 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
 
   const url = buildUrl(path, query);
 
+  // FormData (multipart file uploads) must go through untouched — setting
+  // Content-Type or JSON-stringifying would strip the multipart boundary.
+  const isForm = body instanceof FormData;
   const finalHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isForm ? {} : { "Content-Type": "application/json" }),
     ...headers,
   };
 
@@ -119,7 +122,11 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     response = await fetch(url, {
       method,
       headers: finalHeaders,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: isForm
+        ? (body as FormData)
+        : body !== undefined
+          ? JSON.stringify(body)
+          : undefined,
       signal,
     });
   } catch (err) {
@@ -201,4 +208,9 @@ export function apiDelete<T>(
   opts?: Omit<RequestOptions, "method" | "body">,
 ): Promise<T> {
   return request<T>(path, { ...opts, method: "DELETE" });
+}
+
+// Multipart upload — the FormData is sent as-is (boundary set by fetch).
+export function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  return request<T>(path, { method: "POST", body: formData });
 }

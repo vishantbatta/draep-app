@@ -79,6 +79,7 @@ import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
 import { AddressForm } from "@/components/contact/AddressForm";
 import { SlotSheet } from "@/components/order/SlotSheet";
+import { InspirationGallery } from "@/components/order/InspirationGallery";
 import {
   GarmentSelectionSheet,
   type SelectionRowPersistence,
@@ -952,6 +953,19 @@ function OrderDetailContent() {
                 {strings.orderDetail.noteAddCta}
               </button>
             )}
+
+            {/* Design inspiration — the images (MYOD renders + uploads) the
+                tailor receives with the design. Uploads allowed while the
+                design is still editable (no money moved). */}
+            <InspirationGallery
+              orderId={detail.id}
+              garmentOrderId={g.id}
+              assets={g.assets}
+              editable={selectionsEditable}
+              onUploaded={() => {
+                void refreshDetail();
+              }}
+            />
 
             {/* The selection editor — identical UX to the admin dashboard
                 (catalog tree, component pills, add-on matrix), saving through

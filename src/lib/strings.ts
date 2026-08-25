@@ -330,6 +330,13 @@ export const strings = {
     noteError: "Couldn't save your note. Please try again.",
     selectionsEditCta: "Edit selections",
     selectionsCloseCta: "Close selections",
+    inspirationTitle: "Design inspiration",
+    inspirationTailorNote:
+      "These inspiration photos are sent to your tailor along with your design.",
+    inspirationAddCta: "Add photo",
+    inspirationUploading: "Uploading…",
+    inspirationEmpty: "No inspiration photos yet.",
+    inspirationError: "Couldn't upload. Please try again.",
     summaryTitle: "Payment summary",
     total: "Order total",
     paid: "Paid",

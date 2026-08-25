@@ -278,6 +278,9 @@ export interface OrderDetailGarmentOrder {
   /** Additive total: base + priced items + scoped adjustments (invoice math). */
   total_price: number | null;
   items: OrderDetailItem[];
+  /** Design-inspiration image URLs (assets_shared) — MYOD renders and
+   * customer uploads; sent to the tailor with the design. */
+  assets: string[];
 }
 
 export interface OrderDetailAdjustment {

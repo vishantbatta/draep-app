@@ -3,7 +3,7 @@
  * Mirrors be/app/api/orders.py
  */
 
-import { apiDelete, apiGet, apiPost, apiPut, apiPatch } from "./client";
+import { apiDelete, apiGet, apiPost, apiPut, apiPatch, apiUpload } from "./client";
 import type {
   CustomerOrderDetail,
   OrderListOut,
@@ -141,6 +141,23 @@ export function updateOrderNote(
   return apiPut<OrderOut>(
     `/orders/${orderId}/garments/${garmentOrderId}/note`,
     { note: note ?? null },
+  );
+}
+
+// POST /orders/{order_id}/garments/{garment_order_id}/inspiration — upload
+// design-inspiration photos (multipart). URLs land on assets_shared — the
+// images the order page, PDF and tailor receive. Gated like selection
+// editing: 409 once money has moved.
+export function uploadInspiration(
+  orderId: string,
+  garmentOrderId: string,
+  files: File[],
+): Promise<OrderOut> {
+  const formData = new FormData();
+  for (const file of files) formData.append("images", file);
+  return apiUpload<OrderOut>(
+    `/orders/${orderId}/garments/${garmentOrderId}/inspiration`,
+    formData,
   );
 }
 
