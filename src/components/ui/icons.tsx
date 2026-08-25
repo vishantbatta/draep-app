@@ -58,6 +58,23 @@ export function ChevronDown(props: IconProps) {
   );
 }
 
+/** Sliders — the "filters" affordance (three rails with offset handles). */
+export function Tune(props: IconProps) {
+  return (
+    <svg {...svg(props)}>
+      <path d="M3 6h8" />
+      <path d="M15 6h6" />
+      <path d="M3 12h4" />
+      <path d="M11 12h10" />
+      <path d="M3 18h12" />
+      <path d="M19 18h2" />
+      <path d="M11 3v6" />
+      <path d="M7 9v6" />
+      <path d="M15 15v6" />
+    </svg>
+  );
+}
+
 export function Check(props: IconProps) {
   return (
     <svg {...svg(props)}>

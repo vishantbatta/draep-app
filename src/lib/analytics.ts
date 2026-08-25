@@ -33,6 +33,10 @@ export type AnalyticsEvent =
   // Design Library funnel (spec §A)
   | { event: "library_card_tapped"; library_id: string }
   | { event: "library_drafted"; library_id: string }
+  // Order Now from a library design — PENDING order straight to booking
+  | { event: "library_ordered"; library_id: string; order_id: string }
+  // Browse filters applied from the library page (count = total selections)
+  | { event: "library_filters_applied"; count: number }
   // Virtual try-on funnel
   | { event: "tryon_started"; design_image_url: string }
   | { event: "tryon_succeeded"; design_image_url: string }

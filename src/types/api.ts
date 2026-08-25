@@ -465,6 +465,7 @@ export interface LibraryListItemOut {
   celebrity_name: string | null;
   famous_for: Record<string, string> | null;
   occasions: string[] | null;
+  ideal_body_types: string[] | null;
   hero_image_url: string | null;
   /** As-configured price (live). Not a "from" — honest total. */
   price: number;
@@ -501,6 +502,7 @@ export interface LibraryDetailOut {
   famous_for: Record<string, string> | null;
   reference_url: string | null;
   occasions: string[] | null;
+  ideal_body_types: string[] | null;
   styling_notes: Record<string, string> | null;
   hero_image_url: string | null;
   front_image_url: string | null;
@@ -524,6 +526,73 @@ export interface LibraryListParams {
   occasion?: string[];
   category?: string[];
   celebrity?: string[];
+  body_type?: string[];
+  /** Catalogue variation ids (grouped by component server-side). */
+  variation?: string[];
+  variation_type?: string[];
+  addon?: string[];
+  addon_variation?: string[];
   limit?: number;
   cursor?: string;
+}
+
+// ─── Browse facets (GET /library/facets) ─────────────────────────────────────
+
+/** One filterable value + how many published designs carry it. */
+export interface FacetCountOut {
+  value: string;
+  count: number;
+}
+
+/** Catalogue picker tree — components → variations → types (admin picker shape). */
+export interface PickerVariationTypeOut {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  price: number | null;
+}
+
+export interface PickerVariationOut {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  price: number | null;
+  types: PickerVariationTypeOut[];
+}
+
+export interface PickerComponentOut {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  importance: string | null;
+  variations: PickerVariationOut[];
+}
+
+export interface PickerAddonVariationOut {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  price: number | null;
+}
+
+export interface PickerAddonOut {
+  id: string;
+  slug: string | null;
+  labels: Record<string, string> | null;
+  placements: string[] | null;
+  type: string | null;
+  variations: PickerAddonVariationOut[];
+}
+
+export interface PickerTreeOut {
+  components: PickerComponentOut[];
+  addons: PickerAddonOut[];
+}
+
+/** Everything the browse filter UI needs (GET /library/facets). */
+export interface LibraryFacetsOut {
+  occasions: FacetCountOut[];
+  body_types: FacetCountOut[];
+  celebrities: FacetCountOut[];
+  catalog: PickerTreeOut;
 }

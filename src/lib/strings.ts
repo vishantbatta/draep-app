@@ -183,10 +183,42 @@ export const strings = {
     navLabel: "App sections",
   },
 
-  /** Mid-flow login gate (bottom sheet) — phone+OTP to continue an action. */
+  /** Mid-flow login gate (bottom sheet) — phone+OTP to continue an action.
+   *  Callers can override title/message for their surface (LoginGateSheet props). */
   loginGate: {
     title: "Login to generate",
     message: "Verify your phone number once — it keeps your design and orders safe.",
+  },
+
+  /** "Order Now" on the library design detail sheet (Explore tab). */
+  libraryOrder: {
+    cta: "Order now",
+    busy: "Placing order…",
+    error: "Couldn't place the order — please try again.",
+    orderGateTitle: "Login to order",
+    tryOnGateTitle: "Login to try it on",
+  },
+
+  /** Browse filters on the library page (upfront chips + All-filters sheet). */
+  libraryFilters: {
+    occasions: "Occasions",
+    bodyTypes: "Body Types",
+    celebrity: "Celebrity",
+    allFilters: "All filters",
+    sheetTitle: "Filters",
+    occasionSection: "Occasion",
+    bodyTypeSection: "Body type",
+    celebritySection: "Celebrity",
+    catalogueSection: "Style catalogue",
+    addonsSection: "Add-ons",
+    apply: (n: number) => (n > 0 ? `Apply (${n})` : "Apply"),
+    reset: "Reset",
+    clearAll: "Clear all",
+    anyVariation: (name: string) => `Any ${name}`,
+    noMatches: "No designs match these filters",
+    noMatchesHint: "Try removing a filter or two",
+    clearFilters: "Clear filters",
+    loadError: "Couldn't load filters — try again.",
   },
 
   dashboard: {
@@ -399,6 +431,13 @@ export const strings = {
     uploadCta: "Upload photo",
     captureCta: "Take a photo",
     photoTip: "Stand against a plain background · full torso in frame",
+    // Camera stage (in-sheet getUserMedia viewfinder)
+    shutterLabel: "Take photo",
+    cameraCancel: "Cancel",
+    cameraDenied: "Camera access was blocked. Allow it in your browser settings and try again.",
+    cameraUnsupported: "Camera isn't available here — you can upload a photo instead.",
+    cameraRetry: "Try again",
+    cameraUseUpload: "Upload instead",
     // Loading stage
     loadingTitle: "Stitching it on you…",
     loadingBody: "Our AI is matching the fit and fabric to your photo.",

@@ -8,7 +8,10 @@
  * the height).
  *
  * Mirrors /style exactly minus:
- *   • No CTAs (Upload / Build from scratch / Draft this design)
+ *   • No Upload / Build-from-scratch / Draft-this-design CTAs — the detail
+ *     sheet footer carries its own instead: "Order now" (primary — creates a
+ *     PENDING order and routes to /app/orders/{id}) with "Try it on" demoted
+ *     to the secondary pill. Both are login-gated when logged out.
  *   • No prices on cards or in the detail sheet
  *   • No back button (relies on browser history)
  *
@@ -17,32 +20,63 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
-import { Sparkle, Sparkles, Close, ChevronRight } from "@/components/ui/icons";
+import { LoginGateSheet } from "@/components/auth/LoginGateSheet";
+import { Sparkle, Sparkles, Close, ChevronRight, Tune } from "@/components/ui/icons";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { TryOnSheet } from "@/components/tryon/TryOnSheet";
+import {
+  EMPTY_FILTERS,
+  FilterSheet,
+  countFilters,
+  isEmptyFilters,
+  type LibraryFilters,
+  type QuickFilterSection,
+} from "@/components/library/FilterSheet";
 import { libraryApi } from "@/lib/api";
+import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
 import type {
   LibraryDetailOut,
+  LibraryFacetsOut,
   LibraryListItemOut,
   ResolvedItemOut,
 } from "@/types/api";
 
 /* ============================================================ */
 
+/* Slim navy bar the header settles into once fully collapsed (px). */
+const HEADER_COLLAPSED_PX = 36;
+/* Expanded height lives here too so the scroll handler can restore it
+ * verbatim when the list returns to the top (clearing the inline style
+ * would fall back to auto, losing the dvh sizing). */
+const HEADER_EXPANDED_H = "30dvh";
+
 export function LibraryBrowser() {
-  const sentinelRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loaderRef = useRef<HTMLDivElement>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+  const headerContentRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const sessionType = useAuthStore((s) => s.sessionType);
+  const authHydrated = useAuthHydrated();
+  const isLoggedIn = sessionType === "user";
 
   /* ── Library list state ─────────────────────────────────────────────── */
   const [items, setItems] = useState<LibraryListItemOut[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
+
+  /* ── Filter state ───────────────────────────────────────────────────── */
+  const [facets, setFacets] = useState<LibraryFacetsOut | null>(null);
+  const [filters, setFilters] = useState<LibraryFilters>(EMPTY_FILTERS);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  // Upfront pills open a quick sheet scoped to ONE facet; All filters opens
+  // the full sheet above.
+  const [quickFilter, setQuickFilter] = useState<QuickFilterSection | null>(null);
 
   /* ── Detail sheet state ─────────────────────────────────────────────── */
   const [detailOpen, setDetailOpen] = useState(false);
@@ -58,25 +92,69 @@ export function LibraryBrowser() {
     undefined,
   );
 
-  /* ── IntersectionObserver: collapse header when sentinel scrolls out ─ */
+  /* ── Order + login-gate state ──────────────────────────────────────── */
+  const [ordering, setOrdering] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [showLoginGate, setShowLoginGate] = useState(false);
+  // The CTA that hit the login gate — re-run by the effect below on verify.
+  const [actionAfterLogin, setActionAfterLogin] = useState<"order" | "tryon" | null>(
+    null,
+  );
+
+  /* ── Scroll-linked header collapse ────────────────────────────────────
+   * The header shrinks continuously with scroll (not a threshold snap):
+   * height interpolates 30dvh → HEADER_COLLAPSED_PX over the first screenful,
+   * and the title fades/drifts out with the same progress. Written straight
+   * to the DOM inside one rAF so scrolling never re-renders React. At the
+   * top the inline styles are dropped again so CSS keeps owning the dvh
+   * height (mobile URL-bar resizes stay honest). */
   useEffect(() => {
-    const sentinel = sentinelRef.current;
     const root = scrollRef.current;
-    if (!sentinel || !root) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setCollapsed(!entry.isIntersecting),
-      { root, threshold: 0 },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
+    const header = headerRef.current;
+    const content = headerContentRef.current;
+    if (!root || !header || !content) return;
+
+    let raf = 0;
+    let maxPx: number | null = null; // expanded height, measured at rest
+
+    const apply = () => {
+      raf = 0;
+      const top = root.scrollTop;
+      if (top <= 1) {
+        if (maxPx !== null) {
+          maxPx = null;
+          header.style.height = HEADER_EXPANDED_H;
+          content.style.opacity = "";
+          content.style.transform = "";
+        }
+        return;
+      }
+      maxPx ??= header.getBoundingClientRect().height;
+      const span = Math.max(maxPx - HEADER_COLLAPSED_PX, 1);
+      // 1:1 with the finger (native collapsing-header feel) — the smoothness
+      // comes from continuous tracking, not from easing the progress.
+      const p = Math.min(top / span, 1);
+      header.style.height = `${Math.round(maxPx - p * span)}px`;
+      content.style.opacity = (1 - p).toFixed(3);
+      content.style.transform = `translateY(${(-14 * p).toFixed(1)}px)`;
+    };
+
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(apply);
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      root.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
-  /* ── Initial fetch ─────────────────────────────────────────────────── */
+  /* ── Initial fetch (also re-runs whenever filters change) ──────────── */
   const fetchFirstPage = useCallback(async () => {
     setListLoading(true);
     setListError(null);
     try {
-      const out = await libraryApi.listLibrary({ limit: 24 });
+      const out = await libraryApi.listLibrary({ limit: 24, ...filters });
       setItems(out.items);
       setNextCursor(out.next_cursor);
     } catch (err) {
@@ -86,24 +164,39 @@ export function LibraryBrowser() {
     } finally {
       setListLoading(false);
     }
-  }, []);
+  }, [filters]);
 
   useEffect(() => {
     void fetchFirstPage();
   }, [fetchFirstPage]);
+
+  /* ── Facets: filter values + catalogue tree — fetched once ─────────── */
+  // Failure is non-fatal — the filter bar simply won't open with values.
+  useEffect(() => {
+    let cancelled = false;
+    libraryApi
+      .getLibraryFacets()
+      .then((f) => {
+        if (!cancelled) setFacets(f);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /* ── Infinite scroll: fetch next page when loader enters viewport ──── */
   const fetchNextPage = useCallback(async () => {
     if (!nextCursor || listLoading) return;
     const cursor = nextCursor;
     try {
-      const out = await libraryApi.listLibrary({ limit: 24, cursor });
+      const out = await libraryApi.listLibrary({ limit: 24, cursor, ...filters });
       setItems((prev) => [...prev, ...out.items]);
       setNextCursor(out.next_cursor);
     } catch {
       // Best effort — keep what we have; user can retry by scrolling.
     }
-  }, [nextCursor, listLoading]);
+  }, [nextCursor, listLoading, filters]);
 
   useEffect(() => {
     const loader = loaderRef.current;
@@ -163,17 +256,73 @@ export function LibraryBrowser() {
     }, 250);
   }, []);
 
+  /* ── Login gate: both footer CTAs need a user session ──────────────── */
+  // Mirrors MyodSheet's Generate gate: while hydrated and logged out, the
+  // CTA opens the login sheet instead; the continuation effect below re-runs
+  // the blocked action once the store holds a user session.
+  const gate = useCallback(
+    (action: "order" | "tryon") => {
+      if (authHydrated && !isLoggedIn) {
+        setActionAfterLogin(action);
+        setShowLoginGate(true);
+        return true;
+      }
+      return false;
+    },
+    [authHydrated, isLoggedIn],
+  );
+
   /* ── Open the try-on sheet using the current detail's hero image ──── */
   // We close the detail sheet visually but KEEP `detailId` / `detail` so that
   // when the user taps Done on the try-on result we can reopen the exact same
   // design sheet without a refetch.
   const openTryOn = useCallback(() => {
+    if (gate("tryon")) return;
     if (!detail?.hero_image_url) return;
     setTryOnDesignUrl(detail.hero_image_url);
     setTryOnDesignTitle(detail.labels?.en ?? undefined);
     setDetailOpen(false);
     setTimeout(() => setTryOnOpen(true), 220);
-  }, [detail]);
+  }, [detail, gate]);
+
+  /* ── Order Now: PENDING order straight into the visit-booking flow ── */
+  // Same contract as MYOD's Complete Order: the order_number exists right
+  // away and /app/orders/{id} walks the customer through address → slot →
+  // payment. Single-flight client-side — the BE deliberately allows repeat
+  // orders of the same design.
+  const handleOrderNow = useCallback(async () => {
+    if (gate("order")) return;
+    if (!detail || ordering) return;
+    setOrdering(true);
+    setOrderError(null);
+    try {
+      const out = await libraryApi.orderFromLibrary(detail.id);
+      track({
+        event: "library_ordered",
+        library_id: detail.id,
+        order_id: out.order_id,
+      });
+      router.push(`/app/orders/${out.order_id}`);
+    } catch (err) {
+      setOrderError(
+        err instanceof Error ? err.message : strings.libraryOrder.error,
+      );
+    } finally {
+      setOrdering(false);
+    }
+  }, [detail, ordering, gate, router]);
+
+  // Gate continuation: the sheet's verify flips sessionType in the store;
+  // this effect re-runs the blocked CTA on the next render with a logged-in
+  // closure (fresh detail) instead of the stale one from before it opened.
+  // Dismissing the gate without verifying clears the pending action.
+  useEffect(() => {
+    if (!actionAfterLogin || !isLoggedIn) return;
+    const action = actionAfterLogin;
+    setActionAfterLogin(null);
+    if (action === "order") void handleOrderNow();
+    else openTryOn();
+  }, [actionAfterLogin, isLoggedIn, handleOrderNow, openTryOn]);
 
   const closeTryOn = useCallback(() => {
     setTryOnOpen(false);
@@ -183,23 +332,36 @@ export function LibraryBrowser() {
     }, 250);
   }, []);
 
-  /* ── Done from try-on: reopen the design detail sheet that launched it ── */
-  const onTryOnDone = useCallback(() => {
-    setTryOnOpen(false);
-    setTimeout(() => {
-      setTryOnDesignUrl(null);
-      setTryOnDesignTitle(undefined);
-      // Reopen the detail sheet if we still have it in context.
-      if (detailId) setDetailOpen(true);
-    }, 220);
-  }, [detailId]);
+  /* ── Filters: open sheets / apply / remove-one ─────────────────────── */
+  // A section opens that pill's quick sheet; null opens the full sheet.
+  const openFilterSheet = useCallback((section: QuickFilterSection | null) => {
+    if (section) setQuickFilter(section);
+    else setFilterSheetOpen(true);
+  }, []);
+
+  const applyFilters = useCallback((f: LibraryFilters) => {
+    setFilters(f);
+    track({ event: "library_filters_applied", count: countFilters(f) });
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, []);
+
+  const removeFilter = useCallback(
+    (key: keyof LibraryFilters, value: string) => {
+      setFilters((prev) => ({
+        ...prev,
+        [key]: prev[key].filter((v) => v !== value),
+      }));
+    },
+    [],
+  );
 
   return (
     <div className="column flex h-full flex-col bg-warm-sand">
-      {/* ───── Slim header (collapses to a slimmer bar on scroll) ───── */}
+      {/* ───── Header (collapses smoothly with scroll, see effect above) ── */}
       <header
-        className="relative flex flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white transition-[height] duration-300 ease-brand"
-        style={{ height: collapsed ? 36 : "30dvh" }}
+        ref={headerRef}
+        className="relative flex flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white"
+        style={{ height: HEADER_EXPANDED_H }}
       >
         <div
           aria-hidden
@@ -207,19 +369,21 @@ export function LibraryBrowser() {
           style={{ background: "var(--tape-gradient)" }}
         />
 
-        {!collapsed && (
-          <div className="relative z-10 flex flex-col items-center gap-2 px-4 pb-6">
-            <div className="text-center">
-              <span className="inline-flex items-center gap-1.5 rounded-pill bg-chalk-white/15 px-3 py-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white backdrop-blur-sm">
-                <RivetDot />
-                Design Library
-              </span>
-              <h1 className="mt-2 font-heading text-h1 font-semibold text-chalk-white">
-                Browse every blouse we make
-              </h1>
-            </div>
+        {/* Stays mounted — the collapse effect fades/drifts it out by progress. */}
+        <div
+          ref={headerContentRef}
+          className="relative z-10 flex flex-col items-center gap-2 px-4 pb-6"
+        >
+          <div className="text-center">
+            <span className="inline-flex items-center gap-1.5 rounded-pill bg-chalk-white/15 px-3 py-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white backdrop-blur-sm">
+              <RivetDot />
+              Design Library
+            </span>
+            <h1 className="mt-2 font-heading text-h1 font-semibold text-chalk-white">
+              Browse every blouse we make
+            </h1>
           </div>
-        )}
+        </div>
 
         {/* Tape-gradient seam with tick overlay — Brand Book §6 (the tape) */}
         <div aria-hidden className="lp-tape-strip absolute inset-x-0 bottom-0 z-10" />
@@ -227,8 +391,6 @@ export function LibraryBrowser() {
 
       {/* ───── Bottom section (library grid) ───── */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-        <div ref={sentinelRef} className="h-px w-full" aria-hidden />
-
         {/* Section header — eyebrow + tick-divider rail ending in a rivet (§6) */}
         <div className="px-4 pt-4">
           <span className="eyebrow">The collection</span>
@@ -244,6 +406,19 @@ export function LibraryBrowser() {
           </div>
         </div>
 
+        {/* ── Filter bar — upfront chips + All filters (sticky) ─────── */}
+        <div className="sticky top-0 z-20 bg-warm-sand/95 px-4 pb-2 pt-3 backdrop-blur-sm">
+          <FilterBar filters={filters} onOpen={openFilterSheet} />
+          {!isEmptyFilters(filters) && (
+            <ActiveFilterChips
+              filters={filters}
+              facets={facets}
+              onRemove={removeFilter}
+              onClearAll={() => applyFilters(EMPTY_FILTERS)}
+            />
+          )}
+        </div>
+
         {/* Grid body — one full-bleed hero row per design */}
         <div className="px-4 pt-4">
           {/* MYOD banner — hidden for now (re-enable with <MyodBanner />) */}
@@ -257,7 +432,11 @@ export function LibraryBrowser() {
               onRetry={() => fetchFirstPage()}
             />
           ) : items.length === 0 ? (
-            <EmptyState text={strings.style.emptyLibrary} />
+            isEmptyFilters(filters) ? (
+              <EmptyState text={strings.style.emptyLibrary} />
+            ) : (
+              <NoMatchesState onClear={() => applyFilters(EMPTY_FILTERS)} />
+            )
           ) : (
             <div className="flex flex-col gap-4">
               {items.map((it) => (
@@ -296,9 +475,11 @@ export function LibraryBrowser() {
         title={detail?.labels?.en ?? strings.style.detailLoading}
         footer={
           detail?.hero_image_url ? (
-            <TryOnFooter
-              disabled={!detail?.hero_image_url}
-              onClick={openTryOn}
+            <DetailFooter
+              onTryOn={openTryOn}
+              onOrder={handleOrderNow}
+              ordering={ordering}
+              error={orderError}
             />
           ) : undefined
         }
@@ -320,12 +501,47 @@ export function LibraryBrowser() {
         <TryOnSheet
           open={tryOnOpen}
           onClose={closeTryOn}
-          onDone={onTryOnDone}
           designImageUrl={tryOnDesignUrl}
           designTitle={tryOnDesignTitle}
           garmentId={detail?.garment_id ?? undefined}
+          libraryId={detail?.id ?? undefined}
         />
       )}
+
+      {/* ───── All-filters bottom sheet (every section) ───── */}
+      <FilterSheet
+        open={filterSheetOpen}
+        onClose={() => setFilterSheetOpen(false)}
+        facets={facets}
+        filters={filters}
+        onApply={applyFilters}
+      />
+
+      {/* ───── Quick filter sheets — one upfront pill = one facet ───── */}
+      <FilterSheet
+        open={quickFilter !== null}
+        onClose={() => setQuickFilter(null)}
+        facets={facets}
+        filters={filters}
+        singleSection={quickFilter}
+        onApply={applyFilters}
+      />
+
+      {/* Login gate — both detail-sheet CTAs open this when logged out;
+          verify success re-runs the blocked CTA via the effect above. */}
+      <LoginGateSheet
+        open={showLoginGate}
+        onClose={() => {
+          setShowLoginGate(false);
+          setActionAfterLogin(null);
+        }}
+        onSuccess={() => setShowLoginGate(false)}
+        title={
+          actionAfterLogin === "order"
+            ? strings.libraryOrder.orderGateTitle
+            : strings.libraryOrder.tryOnGateTitle
+        }
+      />
     </div>
   );
 }
@@ -347,34 +563,59 @@ function RivetDot({ className = "" }: { className?: string }) {
   );
 }
 
-/** Sticky footer CTA that opens the virtual try-on sheet. */
-function TryOnFooter({
-  disabled,
-  onClick,
+/**
+ * Sticky footer CTAs for the design detail sheet. "Order now" is the primary
+ * (tape-gradient pill — the only gradient CTA per Brand Book §8) and creates
+ * a PENDING order; "Try it on" is the secondary outline pill. Both are
+ * login-gated by the caller (LoginGateSheet) before firing.
+ */
+function DetailFooter({
+  onTryOn,
+  onOrder,
+  ordering,
+  error,
 }: {
-  disabled: boolean;
-  onClick: () => void;
+  onTryOn: () => void;
+  onOrder: () => void;
+  ordering: boolean;
+  error: string | null;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="group flex w-full items-center justify-center gap-2 rounded-pill bg-tape px-5 py-3 text-body font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
-      style={{ backgroundImage: "var(--tape-gradient)" }}
-    >
-      {/* Animated sparkles */}
-      <span className="relative inline-flex">
-        <Sparkles size={16} className="text-chalk-white" />
-        <span
-          aria-hidden
-          className="absolute inset-0 animate-rivet text-chalk-white"
+    <div className="flex flex-col gap-2">
+      {error && (
+        <p className="text-center text-caption" style={{ color: "var(--ember)" }}>
+          {error}
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-2.5">
+        {/* Secondary — virtual try-on (outline pill) */}
+        <button
+          type="button"
+          onClick={onTryOn}
+          disabled={ordering}
+          className="flex items-center justify-center gap-2 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-semibold text-ink-navy transition-all hover:border-navy-interactive active:scale-[0.98] disabled:opacity-50"
         >
-          <Sparkles size={16} />
-        </span>
-      </span>
-      {strings.tryOn.cta}
-    </button>
+          <Sparkles size={16} className="text-draep-orange" />
+          {strings.tryOn.cta}
+        </button>
+        {/* Primary — order now (the tape gradient) */}
+        <button
+          type="button"
+          onClick={onOrder}
+          disabled={ordering}
+          className="flex items-center justify-center gap-2 rounded-pill px-4 py-3 text-body font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-60"
+          style={{ backgroundImage: "var(--tape-gradient)" }}
+        >
+          {ordering && (
+            <span
+              aria-hidden
+              className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+            />
+          )}
+          {ordering ? strings.libraryOrder.busy : strings.libraryOrder.cta}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -673,6 +914,194 @@ function MyodBanner() {
         </div>
       </div>
     </Link>
+  );
+}
+
+/* ============================================================ */
+/*  Filter bar + active chips                                    */
+/* ============================================================ */
+
+/**
+ * Upfront filter chips (Occasions, Body Types, Celebrity) + the All-filters
+ * button. Each upfront chip opens a QUICK sheet holding only its own facet;
+ * the All-filters button — styled heavier on purpose (2px navy outline on
+ * sand, sliders glyph, uppercase label) so it reads as a control, not just
+ * another category pill — opens the full sheet.
+ */
+function FilterBar({
+  filters,
+  onOpen,
+}: {
+  filters: LibraryFilters;
+  onOpen: (section: QuickFilterSection | null) => void;
+}) {
+  const total = countFilters(filters);
+  return (
+    <div
+      role="group"
+      aria-label={strings.libraryFilters.allFilters}
+      className="flex gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
+      <UpfrontChip
+        label={strings.libraryFilters.occasions}
+        count={filters.occasion.length}
+        onClick={() => onOpen("occasion")}
+      />
+      <UpfrontChip
+        label={strings.libraryFilters.bodyTypes}
+        count={filters.body_type.length}
+        onClick={() => onOpen("body_type")}
+      />
+      <UpfrontChip
+        label={strings.libraryFilters.celebrity}
+        count={filters.celebrity.length}
+        onClick={() => onOpen("celebrity")}
+      />
+      {/* All filters — deliberately heavier than the category pills above */}
+      <button
+        type="button"
+        onClick={() => onOpen(null)}
+        className="flex shrink-0 items-center gap-1.5 rounded-pill border-2 border-ink-navy bg-warm-sand px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-ink-navy shadow-card transition-all hover:shadow-brand active:scale-[0.97]"
+      >
+        <Tune size={14} className="text-draep-orange" />
+        {strings.libraryFilters.allFilters}
+        {total > 0 && (
+          <span className="rounded-pill bg-draep-orange px-1.5 py-px text-[10px] font-semibold text-chalk-white">
+            {total}
+          </span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+function UpfrontChip({
+  label,
+  count,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  const active = count > 0;
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`flex shrink-0 items-center gap-1.5 rounded-pill border px-3 py-1.5 text-caption font-semibold transition-all active:scale-[0.97] ${
+        active
+          ? "border-ink-navy bg-ink-navy text-chalk-white"
+          : "border-hairline-strong bg-chalk-white text-ink-navy hover:border-navy-interactive"
+      }`}
+    >
+      {label}
+      {active && (
+        <span className="rounded-pill bg-draep-orange px-1.5 py-px text-[10px] font-semibold text-chalk-white">
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * Removable pills for every active selection, + Clear all. Catalogue
+ * selections resolve their labels through the facets tree.
+ */
+function ActiveFilterChips({
+  filters,
+  facets,
+  onRemove,
+  onClearAll,
+}: {
+  filters: LibraryFilters;
+  facets: LibraryFacetsOut | null;
+  onRemove: (key: keyof LibraryFilters, value: string) => void;
+  onClearAll: () => void;
+}) {
+  const labels = catalogLabelMap(facets);
+
+  const active: { key: keyof LibraryFilters; value: string; label: string }[] = [
+    ...filters.occasion.map((v) => ({ key: "occasion" as const, value: v, label: v })),
+    ...filters.body_type.map((v) => ({ key: "body_type" as const, value: v, label: v })),
+    ...filters.celebrity.map((v) => ({ key: "celebrity" as const, value: v, label: v })),
+    ...filters.variation.map((v) => ({ key: "variation" as const, value: v, label: labels.get(v) ?? "Selection" })),
+    ...filters.variation_type.map((v) => ({ key: "variation_type" as const, value: v, label: labels.get(v) ?? "Selection" })),
+    ...filters.addon.map((v) => ({ key: "addon" as const, value: v, label: labels.get(v) ?? "Add-on" })),
+    ...filters.addon_variation.map((v) => ({ key: "addon_variation" as const, value: v, label: labels.get(v) ?? "Add-on" })),
+  ];
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {active.map((a) => (
+        <button
+          key={`${a.key}:${a.value}`}
+          type="button"
+          onClick={() => onRemove(a.key, a.value)}
+          className="flex items-center gap-1 rounded-pill border border-hairline bg-chalk-white px-2.5 py-1 text-[11px] font-medium text-ink-navy transition-colors hover:border-navy-interactive"
+        >
+          <span className="max-w-40 truncate">{a.label}</span>
+          <Close size={10} className="shrink-0 text-muted" />
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={onClearAll}
+        className="rounded-pill px-2 py-1 text-[11px] font-semibold text-draep-orange underline-offset-2 hover:underline"
+      >
+        {strings.libraryFilters.clearAll}
+      </button>
+    </div>
+  );
+}
+
+/** catalogue id → "Component: Variation" label, for the active-chip pills. */
+function catalogLabelMap(facets: LibraryFacetsOut | null): Map<string, string> {
+  const m = new Map<string, string>();
+  if (!facets) return m;
+  for (const c of facets.catalog.components) {
+    for (const v of c.variations) {
+      m.set(v.id, `${c.labels?.en ?? ""}: ${v.labels?.en ?? v.id}`);
+      for (const t of v.types) {
+        m.set(
+          t.id,
+          `${c.labels?.en ?? ""}: ${v.labels?.en ?? ""} — ${t.labels?.en ?? t.id}`,
+        );
+      }
+    }
+  }
+  for (const a of facets.catalog.addons) {
+    m.set(a.id, a.labels?.en ?? a.id);
+    for (const av of a.variations) {
+      m.set(av.id, `${a.labels?.en ?? ""}: ${av.labels?.en ?? av.id}`);
+    }
+  }
+  return m;
+}
+
+/** Zero results WITH filters active — offer to clear them. */
+function NoMatchesState({ onClear }: { onClear: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
+      <Sparkle size={22} className="text-muted" />
+      <div>
+        <p className="text-body font-heading font-semibold text-ink-navy">
+          {strings.libraryFilters.noMatches}
+        </p>
+        <p className="mt-1 text-caption text-muted">
+          {strings.libraryFilters.noMatchesHint}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onClear}
+        className="rounded-pill border border-hairline-strong bg-chalk-white px-4 py-2 text-caption font-medium text-ink-navy transition-colors hover:border-navy-interactive"
+      >
+        {strings.libraryFilters.clearFilters}
+      </button>
+    </div>
   );
 }
 

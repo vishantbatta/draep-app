@@ -5,6 +5,9 @@
  *
  * Stages:
  *   1. picker   — creative hero + how-it-works diagram + Upload / Capture
+ *   1b. camera  — in-sheet getUserMedia viewfinder opened by "Take a photo"
+ *                 (works on desktop webcams AND mobile; falls back to the
+ *                 upload input when camera access is denied/unavailable)
  *   2. loading  — branded AI animation while Gemini runs
  *   3. result   — chat-like feed of generated images + chat box for refinements
  *   4. error    — recoverable error inline
@@ -18,6 +21,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import type { ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -28,10 +32,11 @@ import {
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { Sparkles, Upload, Close } from "@/components/ui/icons";
 import { tryOn, refineTryOn } from "@/lib/api/tryon";
+import { orderFromLibrary } from "@/lib/api/library";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
 
-type Stage = "picker" | "loading" | "result" | "error";
+type Stage = "picker" | "camera" | "loading" | "result" | "error";
 
 /** A single entry in the try-on conversation feed. */
 interface FeedEntry {
@@ -45,10 +50,11 @@ interface FeedEntry {
 interface Props {
   open: boolean;
   onClose: () => void;
-  onDone?: () => void;
   designImageUrl: string;
   designTitle?: string;
   garmentId?: string;
+  /** Library design id — enables the result stage's "Order now" (PENDING order). */
+  libraryId?: string;
 }
 
 let _entryId = 0;
@@ -56,17 +62,22 @@ let _entryId = 0;
 export function TryOnSheet({
   open,
   onClose,
-  onDone,
   designImageUrl,
   designTitle,
   garmentId,
+  libraryId,
 }: Props) {
+  const router = useRouter();
   const [stage, setStage] = useState<Stage>("picker");
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Order Now from the result stage — same PENDING-order contract as the
+  // library detail sheet (POST /library/{id}/draft-order → booking flow).
+  const [ordering, setOrdering] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  const captureInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -111,6 +122,28 @@ export function TryOnSheet({
     if (el) el.value = "";
   };
 
+  /** Order Now: create the PENDING order and walk into visit booking. */
+  const handleOrderNow = useCallback(async () => {
+    if (!libraryId || ordering) return;
+    setOrdering(true);
+    setOrderError(null);
+    try {
+      const out = await orderFromLibrary(libraryId);
+      track({
+        event: "library_ordered",
+        library_id: libraryId,
+        order_id: out.order_id,
+      });
+      router.push(`/app/orders/${out.order_id}`);
+    } catch (err) {
+      setOrderError(
+        err instanceof Error ? err.message : strings.libraryOrder.error,
+      );
+    } finally {
+      setOrdering(false);
+    }
+  }, [libraryId, ordering, router]);
+
   /** Append a new image to the feed after a successful refinement. */
   const handleRefineResult = useCallback(
     (instruction: string, newUrl: string, newSuggestions: string[]) => {
@@ -143,17 +176,6 @@ export function TryOnSheet({
           resetInput(uploadInputRef.current);
         }}
       />
-      <input
-        ref={captureInputRef}
-        type="file"
-        accept="image/*"
-        capture="user"
-        className="hidden"
-        onChange={(e) => {
-          void handleFile(e.target.files?.[0]);
-          resetInput(captureInputRef.current);
-        }}
-      />
 
       <div className="pb-6">
         <AnimatePresence mode="wait">
@@ -162,7 +184,15 @@ export function TryOnSheet({
               key="picker"
               designImageUrl={designImageUrl}
               onUpload={() => uploadInputRef.current?.click()}
-              onCapture={() => captureInputRef.current?.click()}
+              onCapture={() => setStage("camera")}
+            />
+          )}
+          {stage === "camera" && (
+            <CameraStage
+              key="camera"
+              onCapture={(file) => void handleFile(file)}
+              onCancel={() => setStage("picker")}
+              onFallbackUpload={() => uploadInputRef.current?.click()}
             />
           )}
           {stage === "loading" && <LoadingStage key="loading" />}
@@ -171,8 +201,10 @@ export function TryOnSheet({
               key="result"
               feed={feed}
               garmentId={garmentId}
-              onDone={() => onDone?.()}
               onRefineResult={handleRefineResult}
+              onOrderNow={libraryId ? () => void handleOrderNow() : undefined}
+              ordering={ordering}
+              orderError={orderError}
             />
           )}
           {stage === "error" && (
@@ -266,16 +298,10 @@ function PickerStage({
             <Sparkles size={20} />
           </motion.span>
           <div>
-            <p
-              className="font-heading text-h3 font-semibold drop-shadow-sm"
-              style={{ color: "var(--draep-orange)" }}
-            >
+            <p className="font-heading text-h3 font-semibold text-chalk-white drop-shadow-sm">
               {strings.tryOn.creativeTitle}
             </p>
-            <p
-              className="mt-1 text-caption leading-snug"
-              style={{ color: "var(--ember)" }}
-            >
+            <p className="mt-1 text-caption leading-snug text-chalk-white">
               {strings.tryOn.creativeBody}
             </p>
           </div>
@@ -306,6 +332,176 @@ function PickerStage({
       <p className="text-center text-caption text-muted">
         {strings.tryOn.photoTip}
       </p>
+    </motion.div>
+  );
+}
+
+/* ─── Camera stage — in-sheet viewfinder (getUserMedia) ─────────────── */
+
+/**
+ * Live front-camera viewfinder used by "Take a photo". Opens the camera
+ * directly (no OS file modal) on desktop webcams and mobile front cameras
+ * alike. The preview is mirrored for a natural selfie feel, and the shutter
+ * grabs the mirrored frame so the capture matches what the user sees. If the
+ * camera can't be opened (permission denied, no device, insecure context)
+ * the stage offers a retry plus the upload input as a fallback.
+ */
+function CameraStage({
+  onCapture,
+  onCancel,
+  onFallbackUpload,
+}: {
+  onCapture: (file: File) => void;
+  onCancel: () => void;
+  onFallbackUpload: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [status, setStatus] = useState<
+    "starting" | "live" | "denied" | "unsupported"
+  >("starting");
+
+  const stopStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  const start = useCallback(async () => {
+    stopStream();
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus("unsupported");
+      return;
+    }
+    setStatus("starting");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1080 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      setStatus("live");
+    } catch {
+      stopStream();
+      setStatus("denied");
+    }
+  }, [stopStream]);
+
+  useEffect(() => {
+    void start();
+    return stopStream;
+  }, [start, stopStream]);
+
+  const shoot = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    // Mirror the grab to match the flipped preview (WYSIWYG).
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        onCapture(
+          new File([blob], `tryon-${Date.now()}.jpg`, { type: "image/jpeg" }),
+        );
+      },
+      "image/jpeg",
+      0.92,
+    );
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25 }}
+      className="flex flex-col gap-2.5 pb-1"
+    >
+      <div
+        className="relative w-full overflow-hidden rounded-card bg-ink-navy"
+        style={{ aspectRatio: "3 / 4", maxHeight: "min(48dvh, 420px)" }}
+      >
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="pointer-events-none h-full w-full object-cover"
+          style={{ transform: "scaleX(-1)" }}
+        />
+
+        {status !== "live" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+            {status === "starting" ? (
+              <span
+                aria-hidden
+                className="h-8 w-8 animate-spin rounded-full border-2 border-chalk-white/30 border-t-chalk-white"
+              />
+            ) : (
+              <>
+                <CameraGlyph />
+                <p className="text-caption text-chalk-white">
+                  {status === "denied"
+                    ? strings.tryOn.cameraDenied
+                    : strings.tryOn.cameraUnsupported}
+                </p>
+                {status === "denied" && (
+                  <button
+                    type="button"
+                    onClick={() => void start()}
+                    className="rounded-pill px-4 py-2 text-caption font-semibold text-chalk-white shadow-primary transition-all active:scale-[0.98]"
+                    style={{ backgroundImage: "var(--tape-gradient)" }}
+                  >
+                    {strings.tryOn.cameraRetry}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onFallbackUpload}
+                  className="rounded-pill border border-chalk-white/40 px-4 py-2 text-caption font-semibold text-chalk-white transition-colors hover:bg-chalk-white/10"
+                >
+                  {strings.tryOn.cameraUseUpload}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {status === "live" && (
+        <div className="flex items-center justify-center py-1">
+          <button
+            type="button"
+            onClick={shoot}
+            aria-label={strings.tryOn.shutterLabel}
+            className="flex h-16 w-16 items-center justify-center rounded-full border-[3px] border-ink-navy bg-chalk-white p-1.5 shadow-primary transition-transform active:scale-95"
+          >
+            <span
+              aria-hidden
+              className="h-full w-full rounded-full"
+              style={{ backgroundImage: "var(--tape-gradient)" }}
+            />
+          </button>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onCancel}
+        className="self-center rounded-pill px-4 py-1.5 text-caption font-semibold text-muted transition-colors hover:text-ink-navy"
+      >
+        {strings.tryOn.cameraCancel}
+      </button>
     </motion.div>
   );
 }
@@ -420,7 +616,10 @@ function LoadingStage() {
         />
         <motion.div
           aria-hidden
-          className="absolute inset-0 rounded-full bg-draep-orange/30 blur-xl"
+          className="absolute inset-0 rounded-full blur-xl"
+          style={{
+            background: "color-mix(in srgb, var(--chalk-white) 35%, transparent)",
+          }}
           animate={{ scale: [1, 1.2, 1], opacity: [0.4, 0.7, 0.4] }}
           transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
         />
@@ -434,7 +633,11 @@ function LoadingStage() {
             transition={{ duration: 2.4, repeat: Infinity, ease: "linear", delay: i * 0.8 }}
           />
         ))}
-        <Sparkles size={26} className="relative z-10 text-chalk-white" />
+        <img
+          src="/logo_alpha_icon.png"
+          alt=""
+          className="relative z-10 h-9 w-9 object-contain drop-shadow-[0_0_10px_rgba(255,255,255,0.85)]"
+        />
       </div>
 
       <div className="text-center">
@@ -467,13 +670,18 @@ type NavigatorWithShare = Navigator & {
 function ResultStage({
   feed,
   garmentId,
-  onDone,
   onRefineResult,
+  onOrderNow,
+  ordering,
+  orderError,
 }: {
   feed: FeedEntry[];
   garmentId?: string;
-  onDone: () => void;
   onRefineResult: (instruction: string, url: string, suggestions: string[]) => void;
+  /** Present only when the sheet knows the library design id. */
+  onOrderNow?: () => void;
+  ordering: boolean;
+  orderError: string | null;
 }) {
   // The latest entry is always the last in the feed array.
   const latest = feed[feed.length - 1];
@@ -685,18 +893,6 @@ function ResultStage({
         transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
         className="relative flex max-h-[72vh] flex-col gap-2"
       >
-        {/* ─── Top bar: done ────────────────────────────────────────────── */}
-        <div className="flex shrink-0 items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onDone}
-            className="rounded-pill bg-tape px-4 py-1.5 text-caption font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98]"
-            style={{ backgroundImage: "var(--tape-gradient)" }}
-          >
-            {strings.tryOn.done}
-          </button>
-        </div>
-
         {/* ─── Scrollable image feed ───────────────────────────────────── */}
         <div
           ref={scrollRef}
@@ -821,6 +1017,32 @@ function ResultStage({
             )}
           </AnimatePresence>
         </form>
+
+        {/* ─── Order now (under the chat input) ────────────────────────── */}
+        {onOrderNow && (
+          <div className="shrink-0 pt-1.5">
+            {orderError && (
+              <p className="mb-1.5 text-center text-caption text-error-text">
+                {orderError}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={onOrderNow}
+              disabled={ordering}
+              className="flex w-full items-center justify-center gap-2 rounded-pill px-4 py-3 text-body font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-60"
+              style={{ backgroundImage: "var(--tape-gradient)" }}
+            >
+              {ordering && (
+                <span
+                  aria-hidden
+                  className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                />
+              )}
+              {ordering ? strings.libraryOrder.busy : strings.libraryOrder.cta}
+            </button>
+          </div>
+        )}
 
         {/* Toast */}
         <AnimatePresence>
