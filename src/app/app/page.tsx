@@ -1,23 +1,29 @@
 "use client";
 
 /**
- * /app — the customer account dashboard.
+ * /app — the customer home, organized as three bottom tabs.
  *
- * The post-payment home the product was missing (audit C2/C3): greeting +
- * profile, a resume banner for the active draft, order history with status,
- * invoices and one-tap re-order from the design library.
+ *   Explore → the design library for blouses (LibraryBrowser, shared with
+ *             the standalone /library page).
+ *   Create  → the MYOD launch pad — hands off to the full-screen
+ *             configurator at /myod/blouse.
+ *   Profile → the account dashboard as-is (audit C2/C3): greeting + profile,
+ *             inline login, order history with status, invoices and one-tap
+ *             re-order from the design library.
  *
- * Auth: reuses the customer session from the auth store (anonymous → OTP
- * upgrade). Anonymous visitors get an inline phone+OTP card instead of a
- * redirect — the booking flow's /otp page is step-scoped with no return-to.
- * OTP goes through the MSG91 widget (lib/msg91.ts) when configured; the
- * legacy test-mode endpoints are the fallback.
+ * Auth (Profile tab): reuses the customer session from the auth store
+ * (anonymous → OTP upgrade). Anonymous visitors get an inline phone+OTP card
+ * instead of a redirect — the booking flow's /otp page is step-scoped with no
+ * return-to. OTP goes through the MSG91 widget (lib/msg91.ts) when configured;
+ * the legacy test-mode endpoints are the fallback.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { LibraryBrowser } from "@/components/library/LibraryBrowser";
+import { MyodSheet } from "@/components/myod/MyodSheet";
 import { OrderStatusPills } from "@/components/order/OrderStatus";
 import { ScreenShell } from "@/components/layout/ScreenShell";
 import { Banner } from "@/components/ui/Banner";
@@ -28,12 +34,15 @@ import {
   Calendar,
   Check,
   ChevronRight,
+  Scissors,
   ShieldCheck,
   Sparkle,
+  Sparkles,
   Thread,
   User,
 } from "@/components/ui/icons";
 import { libraryApi, ordersApi } from "@/lib/api";
+import { track } from "@/lib/analytics";
 import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import { normalizePhoneInput } from "@/lib/phone";
 import { msg91Enabled, otpLength, sendOtpViaMsg91, verifyOtpViaMsg91 } from "@/lib/msg91";
@@ -60,7 +69,190 @@ const GENDER_OPTIONS = [
   { value: "other", label: strings.dashboard.genderOther },
 ] as const;
 
-export default function AppDashboardPage() {
+/* ============================================================ */
+
+/** The three bottom tabs on /app. */
+type AppTab = "explore" | "create" | "profile";
+
+/**
+ * Height of the bottom tab bar (1px hairline border + 52px tab buttons +
+ * 2×8px bar padding + safe-area inset). Lifts MyodSheet's fixed step CTA
+ * above the bar inside the Create tab.
+ */
+const TAB_BAR_INSET = "calc(69px + env(safe-area-inset-bottom))";
+
+export default function AppPage() {
+  const [tab, setTab] = useState<AppTab>("explore");
+  // Tabs mount on first visit and stay mounted (hidden, not unmounted) so
+  // in-progress work — an MYOD configuration, library scroll position —
+  // survives switching between them.
+  const [visited, setVisited] = useState<AppTab[]>(["explore"]);
+
+  const select = useCallback((next: AppTab) => {
+    setTab(next);
+    setVisited((prev) => (prev.includes(next) ? prev : [...prev, next]));
+  }, []);
+
+  return (
+    <div className="flex h-dvh w-full flex-col">
+      {/* Tab content — each tab owns its own scrolling. */}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {visited.includes("explore") && (
+          <div className={tab === "explore" ? "h-full" : "hidden"}>
+            <LibraryBrowser />
+          </div>
+        )}
+        {visited.includes("create") && (
+          <div className={tab === "create" ? "h-full" : "hidden"}>
+            <CreateTab />
+          </div>
+        )}
+        {visited.includes("profile") && (
+          <div className={tab === "profile" ? "h-full" : "hidden"}>
+            <ProfileTab />
+          </div>
+        )}
+      </div>
+
+      <BottomTabBar tab={tab} onChange={select} />
+    </div>
+  );
+}
+
+/* ============================================================ */
+/*  Bottom tab bar                                               */
+/* ============================================================ */
+
+/**
+ * Three-section bottom navigation — quiet chrome, one brand moment.
+ *
+ * A chalk surface with a hairline top edge sits under every tab; the tabs
+ * themselves are icon-over-label with no backgrounds, so nothing competes
+ * for the eye. The active tab carries the only color: a tape-gradient
+ * circular well behind its icon (Brand Book §4 — orange as the spice, a
+ * small area on a light surface, never flattened) with the ember CTA glow.
+ * Inactive tabs use the Brand Book secondary text color and lift to full
+ * ink on hover with a mist-navy wash.
+ */
+function BottomTabBar({
+  tab,
+  onChange,
+}: {
+  tab: AppTab;
+  onChange: (tab: AppTab) => void;
+}) {
+  const items: { id: AppTab; label: string; icon: ReactNode }[] = [
+    { id: "explore", label: strings.appTabs.explore, icon: <Sparkles size={17} /> },
+    { id: "create", label: strings.appTabs.create, icon: <Scissors size={17} /> },
+    { id: "profile", label: strings.appTabs.profile, icon: <User size={17} /> },
+  ];
+
+  return (
+    <nav
+      role="tablist"
+      aria-label={strings.appTabs.navLabel}
+      className="mx-auto w-full max-w-column flex-none border-t border-hairline-strong bg-chalk-white pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_20px_-14px_rgba(8,48,104,0.25)]"
+    >
+      <div className="grid grid-cols-3 gap-1 px-2 py-2">
+        {items.map((it) => {
+          const active = tab === it.id;
+          return (
+            <button
+              key={it.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onChange(it.id)}
+              className="group flex h-[52px] flex-col items-center justify-center gap-[3px] rounded-2xl transition-transform duration-200 ease-brand active:scale-[0.96]"
+            >
+              <span
+                aria-hidden
+                className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-200 ease-brand ${
+                  active
+                    ? "bg-tape text-chalk-white shadow-primary"
+                    : "text-muted group-hover:bg-mist-navy group-hover:text-ink-navy"
+                }`}
+              >
+                {it.icon}
+              </span>
+              <span
+                className={`text-[11px] leading-none transition-colors duration-200 ease-brand ${
+                  active
+                    ? "font-semibold text-ink-navy"
+                    : "font-medium text-muted group-hover:text-ink-navy"
+                }`}
+              >
+                {it.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+/* ============================================================ */
+/*  Create tab — the MYOD configurator                           */
+/* ============================================================ */
+
+/**
+ * The full MYOD flow lives in this tab. Same shape as the standalone
+ * /myod/[garment_id] page (slim navy header + scrollable configurator),
+ * minus the back button — the tab bar handles navigation. MyodSheet's fixed
+ * step-CTA is lifted above the tab bar via footerInset; its completion
+ * takeover still covers the whole viewport by design.
+ */
+function CreateTab() {
+  // Mounting the configurator is "opening" MYOD as far as the funnel is
+  // concerned — the old launch-pad CTA carried this event.
+  useEffect(() => {
+    track({ event: "myod_opened", source: "app_create_tab" });
+  }, []);
+
+  return (
+    <div className="column flex h-full flex-col bg-warm-sand">
+      {/* Slim navy header — badge + title, tape seam (Brand Book §6) */}
+      <header className="relative flex flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full opacity-20 blur-md"
+          style={{ background: "var(--tape-gradient)" }}
+        />
+        <div className="relative z-10 flex items-center gap-3 px-4 py-2.5">
+          <span
+            aria-hidden
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-chalk-white shadow-[0_1px_2px_rgba(208,96,16,0.3)]"
+            style={{ backgroundImage: "var(--tape-gradient)" }}
+          >
+            <Scissors size={18} />
+          </span>
+          <div className="min-w-0">
+            <span className="font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white/80">
+              MYOD
+            </span>
+            <h2 className="truncate font-heading text-h3 font-semibold leading-tight text-chalk-white">
+              {strings.myod.sheetTitle}
+            </h2>
+          </div>
+        </div>
+        {/* Tape-gradient seam (Brand Book §6) */}
+        <div aria-hidden className="lp-tape-strip absolute inset-x-0 bottom-0 z-10" />
+      </header>
+
+      {/* Body: the configurator */}
+      <div className="min-h-0 flex-1 overflow-y-auto pt-4">
+        <MyodSheet footerInset={TAB_BAR_INSET} />
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================ */
+/*  Profile tab — the account dashboard (as-is)                   */
+/* ============================================================ */
+
+function ProfileTab() {
   const router = useRouter();
   const hydrated = useAuthHydrated();
   const sessionType = useAuthStore((s) => s.sessionType);
@@ -249,7 +441,7 @@ export default function AppDashboardPage() {
   /* ── Skeleton while the persisted session rehydrates ─────────────────── */
   if (!hydrated) {
     return (
-      <div className="column flex min-h-dvh items-center justify-center">
+      <div className="column flex h-full items-center justify-center">
         <div aria-hidden className="h-1 w-24 overflow-hidden rounded-pill bg-tape-silver">
           <div className="h-full w-1/2 animate-pulse bg-draep-orange" />
         </div>
@@ -258,6 +450,7 @@ export default function AppDashboardPage() {
   }
 
   return (
+    <div className="h-full overflow-y-auto">
     <ScreenShell className="px-4 pt-6">
       {/* Header — greeting + identity + sign out */}
       <header className="flex items-start justify-between gap-3">
@@ -685,5 +878,6 @@ export default function AppDashboardPage() {
         </>
       )}
     </ScreenShell>
+    </div>
   );
 }

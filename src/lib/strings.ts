@@ -175,6 +175,14 @@ export const strings = {
     downloadCalendar: "Add to calendar",
   },
 
+  /** Bottom tab labels on /app (Explore / Create / Profile). */
+  appTabs: {
+    explore: "Explore",
+    create: "Create",
+    profile: "Profile",
+    navLabel: "App sections",
+  },
+
   dashboard: {
     title: "Your account",
     greeting: (name: string | null) => (name ? `Hi, ${name}` : "Welcome back"),

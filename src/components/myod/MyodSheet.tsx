@@ -12,6 +12,7 @@
  */
 
 import { AnimatePresence, motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BottomSheet } from "@/components/ui/BottomSheet";
@@ -27,6 +28,7 @@ import {
 import { getGarmentTree, listGarments } from "@/lib/api/catalog";
 import { ApiError } from "@/lib/api/client";
 import {
+  createMyodOrder,
   editBlouseSvg,
   renderBlouseViews,
   type MyodRenderView,
@@ -50,7 +52,20 @@ import type { GarmentTreeOut } from "@/types/api";
 
 type Phase = "loading-tree" | "ready" | "generating" | "error";
 
-export function MyodSheet({ garmentId }: { garmentId?: string }) {
+export function MyodSheet({
+  garmentId,
+  footerInset,
+}: {
+  garmentId?: string;
+  /**
+   * CSS `bottom` value for the fixed step-CTA bar when a host owns the bottom
+   * of the screen (e.g. the /app tab bar). Also lifts the root's scroll-room
+   * padding. The host's bar is responsible for the safe-area inset, so this
+   * bar drops its own in that case.
+   */
+  footerInset?: string;
+}) {
+  const router = useRouter();
   const [phase, setPhase] = useState<Phase>("loading-tree");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -98,6 +113,9 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
   // null → the generic renderFailed line.
   const [renderError, setRenderError] = useState<string | null>(null);
   const [showRegenSheet, setShowRegenSheet] = useState(false);
+  // Complete Order CTA: creation in flight / failure reason.
+  const [ordering, setOrdering] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
 
   // ── Load the garment tree on mount ──────────────────────────────────
   useEffect(() => {
@@ -492,6 +510,35 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
     [],
   );
 
+  // ── Complete Order CTA — turn this run into a pending order ────────
+  // Sends the wizard selections + rendered photos; the backend stores the
+  // renders as the garment order's inspiration images (same field the admin
+  // order page reads). Then hands off to the /app order page, where the
+  // customer books the visit (address → slot → payment).
+  const handleCompleteOrder = useCallback(async () => {
+    if (ordering || !tree || !renderCtx || !renderViews.length) return;
+    setOrdering(true);
+    setOrderError(null);
+    track({ event: "myod_order_cta", cta: "complete_order" });
+    try {
+      const order = await createMyodOrder({
+        garmentId: tree.id,
+        selections,
+        configText: renderCtx.configText,
+        assets: renderViews.map((v) => v.url),
+      });
+      track({ event: "myod_order_created", order_id: order.id });
+      router.push(`/app/orders/${order.id}`);
+    } catch (err) {
+      setOrderError(
+        err instanceof ApiError && err.message
+          ? err.message
+          : "We couldn't create your order. Please try again.",
+      );
+      setOrdering(false);
+    }
+  }, [ordering, tree, renderCtx, renderViews, selections, router]);
+
   // ── Final "Generate Blouse" CTA (extras step) ────────────────────────
   const onExtrasStep = !!steps[activeStepIdx]?.isExtras;
   const showFinalCta = onExtrasStep && !finished;
@@ -616,11 +663,17 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
 
   return (
     // pb grows on the extras step so the sticky final CTA never overlaps the
-    // last content row (bar ≈ 76px + safe-area inset).
+    // last content row (bar ≈ 76px + safe-area inset, plus footerInset when
+    // a host bar owns the bottom of the screen).
     <div
       className={
         "relative mx-auto flex w-full max-w-column flex-col gap-4 px-4 " +
         (showFinalCta ? "pb-32" : "pb-6")
+      }
+      style={
+        footerInset && showFinalCta
+          ? { paddingBottom: `calc(128px + (${footerInset}))` }
+          : undefined
       }
     >
       {/* Phase swap is a plain conditional (no AnimatePresence/motion):
@@ -686,7 +739,13 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
           room so it never covers the last extras row. z-40 keeps it under
           the open picker sheets (BottomSheet backdrop is z-50). */}
       {showFinalCta && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-chalk-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm">
+        <div
+          className={
+            "fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-chalk-white/95 backdrop-blur-sm " +
+            (footerInset ? "pb-0" : "pb-[env(safe-area-inset-bottom)]")
+          }
+          style={footerInset ? { bottom: footerInset } : undefined}
+        >
           <div className="mx-auto w-full max-w-column px-4 py-3">
             <button
               type="button"
@@ -722,6 +781,9 @@ export function MyodSheet({ garmentId }: { garmentId?: string }) {
             views={renderViews}
             phase={renderPhase}
             errorMessage={renderPhase === "error" ? renderError : null}
+            orderBusy={ordering}
+            orderError={orderError}
+            onCompleteOrder={handleCompleteOrder}
             onRetry={() => renderCtx && startRender(renderCtx)}
             onRetryMissing={() => {
               if (!renderCtx || renderPhase === "rendering") return;
@@ -987,6 +1049,9 @@ function CompletionPage({
   views,
   phase,
   errorMessage,
+  orderBusy,
+  orderError,
+  onCompleteOrder,
   onRetry,
   onRetryMissing,
   onKeepEditing,
@@ -996,6 +1061,10 @@ function CompletionPage({
   phase: "idle" | "rendering" | "done" | "error";
   /** Server-supplied reason (e.g. quota 503) — shown instead of the generic line. */
   errorMessage?: string | null;
+  /** Complete Order: creation in flight (spinner) / failure reason. */
+  orderBusy?: boolean;
+  orderError?: string | null;
+  onCompleteOrder: () => void;
   onRetry: () => void;
   onRetryMissing: () => void;
   onKeepEditing: () => void;
@@ -1246,16 +1315,22 @@ function CompletionPage({
         </div>
       </div>
 
-      {/* Sticky order actions — Complete Order is a tracked placeholder for
-          now; Regenerate opens the refinement sheet (comment + previous
-          renders fed back to the model). */}
+      {/* Sticky order actions — Complete Order creates the pending order
+          (selections + renders as inspiration images) and hands off to the
+          /app order page for booking; Regenerate opens the refinement sheet
+          (comment + previous renders fed back to the model). */}
       <div className="flex-none border-t border-hairline bg-chalk-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm">
         <div className="mx-auto flex w-full max-w-column flex-col gap-2 px-4 py-3">
+          {orderError && (
+            <p className="rounded-card border border-error-border bg-error-bg px-3 py-2 text-caption text-error-text">
+              {orderError}
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={onRegenerate}
-              disabled={busy}
+              disabled={busy || orderBusy}
               className="flex h-11 w-full items-center justify-center gap-2 rounded-pill border border-hairline-strong bg-chalk-white px-2 text-caption font-semibold text-ink-navy transition-all ease-brand hover:border-navy-interactive active:scale-[0.98] disabled:opacity-60"
             >
               {busy ? <BrandSpinner size={16} /> : <Sparkles size={16} />}
@@ -1263,13 +1338,13 @@ function CompletionPage({
             </button>
             <button
               type="button"
-              onClick={() =>
-                track({ event: "myod_order_cta", cta: "complete_order" })
-              }
-              className="flex h-11 w-full items-center justify-center rounded-pill px-2 text-caption font-semibold text-chalk-white shadow-brand transition-all ease-brand active:scale-[0.98]"
+              onClick={onCompleteOrder}
+              disabled={orderBusy || busy || views.length === 0}
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-pill px-2 text-caption font-semibold text-chalk-white shadow-brand transition-all ease-brand active:scale-[0.98] disabled:opacity-60"
               style={{ backgroundImage: "var(--tape-gradient)" }}
             >
-              {strings.myod.completeOrder}
+              {orderBusy && <BrandSpinner size={16} />}
+              {orderBusy ? "Creating order…" : strings.myod.completeOrder}
             </button>
           </div>
           <button

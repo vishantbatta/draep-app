@@ -44,7 +44,7 @@ export type AnalyticsEvent =
     }
   | { event: "tryon_refined"; instruction: string }
   // MYOD (Make Your Own Draep) funnel
-  | { event: "myod_opened"; source: "library" | "style" }
+  | { event: "myod_opened"; source: "library" | "style" | "app_create_tab" }
   | { event: "myod_started"; instruction: string }
   | { event: "myod_succeeded" }
   | { event: "myod_failed"; error?: string }
@@ -56,6 +56,7 @@ export type AnalyticsEvent =
   | { event: "myod_render_reused" }
   | { event: "myod_render_regenerate"; has_comment: boolean }
   | { event: "myod_order_cta"; cta: "complete_order" }
+  | { event: "myod_order_created"; order_id: string }
   | { event: "myod_tried_on" };
 
 export function track(event: AnalyticsEvent): void {
