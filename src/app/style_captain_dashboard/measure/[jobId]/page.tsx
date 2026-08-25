@@ -646,7 +646,7 @@ export default function MeasureJobPage() {
             name: scJob.customer_name,
             phone: scJob.customer_phone,
             email: null,
-            role: "user",
+            roles: ["customer"],
             gender: null,
             country_code: scJob.customer_country_code,
           }

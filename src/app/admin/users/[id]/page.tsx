@@ -285,7 +285,7 @@ export default function UserDetailPage() {
   // ── Update user field ─────────────────────────────────────────────────────
   async function handleUpdateField(
     field: string,
-    value: string | null,
+    value: string | string[] | null,
   ) {
     if (!user) return;
     setSavingField(field);
@@ -298,6 +298,16 @@ export default function UserDetailPage() {
     } finally {
       setSavingField(null);
     }
+  }
+
+  // Toggle one role in the user's roles array (PUTs the full new array).
+  function handleToggleRole(role: string) {
+    if (!user) return;
+    const current = user.roles ?? [];
+    const next = current.includes(role)
+      ? current.filter((r) => r !== role)
+      : [...current, role];
+    handleUpdateField("roles", next);
   }
 
   // ── Copy login link (open the user's logged-in dashboard) ─────────────────
@@ -438,7 +448,15 @@ export default function UserDetailPage() {
             >
               {loginLinkBusy ? "Generating…" : "🔗 Copy Login Link"}
             </button>
-            <Badge value={user.role} map={ROLE_STYLE} />
+            <span className="flex items-center gap-1">
+              {(user.roles ?? []).length === 0 ? (
+                <span className="text-muted">—</span>
+              ) : (
+                (user.roles ?? []).map((r) => (
+                  <Badge key={r} value={r} map={ROLE_STYLE} />
+                ))
+              )}
+            </span>
           </div>
         </div>
 
@@ -471,23 +489,34 @@ export default function UserDetailPage() {
             placeholder="+91"
           />
 
-          {/* Role select */}
+          {/* Roles (multi-toggle — e.g. one person can be captain AND tailor) */}
           <div>
             <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">
-              Role {savingField === "role" && "(saving…)"}
+              Roles {savingField === "roles" && "(saving…)"}
             </label>
-            <select
-              value={user.role ?? ""}
-              onChange={(e) => handleUpdateField("role", e.target.value || null)}
-              className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-1.5 text-[13px] text-ink focus:border-ink-navy focus:outline-none"
-            >
-              <option value="">—</option>
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
+            <div className="flex flex-wrap gap-2">
+              {ROLES.map((r) => {
+                const active = (user.roles ?? []).includes(r);
+                return (
+                  <label
+                    key={r}
+                    className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] transition ${
+                      active
+                        ? "border-ink-navy bg-mist-navy/50 font-medium text-ink-navy"
+                        : "border-hairline-strong bg-chalk-white text-muted hover:bg-mist-navy/30"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      onChange={() => handleToggleRole(r)}
+                      className="h-3.5 w-3.5 cursor-pointer rounded border-hairline-strong accent-ink-navy"
+                    />
+                    {r.replace(/_/g, " ")}
+                  </label>
+                );
+              })}
+            </div>
           </div>
 
           {/* Gender select */}

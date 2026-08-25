@@ -27,12 +27,22 @@ const ROLE_STYLE: Record<string, string> = {
   customer: "bg-gray-100 text-gray-600",
 };
 
-function RoleBadge({ value }: { value: string | null }) {
-  if (!value) return <span className="text-muted">—</span>;
-  const cls = ROLE_STYLE[value] ?? "bg-gray-100 text-gray-600";
+function RoleBadge({ value }: { value: string[] | null }) {
+  const roles = value ?? [];
+  if (roles.length === 0) return <span className="text-muted">—</span>;
   return (
-    <span className={`inline-block rounded-pill px-2 py-0.5 text-[11px] font-medium capitalize ${cls}`}>
-      {value.replace(/_/g, " ")}
+    <span className="flex flex-wrap gap-1">
+      {roles.map((r) => {
+        const cls = ROLE_STYLE[r] ?? "bg-gray-100 text-gray-600";
+        return (
+          <span
+            key={r}
+            className={`inline-block rounded-pill px-2 py-0.5 text-[11px] font-medium capitalize ${cls}`}
+          >
+            {r.replace(/_/g, " ")}
+          </span>
+        );
+      })}
     </span>
   );
 }
@@ -77,11 +87,12 @@ export default function UsersListPage() {
   const [createFormError, setCreateFormError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
-  // Form fields (all available configs)
+  // Form fields (all available configs). Roles is a set — one person may
+  // hold several (e.g. style captain AND tailor).
   const [fName, setFName] = useState("");
   const [fPhone, setFPhone] = useState("");
   const [fEmail, setFEmail] = useState("");
-  const [fRole, setFRole] = useState<string>("customer");
+  const [fRoles, setFRoles] = useState<Set<string>>(new Set(["customer"]));
   const [fGender, setFGender] = useState<string>("");
   const [fCountryCode, setFCountryCode] = useState("+91");
   const [fTimezone, setFTimezone] = useState("Asia/Kolkata");
@@ -101,7 +112,7 @@ export default function UsersListPage() {
     setFName("");
     setFPhone("");
     setFEmail("");
-    setFRole("customer");
+    setFRoles(new Set(["customer"]));
     setFGender("");
     setFCountryCode("+91");
     setFTimezone("Asia/Kolkata");
@@ -110,11 +121,21 @@ export default function UsersListPage() {
     setCreateFormError(null);
   }
 
+  function toggleFormRole(r: string) {
+    setFRoles((prev) => {
+      const next = new Set(prev);
+      if (next.has(r)) next.delete(r);
+      else next.add(r);
+      return next;
+    });
+  }
+
   async function handleCreateUser() {
     setCreating(true);
     setCreateFormError(null);
     try {
-      const data: Record<string, unknown> = { role: fRole };
+      const roles = Array.from(fRoles);
+      const data: Record<string, unknown> = { roles };
       if (fName.trim()) data.name = fName.trim();
       if (fPhone.trim()) data.phone = fPhone.trim();
       if (fEmail.trim()) data.email = fEmail.trim();
@@ -180,7 +201,9 @@ export default function UsersListPage() {
     setError(null);
     try {
       const filters: Record<string, string> = {};
-      if (filterRole !== "all") filters.role = filterRole;
+      // roles is a JSONB array — membership needs the json_contains op.
+      const filterOps: Record<string, string> = { roles: "json_contains" };
+      if (filterRole !== "all") filters.roles = filterRole;
       if (search) filters.name = search;
 
       const { rows, total: t } = await fetchTableRows<UserRow>("users", {
@@ -189,6 +212,7 @@ export default function UsersListPage() {
         sortColumn: "created_at",
         sortDirection: "desc",
         filters: Object.keys(filters).length > 0 ? filters : undefined,
+        filterOps: Object.keys(filters).length > 0 ? filterOps : undefined,
       });
       setUsers(rows);
       setTotal(t);
@@ -360,22 +384,31 @@ export default function UsersListPage() {
               />
             </div>
 
-            {/* Role */}
+            {/* Roles (multi — a person can be captain AND tailor) */}
             <div>
               <label className="mb-1 block text-xs font-medium text-muted">
-                Role
+                Roles (multi-select)
               </label>
-              <select
-                value={fRole}
-                onChange={(e) => setFRole(e.target.value)}
-                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
-              >
+              <div className="flex flex-wrap gap-2">
                 {ROLES.map((r) => (
-                  <option key={r} value={r}>
+                  <label
+                    key={r}
+                    className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition ${
+                      fRoles.has(r)
+                        ? "border-ink-navy bg-mist-navy/50 font-medium text-ink-navy"
+                        : "border-hairline-strong bg-chalk-white text-muted hover:bg-mist-navy/30"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={fRoles.has(r)}
+                      onChange={() => toggleFormRole(r)}
+                      className="h-3.5 w-3.5 cursor-pointer rounded border-hairline-strong accent-ink-navy"
+                    />
                     {r.replace(/_/g, " ")}
-                  </option>
+                  </label>
                 ))}
-              </select>
+              </div>
             </div>
 
             {/* Gender */}
@@ -411,8 +444,8 @@ export default function UsersListPage() {
               />
             </div>
 
-            {/* Password (staff only) */}
-            {(fRole === "admin" || fRole === "style_captain" || fRole === "tailor") && (
+            {/* Password (staff roles only) */}
+            {["admin", "style_captain", "tailor"].some((r) => fRoles.has(r)) && (
               <div className="md:col-span-2">
                 <label className="mb-1 block text-xs font-medium text-muted">
                   Password (required for staff: admin, style captain, tailor)
@@ -610,7 +643,7 @@ export default function UsersListPage() {
                         {user.email ?? "—"}
                       </td>
                       <td className="px-4 py-3">
-                        <RoleBadge value={user.role} />
+                        <RoleBadge value={user.roles} />
                       </td>
                       <td className="px-4 py-3 text-[13px] capitalize text-ink">
                         {user.gender ?? "—"}

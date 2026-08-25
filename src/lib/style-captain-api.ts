@@ -83,7 +83,8 @@ export interface SCUser {
   phone: string | null;
   country_code: string | null;
   email: string | null;
-  role: string | null;
+  /** Roles held by this staff member (JSONB array; may include "tailor"). */
+  roles: string[];
 }
 
 export interface SCMeasurement {

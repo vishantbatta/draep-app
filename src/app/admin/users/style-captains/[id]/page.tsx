@@ -26,6 +26,7 @@ import {
   createTableRow,
   deleteTableRow,
   patchCaptain,
+  type StaffStatus,
   type UserRow,
   type MeasurementJobRow,
 } from "@/lib/admin-api";
@@ -120,6 +121,9 @@ export default function StyleCaptainDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
+  // Assignment status lives on the 1:1 profile row (NULL row = active).
+  const [status, setStatus] = useState<StaffStatus>("active");
+  const [savingStatus, setSavingStatus] = useState(false);
 
   // Local draft for profile fields — committed on Save click
   const [draftName, setDraftName] = useState("");
@@ -176,6 +180,14 @@ export default function StyleCaptainDetailPage() {
       setDraftEmail(capRows[0].email ?? "");
       setDraftCountryCode(capRows[0].country_code ?? "");
 
+      const { rows: profRows } = await fetchTableRows<{
+        status: string | null;
+      }>("style_captain_profiles", {
+        filters: { user_id: captainId },
+        perPage: 1,
+      }).catch(() => ({ rows: [] as { status: string | null }[] }));
+      setStatus((profRows[0]?.status as StaffStatus) ?? "active");
+
       const { rows: jobRows } = await fetchTableRows<MeasurementJobRow>(
         "measurement_jobs",
         {
@@ -223,6 +235,21 @@ export default function StyleCaptainDetailPage() {
       alert(e instanceof Error ? e.message : "Update failed");
     } finally {
       setSavingProfile(false);
+    }
+  }
+
+  // ── Assignment status switch (immediate PATCH) ───────────────────────────
+  async function handleStatusChange(next: StaffStatus) {
+    if (!captain || next === status) return;
+    setSavingStatus(true);
+    try {
+      await patchCaptain(captain.id, { status: next });
+      setStatus(next);
+      setFlash(`Captain status set to ${next.replace(/_/g, " ")}`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to update status");
+    } finally {
+      setSavingStatus(false);
     }
   }
 
@@ -348,6 +375,13 @@ export default function StyleCaptainDetailPage() {
         </div>
       </div>
 
+      {/* Assignment Status */}
+      <StatusSection
+        status={status}
+        saving={savingStatus}
+        onChange={handleStatusChange}
+      />
+
       {/* Set Password */}
       <SetPasswordSection captainId={captain.id} onSaved={setFlash} />
 
@@ -410,6 +444,89 @@ export default function StyleCaptainDetailPage() {
 
       {/* Schedule management */}
       <CaptainScheduleManager captainId={captain.id} captainName={captain.name} />
+    </div>
+  );
+}
+
+// ─── Assignment Status Section ────────────────────────────────────────────────
+
+const STATUS_OPTIONS: {
+  value: StaffStatus;
+  label: string;
+  chip: string;
+  active: string;
+  hint: string;
+}[] = [
+  {
+    value: "active",
+    label: "Active",
+    chip: "bg-green-100 text-green-800",
+    active: "border-green-500 bg-green-50",
+    hint: "Allottable everywhere — auto-assign and admin dashboard.",
+  },
+  {
+    value: "shadow_banned",
+    label: "Shadow Banned",
+    chip: "bg-amber-100 text-amber-800",
+    active: "border-amber-500 bg-amber-50",
+    hint:
+      "Hidden from auto-assign and customer-facing slots, but you can " +
+      "still allot them manually from the admin dashboard.",
+  },
+  {
+    value: "banned",
+    label: "Banned",
+    chip: "bg-red-100 text-red-700",
+    active: "border-red-400 bg-red-50",
+    hint: "Not allottable anywhere. Login still works so existing jobs " +
+      "can be finished; reset the password to lock them out.",
+  },
+];
+
+function StatusSection({
+  status,
+  saving,
+  onChange,
+}: {
+  status: StaffStatus;
+  saving: boolean;
+  onChange: (next: StaffStatus) => void;
+}) {
+  return (
+    <div className="mb-6 rounded-xl border border-hairline bg-chalk-white p-5">
+      <h2 className="font-heading text-lg font-semibold text-ink-navy">
+        Assignment Status
+      </h2>
+      <p className="mt-0.5 text-xs text-muted">
+        Controls where this captain can be allotted new measurement visits.
+      </p>
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+        {STATUS_OPTIONS.map((opt) => {
+          const selected = opt.value === status;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => onChange(opt.value)}
+              disabled={saving}
+              className={`rounded-lg border p-3 text-left transition disabled:cursor-wait disabled:opacity-60 ${
+                selected
+                  ? `${opt.active} ring-1 ${opt.value === "banned" ? "ring-red-300" : opt.value === "shadow_banned" ? "ring-amber-300" : "ring-green-300"}`
+                  : "border-hairline-strong hover:bg-mist-navy/30"
+              }`}
+            >
+              <span
+                className={`inline-block rounded-pill px-2 py-0.5 text-[11px] font-semibold ${opt.chip}`}
+              >
+                {opt.label}
+                {selected && " ✓"}
+              </span>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                {opt.hint}
+              </p>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

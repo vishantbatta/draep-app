@@ -89,7 +89,9 @@ export default function StyleCaptainsListPage() {
     setError(null);
     try {
       const { rows } = await fetchTableRows<UserRow>("users", {
-        filters: { role: "style_captain" },
+        // roles is a JSONB array — membership needs the json_contains op.
+        filters: { roles: "style_captain" },
+        filterOps: { roles: "json_contains" },
         perPage: 100,
         sortColumn: "created_at",
         sortDirection: "desc",

@@ -914,7 +914,8 @@ export interface UserRow {
   name: string | null;
   phone: string | null;
   email: string | null;
-  role: string | null;
+  // JSONB array — a person may hold multiple roles (e.g. captain AND tailor).
+  roles: string[] | null;
   gender: string | null;
   country_code: string | null;
   created_at?: string;
@@ -948,11 +949,18 @@ export interface GarmentRow {
   base_price: number | null;
 }
 
-/** Fetch rows from a table with optional column filters + sort + pagination. */
+/** Fetch rows from a table with optional column filters + sort + pagination.
+ *
+ * `filterOps` overrides the operator per column (default: `eq`, or `is_null`
+ * for null values). e.g. filtering users by a role in the JSONB `roles`
+ * array needs the backend's JSONB containment op:
+ *   { filters: { roles: "style_captain" }, filterOps: { roles: "json_contains" } }
+ */
 export async function fetchTableRows<T = Record<string, unknown>>(
   table: string,
   opts: {
     filters?: Record<string, string | number | boolean | null>;
+    filterOps?: Record<string, string>;
     page?: number;
     perPage?: number;
     sortColumn?: string;
@@ -975,7 +983,10 @@ export async function fetchTableRows<T = Record<string, unknown>>(
       .map(([column, value]) => ({
         type: "filter" as const,
         column,
-        op: value === null ? "is_null" : "eq",
+        op:
+          value === null
+            ? "is_null"
+            : (opts.filterOps?.[column] ?? "eq"),
         value,
       }));
     // URLSearchParams.toString() already URL-encodes the value,
@@ -1074,10 +1085,11 @@ export const updateOrderAdjustment = (
 export const deleteOrderAdjustment = (id: string) =>
   deleteTableRow("order_adjustments", id);
 
-/** Fetch all style captains (users with role = "style_captain"). */
+/** Fetch all style captains (users holding the style_captain role). */
 export async function fetchStyleCaptains(): Promise<UserRow[]> {
   const { rows } = await fetchTableRows<UserRow>("users", {
-    filters: { role: "style_captain" },
+    filters: { roles: "style_captain" },
+    filterOps: { roles: "json_contains" },
     perPage: 100,
   });
   return rows;
@@ -1108,6 +1120,9 @@ export async function searchUsersByNameOrPhone(q: string): Promise<UserRow[]> {
 // These endpoints handle password hashing on the backend — the generic table
 // API would store plaintext, which we must avoid for the password column.
 
+/** Assignment status on the 1:1 profile tables (NULL = active). */
+export type StaffStatus = "active" | "banned" | "shadow_banned";
+
 export interface CaptainPatch {
   name?: string;
   phone?: string;
@@ -1116,6 +1131,8 @@ export interface CaptainPatch {
   timezone?: string;
   /** Plaintext password — bcrypt-hashed server-side. */
   password?: string;
+  /** Assignment status (style_captain_profiles.status). Null = unchanged. */
+  status?: StaffStatus;
 }
 
 export interface CaptainCreate {
@@ -1132,7 +1149,9 @@ export interface CaptainOut {
   name: string | null;
   phone: string | null;
   country_code: string | null;
-  role: string | null;
+  roles: string[];
+  /** Assignment status from style_captain_profiles. */
+  status: StaffStatus | null;
   timezone: string | null;
   last_login: string | null;
 }
