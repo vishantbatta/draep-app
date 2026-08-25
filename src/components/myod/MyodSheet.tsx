@@ -92,6 +92,9 @@ export function MyodSheet({
 
   // Edit history (accumulated text)
   const historyRef = useRef<string[]>([]);
+  // Root of this flow — used to find the scroll container that hosts it
+  // (the window on /app/create, a nested overflow body on /myod/{id}).
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   // Set once the user taps the final "Generate" CTA on the extras step and
   // the image matches their full config — swaps the step list for the
@@ -685,6 +688,29 @@ export function MyodSheet({
     handleGenerate();
   }, [generateAfterLogin, isLoggedIn, handleGenerate]);
 
+  // Fresh step, fresh scroll: option lists are long and the old step's
+  // scroll position would otherwise land the new step mid-list. Reset
+  // whichever ancestor actually scrolls. Skipped while this pane is hidden
+  // (display:none) so a background generation advancing the step can't
+  // hijack the visible page's scroll.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || el.offsetParent == null) return;
+    let node: HTMLElement | null = el.parentElement;
+    while (node) {
+      const { overflowY } = getComputedStyle(node);
+      if (
+        /(auto|scroll|overlay)/.test(overflowY) &&
+        node.scrollHeight > node.clientHeight
+      ) {
+        node.scrollTo({ top: 0 });
+        return;
+      }
+      node = node.parentElement;
+    }
+    window.scrollTo({ top: 0 });
+  }, [activeStepIdx]);
+
   // Regenerate from the completion view: same drawings + config, plus the
   // customer's comment and the previous renders as image references.
   const startRegenerate = useCallback(
@@ -718,6 +744,7 @@ export function MyodSheet({
     // a host bar owns the bottom of the screen). The choice steps reserve a
     // slimmer amount for the price ticker.
     <div
+      ref={rootRef}
       className={
         "relative mx-auto flex w-full max-w-column flex-col gap-4 px-4 " +
         (showFinalCta ? "pb-32" : showPriceBar ? "pb-24" : "pb-6")
