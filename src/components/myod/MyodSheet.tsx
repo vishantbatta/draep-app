@@ -15,11 +15,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { LoginGateSheet } from "@/components/auth/LoginGateSheet";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import {
   ArrowLeft,
   ArrowRight,
   Check,
+  ChevronDown,
   ChevronRight,
   Close,
   Plus,
@@ -27,6 +29,7 @@ import {
 } from "@/components/ui/icons";
 import { getGarmentTree, listGarments } from "@/lib/api/catalog";
 import { ApiError } from "@/lib/api/client";
+import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import {
   createMyodOrder,
   editBlouseSvg,
@@ -35,17 +38,21 @@ import {
 } from "@/lib/api/myod";
 import {
   buildDesignSteps,
+  computeSelectionPrice,
   describeSelection,
   labelText,
   placementLabel,
+  selectionAmount,
   type ComponentSelection,
   type DesignStep,
+  type MyodPriceLine,
   type PlacementPick,
   type Selections,
   type StepAxis,
   type StepComponent,
   type StepOption,
 } from "@/lib/myod-steps";
+import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
 import type { GarmentTreeOut } from "@/types/api";
@@ -113,9 +120,20 @@ export function MyodSheet({
   // null → the generic renderFailed line.
   const [renderError, setRenderError] = useState<string | null>(null);
   const [showRegenSheet, setShowRegenSheet] = useState(false);
+  // Price-breakdown sheet opened from the running-total bar.
+  const [priceSheetOpen, setPriceSheetOpen] = useState(false);
   // Complete Order CTA: creation in flight / failure reason.
   const [ordering, setOrdering] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
+
+  // ── Login gate on Generate Blouse ──────────────────────────────────
+  // Anonymous visitors verify their phone before the AI render fires.
+  const sessionType = useAuthStore((s) => s.sessionType);
+  const authHydrated = useAuthHydrated();
+  const isLoggedIn = sessionType === "user";
+  const [showLoginGate, setShowLoginGate] = useState(false);
+  // Generate was tapped while logged out — re-run it after the gate verifies.
+  const [generateAfterLogin, setGenerateAfterLogin] = useState(false);
 
   // ── Load the garment tree on mount ──────────────────────────────────
   useEffect(() => {
@@ -199,6 +217,12 @@ export function MyodSheet({
   const allComponents = useMemo(
     () => steps.flatMap((s) => s.components),
     [steps],
+  );
+  // Running total — base price + one additive amount per selection, exactly
+  // the rules the created order's breakdown will apply (see myod-steps).
+  const priceBreakdown = useMemo(
+    () => computeSelectionPrice(steps, selections, tree?.base_price ?? null),
+    [steps, selections, tree],
   );
   // Add-ons that are part of the base design (default-on). When one is cleared
   // from the live design it needs an "__off__" tombstone in the image state,
@@ -544,6 +568,13 @@ export function MyodSheet({
   const showFinalCta = onExtrasStep && !finished;
 
   const handleGenerate = useCallback(() => {
+    // Login gate: anonymous visitors verify their phone before generating.
+    // (Not-hydrated-yet passes through — by CTA time the persisted session
+    // has long rehydrated; a stale null here would gate a logged-in user.)
+    if (authHydrated && !isLoggedIn) {
+      setShowLoginGate(true);
+      return;
+    }
     if (phase === "generating") return;
     // After the drawings are final, swap in the completion view and kick off
     // the 3-view AI render off the FINAL svgs (passed explicitly — the state
@@ -641,7 +672,18 @@ export function MyodSheet({
     startRender,
     renderCtx,
     renderPhase,
+    authHydrated,
+    isLoggedIn,
   ]);
+
+  // The gate's verify flips sessionType in the store; this effect re-runs the
+  // blocked generate on the next render, with a logged-in closure (fresh
+  // selections etc.) instead of the stale one from before the sheet opened.
+  useEffect(() => {
+    if (!generateAfterLogin || !isLoggedIn) return;
+    setGenerateAfterLogin(false);
+    handleGenerate();
+  }, [generateAfterLogin, isLoggedIn, handleGenerate]);
 
   // Regenerate from the completion view: same drawings + config, plus the
   // customer's comment and the previous renders as image references.
@@ -661,18 +703,30 @@ export function MyodSheet({
 
   const hasNonDefault = Object.keys(selections).length > 0;
 
+  // Slim running-total ticker on the choice steps (the extras step carries
+  // its total inside the Generate CTA bar instead).
+  const showPriceBar =
+    !finished &&
+    !!activeStep &&
+    !showFinalCta &&
+    phase !== "loading-tree" &&
+    !(phase === "error" && !frontSvg);
+
   return (
     // pb grows on the extras step so the sticky final CTA never overlaps the
     // last content row (bar ≈ 76px + safe-area inset, plus footerInset when
-    // a host bar owns the bottom of the screen).
+    // a host bar owns the bottom of the screen). The choice steps reserve a
+    // slimmer amount for the price ticker.
     <div
       className={
         "relative mx-auto flex w-full max-w-column flex-col gap-4 px-4 " +
-        (showFinalCta ? "pb-32" : "pb-6")
+        (showFinalCta ? "pb-32" : showPriceBar ? "pb-24" : "pb-6")
       }
       style={
-        footerInset && showFinalCta
-          ? { paddingBottom: `calc(128px + (${footerInset}))` }
+        footerInset && (showFinalCta || showPriceBar)
+          ? {
+              paddingBottom: `calc(${showFinalCta ? 128 : 96}px + (${footerInset}))`,
+            }
           : undefined
       }
     >
@@ -746,12 +800,25 @@ export function MyodSheet({
           }
           style={footerInset ? { bottom: footerInset } : undefined}
         >
-          <div className="mx-auto w-full max-w-column px-4 py-3">
+          <div className="mx-auto flex w-full max-w-column items-center justify-between gap-3 px-4 py-3">
+            <button
+              type="button"
+              onClick={() => setPriceSheetOpen(true)}
+              className="flex min-w-0 shrink-0 flex-col gap-0.5 text-left"
+            >
+              <span className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted">
+                {strings.myod.estTotal}
+              </span>
+              <span className="flex items-center gap-1 font-heading text-h3 font-semibold leading-none text-ink-navy">
+                {formatPrice(priceBreakdown.total)}
+                <ChevronDown size={14} className="rotate-180 text-muted" />
+              </span>
+            </button>
             <button
               type="button"
               onClick={handleGenerate}
               disabled={phase === "generating"}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-pill text-body font-semibold text-chalk-white shadow-brand transition-all ease-brand active:scale-[0.98] disabled:opacity-60"
+              className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-pill text-body font-semibold text-chalk-white shadow-brand transition-all ease-brand active:scale-[0.98] disabled:opacity-60"
               style={{ backgroundImage: "var(--tape-gradient)" }}
             >
               {phase === "generating" ? (
@@ -770,6 +837,39 @@ export function MyodSheet({
         </div>
       )}
 
+      {/* ── Slim running-total ticker (choice steps) ─────────────────────
+          Same fixed slot the final CTA occupies, so the total stays visible
+          as each step adds to it. Tapping it expands the breakdown sheet.
+          z-40 keeps it under the picker sheets. */}
+      {showPriceBar && (
+        <div
+          className={
+            "fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-chalk-white/95 backdrop-blur-sm " +
+            (footerInset ? "pb-0" : "pb-[env(safe-area-inset-bottom)]")
+          }
+          style={footerInset ? { bottom: footerInset } : undefined}
+        >
+          <button
+            type="button"
+            onClick={() => setPriceSheetOpen(true)}
+            className="mx-auto flex w-full max-w-column items-center justify-between gap-3 px-4 py-2.5 text-left"
+          >
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted">
+                {strings.myod.estTotal}
+              </span>
+              <span className="text-[11px] leading-tight text-muted">
+                {strings.myod.priceBaseNote} {formatPrice(priceBreakdown.base)}
+              </span>
+            </span>
+            <span className="flex items-center gap-1 font-heading text-h3 font-semibold leading-none text-ink-navy">
+              {formatPrice(priceBreakdown.total)}
+              <ChevronDown size={14} className="rotate-180 text-muted" />
+            </span>
+          </button>
+        </div>
+      )}
+
       {/* ── Full-page completion view (after Generate Blouse) ────────────
           Takes over the entire viewport — configurator header included.
           z-40 keeps it under the picker sheets (z-50), none of which can be
@@ -781,6 +881,7 @@ export function MyodSheet({
             views={renderViews}
             phase={renderPhase}
             errorMessage={renderPhase === "error" ? renderError : null}
+            total={priceBreakdown.total}
             orderBusy={ordering}
             orderError={orderError}
             onCompleteOrder={handleCompleteOrder}
@@ -806,11 +907,91 @@ export function MyodSheet({
           />
         </>
       )}
+
+      {/* Price breakdown — expands from the running-total bar. Same layer
+          as the other picker sheets (z-50), above the fixed bars (z-40). */}
+      <PriceBreakdownSheet
+        open={priceSheetOpen}
+        onClose={() => setPriceSheetOpen(false)}
+        base={priceBreakdown.base}
+        lines={priceBreakdown.lines}
+        total={priceBreakdown.total}
+      />
+
+      {/* Login gate — opens when Generate Blouse is tapped logged-out; the
+          verify success closes it and the effect above re-runs generate. */}
+      <LoginGateSheet
+        open={showLoginGate}
+        onClose={() => setShowLoginGate(false)}
+        onSuccess={() => {
+          setShowLoginGate(false);
+          setGenerateAfterLogin(true);
+        }}
+      />
     </div>
   );
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Price tag for an option card: "+ ₹200" when the choice adds to the base
+ * price. Free / unpriced options render no tag at all.
+ */
+function OptionPrice({ price }: { price: number | undefined }) {
+  if (!(price ?? 0)) return null;
+  return (
+    <span className="shrink-0 font-mono text-[11px] font-semibold leading-tight tracking-wide text-accent-text">
+      {`+ ${formatPrice(price!)}`}
+    </span>
+  );
+}
+
+/**
+ * Bottom sheet opened from the running-total bar — the full additive
+ * breakdown behind the estimate: base + one line per priced selection.
+ */
+function PriceBreakdownSheet({
+  open,
+  onClose,
+  base,
+  lines,
+  total,
+}: {
+  open: boolean;
+  onClose: () => void;
+  base: number;
+  lines: MyodPriceLine[];
+  total: number;
+}) {
+  return (
+    <BottomSheet open={open} onClose={onClose} title={strings.myod.priceSheetTitle}>
+      <div className="flex flex-col gap-3 pb-8 pt-2">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-body text-ink-navy">{strings.myod.priceBaseLine}</span>
+          <span className="font-mono text-body font-semibold text-ink-navy">
+            {formatPrice(base)}
+          </span>
+        </div>
+        {lines.map((line, i) => (
+          <div key={`${line.label}-${i}`} className="flex items-baseline justify-between gap-3">
+            <span className="min-w-0 text-body text-ink-navy">{line.label}</span>
+            <span className="shrink-0 font-mono text-body font-semibold text-accent-text">
+              {`+ ${formatPrice(line.amount)}`}
+            </span>
+          </div>
+        ))}
+        <div className="mt-1 flex items-baseline justify-between gap-3 border-t border-hairline pt-3">
+          <span className="font-heading text-h3 text-ink-navy">{strings.myod.estTotal}</span>
+          <span className="font-heading text-h3 font-semibold text-ink-navy">
+            {formatPrice(total)}
+          </span>
+        </div>
+        <p className="text-caption leading-snug text-muted">{strings.myod.priceSheetNote}</p>
+      </div>
+    </BottomSheet>
+  );
+}
 
 function defaultSelections(steps: DesignStep[]): Selections {
   const out: Selections = {};
@@ -1049,6 +1230,7 @@ function CompletionPage({
   views,
   phase,
   errorMessage,
+  total,
   orderBusy,
   orderError,
   onCompleteOrder,
@@ -1061,6 +1243,8 @@ function CompletionPage({
   phase: "idle" | "rendering" | "done" | "error";
   /** Server-supplied reason (e.g. quota 503) — shown instead of the generic line. */
   errorMessage?: string | null;
+  /** Running total carried from the wizard (base + selections). */
+  total: number;
   /** Complete Order: creation in flight (spinner) / failure reason. */
   orderBusy?: boolean;
   orderError?: string | null;
@@ -1326,6 +1510,14 @@ function CompletionPage({
               {orderError}
             </p>
           )}
+          <div className="flex items-baseline justify-between px-1">
+            <span className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted">
+              {strings.myod.estTotal}
+            </span>
+            <span className="font-heading text-h3 font-semibold leading-none text-ink-navy">
+              {formatPrice(total)}
+            </span>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
@@ -1795,6 +1987,13 @@ function ExtrasRow({
         </span>
       )}
 
+      {/* What this selection adds to the total (omitted when it adds nothing) */}
+      {isSet && selectionAmount(component, selection) > 0 && (
+        <span className="shrink-0 font-mono text-caption font-semibold leading-tight text-accent-text">
+          + {formatPrice(selectionAmount(component, selection))}
+        </span>
+      )}
+
       <ChevronRight
         size={18}
         className={
@@ -1898,8 +2097,9 @@ function TypeSheet({
                 )}
               </div>
               <div className="flex flex-col gap-0.5 px-2 py-1.5">
-                <span className="text-caption font-semibold leading-tight text-ink-navy">
-                  {sub.label}
+                <span className="flex items-baseline justify-between gap-1.5 text-caption font-semibold leading-tight text-ink-navy">
+                  <span className="min-w-0 truncate">{sub.label}</span>
+                  <OptionPrice price={sub.price} />
                 </span>
                 {sub.description && (
                   <span className="line-clamp-2 text-[11px] leading-snug text-muted">
@@ -1995,8 +2195,11 @@ function AxisValueCard({
         )}
       </div>
       <div className="px-2 py-1.5">
-        <span className="text-caption font-semibold leading-tight text-ink-navy">
-          {value.charAt(0).toUpperCase() + value.slice(1)}
+        <span className="flex items-baseline justify-between gap-1.5 text-caption font-semibold leading-tight text-ink-navy">
+          <span className="min-w-0 truncate">
+            {value.charAt(0).toUpperCase() + value.slice(1)}
+          </span>
+          <OptionPrice price={option?.price} />
         </span>
       </div>
     </button>
@@ -2223,8 +2426,11 @@ function ExtrasPicker({
               (on ? "border-accent-text/40" : "border-hairline")
             }
           >
-            <span className="text-body font-semibold text-ink-navy">
-              {on ? "Enabled" : `Enable ${component.label}`}
+            <span className="flex min-w-0 flex-1 items-baseline justify-between gap-2 text-body font-semibold text-ink-navy">
+              <span className="min-w-0">
+                {on ? "Enabled" : `Enable ${component.label}`}
+              </span>
+              <OptionPrice price={component.price} />
             </span>
             <span
               aria-hidden
@@ -2437,6 +2643,9 @@ function ExtrasPicker({
       <div className="flex flex-col gap-2.5 py-2">
         {component.options.map((opt) => {
           const selected = opt.id === selectedId;
+          const chosenSub = opt.subOptions?.find(
+            (s) => s.id === draft?.variationTypeId,
+          );
           return (
             <div
               key={opt.id}
@@ -2502,28 +2711,23 @@ function ExtrasPicker({
                 </div>
                 {/* Label + description — right */}
                 <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
-                  <span className="text-body font-semibold leading-tight text-ink-navy">
-                    {opt.label}
+                  <span className="flex items-baseline justify-between gap-2 text-body font-semibold leading-tight text-ink-navy">
+                    <span className="min-w-0">{opt.label}</span>
+                    <OptionPrice price={opt.price} />
                   </span>
                   {opt.description && (
                     <span className="line-clamp-3 text-caption leading-snug text-muted">
                       {opt.description}
                     </span>
                   )}
-                  {selected &&
-                    !!opt.subOptions?.length &&
-                    opt.subOptions.find(
-                      (s) => s.id === draft?.variationTypeId,
-                    ) && (
-                      <span className="text-[11px] font-medium leading-snug text-accent-text">
-                        Type:{" "}
-                        {
-                          opt.subOptions.find(
-                            (s) => s.id === draft?.variationTypeId,
-                          )!.label
-                        }
-                      </span>
-                    )}
+                  {selected && chosenSub && (
+                    <span className="text-[11px] font-medium leading-snug text-accent-text">
+                      Type: {chosenSub.label}
+                      {chosenSub.price
+                        ? ` · + ${formatPrice(chosenSub.price)}`
+                        : ""}
+                    </span>
+                  )}
                 </div>
               </button>
             </div>
@@ -2637,7 +2841,12 @@ function ToggleCard({
   disabled,
   onSelect,
 }: {
-  component: { id: string; label: string; kind?: "choice" | "toggle" };
+  component: {
+    id: string;
+    label: string;
+    kind?: "choice" | "toggle";
+    price?: number;
+  };
   showLabel: boolean;
   selection: ComponentSelection | undefined;
   disabled: boolean;
@@ -2657,8 +2866,11 @@ function ToggleCard({
         onClick={() => onSelect(on ? null : { variationId: "__toggle_on__" })}
         className="flex w-full items-center justify-between gap-2 rounded-card border border-hairline bg-chalk-white px-3 py-2.5 text-left shadow-card transition-all ease-brand active:scale-[0.99] disabled:opacity-50"
       >
-        <span className="text-caption font-medium text-ink-navy">
-          {component.label}
+        <span className="flex min-w-0 flex-1 items-baseline justify-between gap-2">
+          <span className="text-caption font-medium text-ink-navy">
+            {component.label}
+          </span>
+          <OptionPrice price={component.price} />
         </span>
         <span
           aria-hidden
@@ -2693,6 +2905,7 @@ function ComponentCards({
     label: string;
     options: StepOption[];
     kind?: "choice" | "toggle";
+    price?: number;
   };
   showLabel: boolean;
   selection: ComponentSelection | undefined;
@@ -2784,8 +2997,9 @@ function ComponentCards({
 
                 {/* Label + description — right */}
                 <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
-                  <span className="text-body font-semibold leading-tight text-ink-navy">
-                    {opt.label}
+                  <span className="flex items-baseline justify-between gap-2 text-body font-semibold leading-tight text-ink-navy">
+                    <span className="min-w-0">{opt.label}</span>
+                    <OptionPrice price={opt.price} />
                   </span>
                   {opt.description && (
                     <span className="line-clamp-3 text-caption leading-snug text-muted">
@@ -2795,6 +3009,9 @@ function ComponentCards({
                   {selected && chosenSub && (
                     <span className="text-[11px] font-medium leading-snug text-accent-text">
                       Type: {chosenSub.label}
+                      {chosenSub.price
+                        ? ` · + ${formatPrice(chosenSub.price)}`
+                        : ""}
                     </span>
                   )}
                 </div>

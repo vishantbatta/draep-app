@@ -121,6 +121,11 @@ export interface StepOption {
   description?: string;
   /** Reference image URL for this variation (first asset_urls entry), if any. */
   assetUrl?: string;
+  /** ADDITIVE price of choosing this option (on top of the base price).
+   *  Component variations carry variation.price; add-on variations carry
+   *  addon.price + variation.price (precomputed, mirrors the backend
+   *  `_resolve_addon_price` additive rule). Undefined = unpriced (adds 0). */
+  price?: number;
   /** Raw axis values (where/style/shape/size/type/color) for add-on variations
    *  that decompose along axes — used to resolve chip combinations. */
   axisValues?: Record<string, string>;
@@ -131,6 +136,8 @@ export interface StepOption {
     description?: string;
     /** Reference image for the type (first asset_urls entry), if any. */
     assetUrl?: string;
+    /** ADDITIVE price on top of the variation's own price (variation_type.price). */
+    price?: number;
   }[];
   /** Pre-selected sub-option id (variation.default_type_id), if any. */
   defaultSubOptionId?: string;
@@ -176,6 +183,8 @@ export interface StepComponent {
   placements?: string[];
   /** Logical section for grouping in the extras step (e.g. "Fit", "Add-ons"). */
   section?: string;
+  /** Additive price of a toggle add-on (addon.price when it has no variations). */
+  price?: number;
 }
 
 /** A design step in the guided flow. */
@@ -327,6 +336,7 @@ function variationToStepOption(v: VariationOut): StepOption {
     label: labelText(v.labels) || v.id,
     description: descText(v.descriptions) || undefined,
     assetUrl: v.asset_urls?.[0] || undefined,
+    ...(v.price != null ? { price: v.price } : {}),
     ...(types.length > 0
       ? {
           subOptions: types.map((t) => ({
@@ -334,6 +344,7 @@ function variationToStepOption(v: VariationOut): StepOption {
             label: labelText(t.labels) || t.id,
             description: descText(t.descriptions) || undefined,
             assetUrl: t.asset_urls?.[0] || undefined,
+            ...(t.price != null ? { price: t.price } : {}),
           })),
           defaultSubOptionId: v.default_type_id ?? types[0]?.id,
         }
@@ -503,12 +514,16 @@ export function addonToStepComponent(a: AddonOut): StepComponent {
     defaultOptionId: a.default_variation_id ?? undefined,
     placements: (a.placements ?? undefined)?.filter(Boolean),
     section: "Add-ons",
+    ...(a.price != null ? { price: a.price } : {}),
     ...(axes.length > 0 ? { axes } : {}),
     options: variations.map((v) => ({
       id: v.id,
       label: addonVariationLabel(v),
       description: descText(v.descriptions) || undefined,
       assetUrl: v.asset_urls?.[0] || undefined,
+      // Additive per the backend `_resolve_addon_price`: the add-on's base
+      // price PLUS the variation's own price (e.g. Latkan ₹80 + Small ₹100).
+      price: (a.price ?? 0) + (v.price ?? 0),
       ...(axes.length > 0 ? { axisValues: axisValuesOf(v) } : {}),
     })),
   };
@@ -661,4 +676,87 @@ export function isSelectionAllDefaults(
     }
   }
   return true;
+}
+
+// ─── Live pricing (mirrors app/core/pricing.py) ────────────────────────
+
+/** One priced row of the running total: what was chosen and what it adds. */
+export interface MyodPriceLine {
+  label: string;
+  amount: number;
+}
+
+/**
+ * Additive amount ONE selection contributes (0 when unpriced/off):
+ *  - toggle on  → the add-on's base price
+ *  - picks      → sum of every spot's (precomputed) option price — the
+ *                 backend stores one order item per spot, each resolving
+ *                 addon.price + variation.price, so the sum matches exactly
+ *  - choice     → variation price + the selected (else default) sub-type price
+ * Same rules as `compute_price_for_order` applies per order item.
+ */
+export function selectionAmount(
+  comp: StepComponent,
+  sel: ComponentSelection | undefined,
+): number {
+  if (!sel || sel.variationId === "__off__") return 0;
+  if (sel.variationId === "__toggle_on__") return comp.price ?? 0;
+  if (sel.picks?.length) {
+    return sel.picks.reduce((sum, p) => {
+      const opt = comp.options.find((o) => o.id === p.variationId);
+      return sum + (opt?.price ?? 0);
+    }, 0);
+  }
+  const opt = comp.options.find((o) => o.id === sel.variationId);
+  if (!opt) return 0;
+  const subId = sel.variationTypeId ?? opt.defaultSubOptionId;
+  const sub = subId ? opt.subOptions?.find((s) => s.id === subId) : undefined;
+  return (opt.price ?? 0) + (sub?.price ?? 0);
+}
+
+/**
+ * Running total for the wizard: garment base price plus one line per priced
+ * selection, in step order. Mirrors the breakdown the created order will
+ * carry (base + additive variation/type/add-on prices; unpriced adds 0).
+ */
+export function computeSelectionPrice(
+  steps: DesignStep[],
+  selections: Selections,
+  basePrice: number | null,
+): { base: number; lines: MyodPriceLine[]; total: number } {
+  const base = basePrice ?? 0;
+  const lines: MyodPriceLine[] = [];
+  let extras = 0;
+  for (const step of steps) {
+    for (const comp of step.components) {
+      const sel = selections[comp.id];
+      const amount = selectionAmount(comp, sel);
+      if (!amount) continue;
+      extras += amount;
+      lines.push({ label: priceLineLabel(comp, sel), amount });
+    }
+  }
+  return { base, lines, total: base + extras };
+}
+
+/** "Sleeve style: Regular short" / "Key Hole: Back · Round · Small +2 more". */
+function priceLineLabel(
+  comp: StepComponent,
+  sel: ComponentSelection,
+): string {
+  if (sel.variationId === "__toggle_on__") return `${comp.label}: on`;
+  if (sel.picks?.length) {
+    const first = comp.options.find((o) => o.id === sel.picks![0].variationId);
+    const value = first
+      ? sel.picks.length > 1
+        ? `${first.label} +${sel.picks.length - 1} more`
+        : first.label
+      : "on";
+    return `${comp.label}: ${value}`;
+  }
+  const opt = comp.options.find((o) => o.id === sel.variationId);
+  if (!opt) return `${comp.label}: on`;
+  const subId = sel.variationTypeId ?? opt.defaultSubOptionId;
+  const sub = subId ? opt.subOptions?.find((s) => s.id === subId) : undefined;
+  return `${comp.label}: ${sub ? `${opt.label} · ${sub.label}` : opt.label}`;
 }

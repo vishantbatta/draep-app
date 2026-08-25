@@ -183,6 +183,12 @@ export const strings = {
     navLabel: "App sections",
   },
 
+  /** Mid-flow login gate (bottom sheet) — phone+OTP to continue an action. */
+  loginGate: {
+    title: "Login to generate",
+    message: "Verify your phone number once — it keeps your design and orders safe.",
+  },
+
   dashboard: {
     title: "Your account",
     greeting: (name: string | null) => (name ? `Hi, ${name}` : "Welcome back"),
@@ -444,6 +450,13 @@ export const strings = {
     renderRetry: "Retry",
     regenerate: "Regenerate",
     completeOrder: "Complete Order",
+    // Pricing shown alongside options and as a running total
+    estTotal: "Estimated total",
+    priceBaseNote: "incl. base",
+    priceSheetTitle: "Price breakdown",
+    priceBaseLine: "Base blouse",
+    priceSheetNote:
+      "Estimate for your selections — the final price is confirmed when you book.",
     regenTitle: "Refine the render",
     regenBody: "Tell us what to change — we'll redraw the photos keeping your design.",
     regenPlaceholder: "e.g. make the piping thinner, deepen the back cut",
