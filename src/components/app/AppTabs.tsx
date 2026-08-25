@@ -1,15 +1,23 @@
 "use client";
 
 /**
- * /app — the customer home, organized as three bottom tabs.
+ * The customer home tab shell, mounted by the /app/(tabs) route-group layout.
  *
- *   Explore → the design library for blouses (LibraryBrowser, shared with
- *             the standalone /library page).
- *   Create  → the MYOD launch pad — hands off to the full-screen
- *             configurator at /myod/blouse.
- *   Profile → the account dashboard as-is (audit C2/C3): greeting + profile,
- *             inline login, order history with status, invoices and one-tap
- *             re-order from the design library.
+ * Each tab is a real URL so they're deeplinkable:
+ *
+ *   /app/explore  → the design library for blouses (LibraryBrowser, shared
+ *                   with the standalone /library page).
+ *   /app/create   → the MYOD launch pad — hands off to the full-screen
+ *                   configurator at /myod/blouse.
+ *   /app/profile  → the account dashboard as-is (audit C2/C3): greeting +
+ *                   profile, inline login, order history with status,
+ *                   invoices and one-tap re-order from the design library.
+ *
+ * /app itself redirects to /app/explore. The active tab comes from the
+ * pathname; the three panes live HERE (in the layout, above the routed
+ * pages) and mount on first visit, staying mounted-but-hidden afterwards —
+ * so in-progress work (an MYOD configuration, library scroll position)
+ * survives switching, which plain route changes alone would not preserve.
  *
  * Auth (Profile tab): reuses the customer session from the auth store
  * (anonymous → OTP upgrade). Anonymous visitors get an inline phone+OTP card
@@ -20,7 +28,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 import { LibraryBrowser } from "@/components/library/LibraryBrowser";
 import { MyodSheet } from "@/components/myod/MyodSheet";
@@ -71,8 +79,20 @@ const GENDER_OPTIONS = [
 
 /* ============================================================ */
 
-/** The three bottom tabs on /app. */
+/** The three bottom tabs — each one a real path under /app. */
 type AppTab = "explore" | "create" | "profile";
+
+const TAB_PATHS: Record<AppTab, string> = {
+  explore: "/app/explore",
+  create: "/app/create",
+  profile: "/app/profile",
+};
+
+function tabFromPathname(pathname: string): AppTab {
+  if (pathname.startsWith("/app/create")) return "create";
+  if (pathname.startsWith("/app/profile")) return "profile";
+  return "explore";
+}
 
 /**
  * Height of the bottom tab bar (1px hairline border + 52px tab buttons +
@@ -81,40 +101,51 @@ type AppTab = "explore" | "create" | "profile";
  */
 const TAB_BAR_INSET = "calc(69px + env(safe-area-inset-bottom))";
 
-export default function AppPage() {
-  const [tab, setTab] = useState<AppTab>("explore");
+export function AppTabs() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const active = tabFromPathname(pathname);
+
   // Tabs mount on first visit and stay mounted (hidden, not unmounted) so
   // in-progress work — an MYOD configuration, library scroll position —
-  // survives switching between them.
-  const [visited, setVisited] = useState<AppTab[]>(["explore"]);
+  // survives switching between them. The URL is the source of truth for
+  // which pane is visible (back/forward included); visited only gates each
+  // pane's first mount.
+  const [visited, setVisited] = useState<AppTab[]>([active]);
 
-  const select = useCallback((next: AppTab) => {
-    setTab(next);
-    setVisited((prev) => (prev.includes(next) ? prev : [...prev, next]));
-  }, []);
+  useEffect(() => {
+    setVisited((prev) => (prev.includes(active) ? prev : [...prev, active]));
+  }, [active]);
+
+  const select = useCallback(
+    (next: AppTab) => {
+      router.push(TAB_PATHS[next]);
+    },
+    [router],
+  );
 
   return (
     <div className="flex h-dvh w-full flex-col">
       {/* Tab content — each tab owns its own scrolling. */}
       <div className="min-h-0 flex-1 overflow-hidden">
         {visited.includes("explore") && (
-          <div className={tab === "explore" ? "h-full" : "hidden"}>
+          <div className={active === "explore" ? "h-full" : "hidden"}>
             <LibraryBrowser />
           </div>
         )}
         {visited.includes("create") && (
-          <div className={tab === "create" ? "h-full" : "hidden"}>
+          <div className={active === "create" ? "h-full" : "hidden"}>
             <CreateTab />
           </div>
         )}
         {visited.includes("profile") && (
-          <div className={tab === "profile" ? "h-full" : "hidden"}>
+          <div className={active === "profile" ? "h-full" : "hidden"}>
             <ProfileTab />
           </div>
         )}
       </div>
 
-      <BottomTabBar tab={tab} onChange={select} />
+      <BottomTabBar tab={active} onChange={select} />
     </div>
   );
 }
