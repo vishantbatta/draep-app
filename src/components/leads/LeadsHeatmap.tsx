@@ -23,6 +23,8 @@ import type * as LType from "leaflet";
 const PIN_GEO: Record<string, [number, number, string]> = {
   "560002": [13.02223, 77.56718, "Bangalore City"],
   "560003": [13.00274, 77.57033, "Malleswaram"],
+  "560013": [13.03941, 77.51974, "Jalahalli"],
+  "560023": [12.97565, 77.55535, "Magadi Road"],
   "560004": [12.94173, 77.5755, "Basavanagudi"],
   "560008": [12.96092, 77.63879, "HAL II Stage"],
   "560011": [12.93386, 77.58303, "Jayanagar 3rd Block"],
@@ -37,6 +39,7 @@ const PIN_GEO: Record<string, [number, number, string]> = {
   "560038": [12.97329, 77.64047, "Indiranagar"],
   "560043": [13.01416, 77.65185, "Banaswadi"],
   "560045": [13.03001, 77.62088, "Arabic College"],
+  "560046": [12.99734, 77.60368, "Benson Town"],
   "560048": [12.99592, 77.71928, "Hoodi"],
   "560049": [13.05377, 77.71733, "Virgonagar"],
   "560050": [12.92782, 77.55662, "Banashankari"],
@@ -57,6 +60,7 @@ const PIN_GEO: Record<string, [number, number, string]> = {
   "560100": [12.88718, 77.61127, "Electronics City"],
   "560102": [12.91162, 77.63886, "HSR Layout"],
   "560103": [12.93205, 77.68429, "Bellandur"],
+  "562107": [12.77512, 77.77092, "Attibele"],
 };
 
 /** Raw lead dump: one entry per lead. */
@@ -67,9 +71,12 @@ const LEAD_PINS = [
   "560050","560076","560037","560064","560051","560024","560045","560003","560008","560032",
   "560038","560037","560043","560048","560004","560022","560100","560091","560035","560049",
   "560064","560078","560002","560076","560036","560102","560068","560099","560067",
+  "560023","560076","560076","560078","560100","560064","560102","560064","560037",
+  "560013","562107","560066","560046","560076",
 ];
 
-const CENTER: LType.LatLngTuple = [12.9716, 77.665];
+// Centered south of the city so the Attibele outlier (562107) stays in view.
+const CENTER: LType.LatLngTuple = [12.945, 77.665];
 const ZOOM = 11;
 
 /** Blue → cyan → green → amber → red, matched to the legend gradient. */
