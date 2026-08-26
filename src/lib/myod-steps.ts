@@ -321,6 +321,7 @@ function componentToStepComponent(c: ComponentOut): StepComponent {
     slug: c.slug ?? undefined,
     label: labelText(c.labels) || c.id,
     description: descText(c.descriptions) || undefined,
+    assetUrl: c.asset_urls?.[0] || undefined,
     defaultOptionId: c.default_variation_id ?? undefined,
     options: (c.variations ?? [])
       .slice()

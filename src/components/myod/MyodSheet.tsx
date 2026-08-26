@@ -84,6 +84,15 @@ function renderConfigLine(
   return line;
 }
 
+/** How long the step-intro overlay holds before its timer dismisses it —
+ *  the single source shared by the dismissal timer and the overlay's
+ *  progress ring so the two can never drift apart. */
+const STEP_INTRO_MS = 5000;
+
+/** Circumference of the reading-timer ring (r=15.5 in its 36-unit viewBox) —
+ *  the dash length whose offset the countdown sweeps across. */
+const TIMER_RING_C = 2 * Math.PI * 15.5;
+
 /** Active-step info reported to host headers via onStepChange. */
 export type HostedStep = { index: number; total: number; title: string };
 
@@ -152,6 +161,7 @@ export function MyodSheet({
   // callback (webviews suspend rAF mid-transition).
   const [intro, setIntro] = useState<{
     title: string;
+    description?: string;
     image?: string;
     isExtras: boolean;
   } | null>(null);
@@ -332,9 +342,10 @@ export function MyodSheet({
     const prev = prevStepIdxRef.current;
     prevStepIdxRef.current = activeStepIdx;
     if (prev === null || activeStepIdx <= prev) return;
-    // Component photo: the component's own reference image, else its
-    // default (or first) option's — style components usually carry their
-    // assets on the variations. Multi-component steps skip the photo.
+    // Component photo: the component's own reference image (what the admin
+    // catalogue shows for it), else its default (or first) option's — some
+    // components may carry no assets of their own. Multi-component steps
+    // skip the photo.
     const solo =
       activeStep.components.length === 1 ? activeStep.components[0] : undefined;
     const previewOpt = solo
@@ -343,17 +354,18 @@ export function MyodSheet({
       : undefined;
     setIntro({
       title: activeStep.title,
+      description: solo?.description,
       image: solo?.assetUrl ?? previewOpt?.assetUrl,
       isExtras: !!activeStep.isExtras,
     });
   }, [phase, finished, activeStepIdx, activeStep]);
 
   // Timer-driven dismissal — the webview can suspend rAF mid-animation, so
-  // nothing downstream may wait on an animation callback. (Flight starts at
-  // 1.3s and the dissolve trails it; see StepIntroOverlay.)
+  // nothing downstream may wait on an animation callback. (The exit flight
+  // starts at 4s and the dissolve trails it; see StepIntroOverlay.)
   useEffect(() => {
     if (!intro) return;
-    const t = setTimeout(() => setIntro(null), 2500);
+    const t = setTimeout(() => setIntro(null), STEP_INTRO_MS);
     return () => clearTimeout(t);
   }, [intro]);
 
@@ -1006,6 +1018,7 @@ export function MyodSheet({
       {intro && (
         <StepIntroOverlay
           title={intro.title}
+          description={intro.description}
           image={intro.image}
           isExtras={intro.isExtras}
         />
@@ -2455,10 +2468,12 @@ function SketchingOverlay() {
  */
 function StepIntroOverlay({
   title,
+  description,
   image,
   isExtras,
 }: {
   title: string;
+  description?: string;
   image?: string;
   isExtras: boolean;
 }) {
@@ -2466,7 +2481,9 @@ function StepIntroOverlay({
   const titleRef = useRef<HTMLHeadingElement | null>(null);
   // Translation + scale carrying the title onto the header slot; set when
   // the flight begins (measured then, not on mount, since the entrance
-  // owns the first beat and rects can shift until it settles).
+  // owns the first beat and rects can shift until it settles). Timed so
+  // the dissolve it triggers lands just before the STEP_INTRO_MS dismissal
+  // — the hold is for reading, the exit only needs its own final second.
   const [flight, setFlight] = useState<{
     x: number;
     y: number;
@@ -2500,7 +2517,7 @@ function StepIntroOverlay({
         y: to.top + to.height / 2 - (from.top + from.height / 2),
         scale: toSize / fromSize,
       });
-    }, 1300);
+    }, STEP_INTRO_MS - 1000);
     return () => clearTimeout(t);
   }, []);
 
@@ -2627,6 +2644,54 @@ function StepIntroOverlay({
         >
           {title}
         </motion.h2>
+        {description && (
+          <motion.p
+            initial={{ opacity: 0, y: 10 }}
+            animate={flight ? { opacity: 0, y: 0 } : { opacity: 1, y: 0 }}
+            transition={
+              flight
+                ? { duration: 0.25, ease: "easeIn" }
+                : { delay: 0.24, duration: 0.32, ease: "easeOut" }
+            }
+            className="mt-2.5 max-w-[280px] text-body leading-relaxed text-ink"
+          >
+            {description}
+          </motion.p>
+        )}
+        {/* Reading timer, not a loader — the ring UNWINDS over exactly the
+            dismissal timer (STEP_INTRO_MS), so "time left to read" is what
+            it shows, and empty coincides with the step handing over. */}
+        <svg
+          aria-hidden
+          viewBox="0 0 36 36"
+          className="mt-8 h-8 w-8 -rotate-90"
+        >
+          <circle
+            cx="18"
+            cy="18"
+            r="15.5"
+            fill="none"
+            strokeWidth="2.5"
+            style={{
+              // alpha-modifier utilities don't compile in this Tailwind
+              // setup — mix the token directly instead
+              stroke: "color-mix(in srgb, var(--ink-navy) 14%, transparent)",
+            }}
+          />
+          <motion.circle
+            cx="18"
+            cy="18"
+            r="15.5"
+            fill="none"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            style={{ stroke: "var(--ink-navy)" }}
+            strokeDasharray={TIMER_RING_C}
+            initial={{ strokeDashoffset: 0 }}
+            animate={{ strokeDashoffset: TIMER_RING_C }}
+            transition={{ duration: STEP_INTRO_MS / 1000, ease: "linear" }}
+          />
+        </svg>
       </div>
     </motion.div>
   );
