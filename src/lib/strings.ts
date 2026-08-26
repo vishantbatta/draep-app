@@ -184,10 +184,14 @@ export const strings = {
   },
 
   /** Mid-flow login gate (bottom sheet) — phone+OTP to continue an action.
-   *  Callers can override title/message for their surface (LoginGateSheet props). */
+   *  Callers can override title/message for their surface (LoginGateSheet props).
+   *  profileTitle/profileMessage label the name+gender step the same sheet
+   *  shows after a fresh OTP signup (or on entry for an incomplete user). */
   loginGate: {
     title: "Login to generate",
     message: "Verify your phone number once — it keeps your design and orders safe.",
+    profileTitle: "One last stitch",
+    profileMessage: "Tell us your name and gender — your orders and fittings will know it's you.",
   },
 
   /** "Order Now" on the library design detail sheet (Explore tab). */
@@ -197,6 +201,10 @@ export const strings = {
     error: "Couldn't place the order — please try again.",
     orderGateTitle: "Login to order",
     tryOnGateTitle: "Login to try it on",
+    previewSheetTitle: "Review your selection",
+    previewLoading: "Loading selections…",
+    previewError: "Couldn't load the design — please try again.",
+    previewRetry: "Retry",
   },
 
   /** Browse filters on the library page (upfront chips + All-filters sheet). */

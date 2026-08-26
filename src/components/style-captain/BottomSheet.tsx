@@ -11,10 +11,14 @@ import { useEffect, type ReactNode } from "react";
  */
 export function BottomSheet({
   title,
+  titleClassName,
   onClose,
   children,
 }: {
   title?: string;
+  /** Title size override (default text-h4) — e.g. "text-h2" on the
+      review-your-selection flow, matching the app-wide sheet title size. */
+  titleClassName?: string;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -55,7 +59,9 @@ export function BottomSheet({
         {/* Header */}
         {title && (
           <div className="flex items-center justify-between gap-2 px-4 pt-2">
-            <h2 className="font-heading text-h4 font-semibold leading-tight text-ink-navy">
+            <h2
+              className={`font-heading ${titleClassName ?? "text-h4"} font-semibold leading-tight text-ink-navy`}
+            >
               {title}
             </h2>
             <button

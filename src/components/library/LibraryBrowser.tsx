@@ -20,7 +20,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import { LoginGateSheet } from "@/components/auth/LoginGateSheet";
 import { Sparkle, Sparkles, Close, ChevronRight, Tune } from "@/components/ui/icons";
@@ -34,6 +33,7 @@ import {
   type LibraryFilters,
   type QuickFilterSection,
 } from "@/components/library/FilterSheet";
+import { LibraryOrderPreviewSheet } from "@/components/library/LibraryOrderPreviewSheet";
 import { libraryApi } from "@/lib/api";
 import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import { strings } from "@/lib/strings";
@@ -59,10 +59,12 @@ export function LibraryBrowser() {
   const loaderRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const headerContentRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
   const sessionType = useAuthStore((s) => s.sessionType);
+  const user = useAuthStore((s) => s.user);
   const authHydrated = useAuthHydrated();
   const isLoggedIn = sessionType === "user";
+  // Logged in but still owing name/gender — the gate collects these too.
+  const profileIncomplete = isLoggedIn && (!user?.name || !user?.gender);
 
   /* ── Library list state ─────────────────────────────────────────────── */
   const [items, setItems] = useState<LibraryListItemOut[]>([]);
@@ -93,8 +95,7 @@ export function LibraryBrowser() {
   );
 
   /* ── Order + login-gate state ──────────────────────────────────────── */
-  const [ordering, setOrdering] = useState(false);
-  const [orderError, setOrderError] = useState<string | null>(null);
+  const [orderPreviewOpen, setOrderPreviewOpen] = useState(false);
   const [showLoginGate, setShowLoginGate] = useState(false);
   // The CTA that hit the login gate — re-run by the effect below on verify.
   const [actionAfterLogin, setActionAfterLogin] = useState<"order" | "tryon" | null>(
@@ -257,19 +258,21 @@ export function LibraryBrowser() {
   }, []);
 
   /* ── Login gate: both footer CTAs need a user session ──────────────── */
-  // Mirrors MyodSheet's Generate gate: while hydrated and logged out, the
-  // CTA opens the login sheet instead; the continuation effect below re-runs
-  // the blocked action once the store holds a user session.
+  // Mirrors MyodSheet's Generate gate: while hydrated and logged out — or
+  // logged in with the name/gender profile still incomplete — the CTA opens
+  // the login sheet instead (it lands on the profile form for the latter);
+  // the continuation effect below re-runs the blocked action once the store
+  // holds a complete user session.
   const gate = useCallback(
     (action: "order" | "tryon") => {
-      if (authHydrated && !isLoggedIn) {
+      if (authHydrated && (!isLoggedIn || profileIncomplete)) {
         setActionAfterLogin(action);
         setShowLoginGate(true);
         return true;
       }
       return false;
     },
-    [authHydrated, isLoggedIn],
+    [authHydrated, isLoggedIn, profileIncomplete],
   );
 
   /* ── Open the try-on sheet using the current detail's hero image ──── */
@@ -285,44 +288,42 @@ export function LibraryBrowser() {
     setTimeout(() => setTryOnOpen(true), 220);
   }, [detail, gate]);
 
-  /* ── Order Now: PENDING order straight into the visit-booking flow ── */
-  // Same contract as MYOD's Complete Order: the order_number exists right
-  // away and /app/orders/{id} walks the customer through address → slot →
-  // payment. Single-flight client-side — the BE deliberately allows repeat
-  // orders of the same design.
-  const handleOrderNow = useCallback(async () => {
+  /* ── Order Now: review (and tweak) the design's selections, then
+     create — the CTA opens the "Review your selection" editor; its apply
+     creates the PENDING order (LibraryOrderPreviewSheet owns that flow). */
+  const startOrderPreview = useCallback(() => {
     if (gate("order")) return;
-    if (!detail || ordering) return;
-    setOrdering(true);
-    setOrderError(null);
-    try {
-      const out = await libraryApi.orderFromLibrary(detail.id);
+    setOrderPreviewOpen(true);
+  }, [gate]);
+
+  // Fires the moment the order exists — the analytics event only; creation,
+  // tweak application and routing live in the preview sheet.
+  const handleOrderCreated = useCallback(
+    (orderId: string) => {
+      if (!detail) return;
       track({
         event: "library_ordered",
         library_id: detail.id,
-        order_id: out.order_id,
+        order_id: orderId,
       });
-      router.push(`/app/orders/${out.order_id}`);
-    } catch (err) {
-      setOrderError(
-        err instanceof Error ? err.message : strings.libraryOrder.error,
-      );
-    } finally {
-      setOrdering(false);
-    }
-  }, [detail, ordering, gate, router]);
+    },
+    [detail],
+  );
 
   // Gate continuation: the sheet's verify flips sessionType in the store;
   // this effect re-runs the blocked CTA on the next render with a logged-in
   // closure (fresh detail) instead of the stale one from before it opened.
-  // Dismissing the gate without verifying clears the pending action.
+  // Dismissing the gate without verifying clears the pending action. The
+  // profileIncomplete guard holds the CTA back until the sheet's profile
+  // form saves — without it the effect would fire the instant the gate
+  // opens for an already-logged-in incomplete user.
   useEffect(() => {
-    if (!actionAfterLogin || !isLoggedIn) return;
+    if (!actionAfterLogin || !isLoggedIn || profileIncomplete) return;
     const action = actionAfterLogin;
     setActionAfterLogin(null);
-    if (action === "order") void handleOrderNow();
+    if (action === "order") startOrderPreview();
     else openTryOn();
-  }, [actionAfterLogin, isLoggedIn, handleOrderNow, openTryOn]);
+  }, [actionAfterLogin, isLoggedIn, profileIncomplete, startOrderPreview, openTryOn]);
 
   const closeTryOn = useCallback(() => {
     setTryOnOpen(false);
@@ -475,12 +476,7 @@ export function LibraryBrowser() {
         title={detail?.labels?.en ?? strings.style.detailLoading}
         footer={
           detail?.hero_image_url ? (
-            <DetailFooter
-              onTryOn={openTryOn}
-              onOrder={handleOrderNow}
-              ordering={ordering}
-              error={orderError}
-            />
+            <DetailFooter onTryOn={openTryOn} onOrder={startOrderPreview} />
           ) : undefined
         }
       >
@@ -495,6 +491,17 @@ export function LibraryBrowser() {
           <DetailBody detail={detail} />
         ) : null}
       </BottomSheet>
+
+      {/* ───── Order preview — the "Review your selection" editor; apply
+             creates the PENDING order with the (possibly tweaked)
+             selections and routes into visit booking. ───── */}
+      <LibraryOrderPreviewSheet
+        open={orderPreviewOpen}
+        onClose={() => setOrderPreviewOpen(false)}
+        libraryId={detail?.id ?? null}
+        initialDetail={detail}
+        onCreated={handleOrderCreated}
+      />
 
       {/* ───── Virtual Try-On sheet ───── */}
       {tryOnDesignUrl && (
@@ -565,56 +572,38 @@ function RivetDot({ className = "" }: { className?: string }) {
 
 /**
  * Sticky footer CTAs for the design detail sheet. "Order now" is the primary
- * (tape-gradient pill — the only gradient CTA per Brand Book §8) and creates
- * a PENDING order; "Try it on" is the secondary outline pill. Both are
- * login-gated by the caller (LoginGateSheet) before firing.
+ * (tape-gradient pill — the only gradient CTA per Brand Book §8) and opens
+ * the "Review your selection" editor (creation happens there); "Try it on"
+ * is the secondary outline pill. Both are login-gated by the caller
+ * (LoginGateSheet) before firing.
  */
 function DetailFooter({
   onTryOn,
   onOrder,
-  ordering,
-  error,
 }: {
   onTryOn: () => void;
   onOrder: () => void;
-  ordering: boolean;
-  error: string | null;
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      {error && (
-        <p className="text-center text-caption" style={{ color: "var(--ember)" }}>
-          {error}
-        </p>
-      )}
-      <div className="grid grid-cols-2 gap-2.5">
-        {/* Secondary — virtual try-on (outline pill) */}
-        <button
-          type="button"
-          onClick={onTryOn}
-          disabled={ordering}
-          className="flex items-center justify-center gap-2 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-semibold text-ink-navy transition-all ease-brand active:scale-[0.98] active:border-navy-interactive disabled:opacity-50"
-        >
-          <Sparkles size={16} className="text-draep-orange" />
-          {strings.tryOn.cta}
-        </button>
-        {/* Primary — order now (the tape gradient) */}
-        <button
-          type="button"
-          onClick={onOrder}
-          disabled={ordering}
-          className="flex items-center justify-center gap-2 rounded-pill px-4 py-3 text-body font-semibold text-chalk-white shadow-primary transition-all ease-brand active:scale-[0.98] disabled:opacity-60"
-          style={{ backgroundImage: "var(--tape-gradient)" }}
-        >
-          {ordering && (
-            <span
-              aria-hidden
-              className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
-            />
-          )}
-          {ordering ? strings.libraryOrder.busy : strings.libraryOrder.cta}
-        </button>
-      </div>
+    <div className="grid grid-cols-2 gap-2.5">
+      {/* Secondary — virtual try-on (outline pill) */}
+      <button
+        type="button"
+        onClick={onTryOn}
+        className="flex items-center justify-center gap-2 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-semibold text-ink-navy transition-all ease-brand active:scale-[0.98] active:border-navy-interactive disabled:opacity-50"
+      >
+        <Sparkles size={16} className="text-draep-orange" />
+        {strings.tryOn.cta}
+      </button>
+      {/* Primary — order now (the tape gradient) */}
+      <button
+        type="button"
+        onClick={onOrder}
+        className="flex items-center justify-center gap-2 rounded-pill px-4 py-3 text-body font-semibold text-chalk-white shadow-primary transition-all ease-brand active:scale-[0.98] disabled:opacity-60"
+        style={{ backgroundImage: "var(--tape-gradient)" }}
+      >
+        {strings.libraryOrder.cta}
+      </button>
     </div>
   );
 }

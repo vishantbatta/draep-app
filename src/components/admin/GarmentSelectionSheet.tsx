@@ -170,6 +170,12 @@ interface GarmentSelectionSheetProps {
   draftSaving?: boolean;
   onDraftChange?: (items: DraftItem[]) => void;
   onComputedTotalChange?: (total: number) => void;
+  /** Sheet title override (default: "Select style" / "Edit selections"). */
+  title?: string;
+  /** Title size override passed to the sheet (default text-h4). */
+  titleClassName?: string;
+  /** Draft mode's apply-CTA label (default "Apply selections"). */
+  draftApplyLabel?: string;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────
@@ -374,6 +380,9 @@ export function GarmentSelectionSheet({
   draftSaving = false,
   onDraftChange,
   onComputedTotalChange,
+  title,
+  titleClassName,
+  draftApplyLabel,
 }: GarmentSelectionSheetProps) {
   const [tree, setTree] = useState<GarmentTree | null>(null);
   const [loading, setLoading] = useState(true);
@@ -870,7 +879,8 @@ export function GarmentSelectionSheet({
 
   return (
     <BottomSheet
-      title={draftMode ? "Select style" : "Edit selections"}
+      title={title ?? (draftMode ? "Select style" : "Edit selections")}
+      titleClassName={titleClassName}
       onClose={onClose}
     >
       {loading ? (
@@ -1181,7 +1191,7 @@ export function GarmentSelectionSheet({
                     ? "Choose an option"
                     : draftSaving
                       ? "Saving order…"
-                      : "Apply selections"}
+                      : (draftApplyLabel ?? "Apply selections")}
                 </button>
               </>
             ) : (

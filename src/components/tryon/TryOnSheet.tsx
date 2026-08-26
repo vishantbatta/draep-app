@@ -21,7 +21,6 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import type { ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -30,9 +29,9 @@ import {
 } from "react";
 
 import { BottomSheet } from "@/components/ui/BottomSheet";
+import { LibraryOrderPreviewSheet } from "@/components/library/LibraryOrderPreviewSheet";
 import { Sparkles, Upload, Close } from "@/components/ui/icons";
 import { tryOn, refineTryOn } from "@/lib/api/tryon";
-import { orderFromLibrary } from "@/lib/api/library";
 import { ordersApi } from "@/lib/api";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
@@ -82,15 +81,14 @@ export function TryOnSheet({
   garmentId,
   libraryId,
 }: Props) {
-  const router = useRouter();
   const [stage, setStage] = useState<Stage>("picker");
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Order Now from the result stage — same PENDING-order contract as the
-  // library detail sheet (POST /library/{id}/draft-order → booking flow).
-  const [ordering, setOrdering] = useState(false);
-  const [orderError, setOrderError] = useState<string | null>(null);
+  // Order Now from the result stage — the button opens the "Review your
+  // selection" editor; its apply creates the PENDING order (the preview
+  // sheet owns creation; handleOrderCreated below attaches the try-on photo).
+  const [orderPreviewOpen, setOrderPreviewOpen] = useState(false);
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
@@ -137,45 +135,41 @@ export function TryOnSheet({
     if (el) el.value = "";
   };
 
-  /** Order Now: create the PENDING order and walk into visit booking. */
-  const handleOrderNow = useCallback(async () => {
-    if (!libraryId || ordering) return;
-    setOrdering(true);
-    setOrderError(null);
-    try {
-      const out = await orderFromLibrary(libraryId);
-      track({
-        event: "library_ordered",
-        library_id: libraryId,
-        order_id: out.order_id,
-      });
-      // Attach the final try-on image so it reaches the tailor alongside the
-      // design's hero (attached server-side at order creation). Best effort —
-      // the order exists; never block the walk into booking on the upload.
+  /**
+   * Fires the moment the preview sheet's apply has created the order —
+   * tracks the purchase and attaches the final try-on image so it reaches
+   * the tailor alongside the design's hero (attached server-side at order
+   * creation). Best effort — the order exists; never block booking on it.
+   */
+  const handleOrderCreated = useCallback(
+    (orderId: string, garmentOrderId: string | null) => {
+      if (libraryId) {
+        track({
+          event: "library_ordered",
+          library_id: libraryId,
+          order_id: orderId,
+        });
+      }
       const finalImage = feed.length ? feed[feed.length - 1].imageUrl : null;
       const file = finalImage ? dataUriToFile(finalImage, "try-on") : null;
-      if (file) {
+      if (!file) return;
+      void (async () => {
         try {
-          const detail = await ordersApi.getOrderDetail(out.order_id);
-          const garmentOrderId = detail.garment_orders[0]?.id;
-          if (garmentOrderId) {
-            await ordersApi.uploadInspiration(out.order_id, garmentOrderId, [
-              file,
-            ]);
+          let goId = garmentOrderId;
+          if (!goId) {
+            const detail = await ordersApi.getOrderDetail(orderId);
+            goId = detail.garment_orders[0]?.id ?? null;
+          }
+          if (goId) {
+            await ordersApi.uploadInspiration(orderId, goId, [file]);
           }
         } catch {
           // continue to booking without the photo
         }
-      }
-      router.push(`/app/orders/${out.order_id}`);
-    } catch (err) {
-      setOrderError(
-        err instanceof Error ? err.message : strings.libraryOrder.error,
-      );
-    } finally {
-      setOrdering(false);
-    }
-  }, [libraryId, feed, ordering, router]);
+      })();
+    },
+    [libraryId, feed],
+  );
 
   /** Append a new image to the feed after a successful refinement. */
   const handleRefineResult = useCallback(
@@ -194,62 +188,74 @@ export function TryOnSheet({
   );
 
   return (
-    <BottomSheet
-      open={open}
-      onClose={onClose}
-      title={designTitle ?? strings.tryOn.sheetTitle}
-    >
+    <>
+      <BottomSheet
+        open={open}
+        onClose={onClose}
+        title={designTitle ?? strings.tryOn.sheetTitle}
+      >
       <input
-        ref={uploadInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          void handleFile(e.target.files?.[0]);
-          resetInput(uploadInputRef.current);
-        }}
-      />
-
-      <div className="pb-6">
-        <AnimatePresence mode="wait">
-          {stage === "picker" && (
-            <PickerStage
-              key="picker"
-              designImageUrl={designImageUrl}
-              onUpload={() => uploadInputRef.current?.click()}
-              onCapture={() => setStage("camera")}
-            />
-          )}
-          {stage === "camera" && (
-            <CameraStage
-              key="camera"
-              onCapture={(file) => void handleFile(file)}
-              onCancel={() => setStage("picker")}
-              onFallbackUpload={() => uploadInputRef.current?.click()}
-            />
-          )}
-          {stage === "loading" && <LoadingStage key="loading" />}
+          ref={uploadInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            void handleFile(e.target.files?.[0]);
+            resetInput(uploadInputRef.current);
+          }}
+        />
+  
+        <div className="pb-6">
+          <AnimatePresence mode="wait">
+            {stage === "picker" && (
+              <PickerStage
+                key="picker"
+                designImageUrl={designImageUrl}
+                onUpload={() => uploadInputRef.current?.click()}
+                onCapture={() => setStage("camera")}
+              />
+            )}
+            {stage === "camera" && (
+              <CameraStage
+                key="camera"
+                onCapture={(file) => void handleFile(file)}
+                onCancel={() => setStage("picker")}
+                onFallbackUpload={() => uploadInputRef.current?.click()}
+              />
+            )}
+            {stage === "loading" && <LoadingStage key="loading" />}
           {stage === "result" && feed.length > 0 && (
             <ResultStage
               key="result"
               feed={feed}
               garmentId={garmentId}
               onRefineResult={handleRefineResult}
-              onOrderNow={libraryId ? () => void handleOrderNow() : undefined}
-              ordering={ordering}
-              orderError={orderError}
+              onOrderNow={libraryId ? () => setOrderPreviewOpen(true) : undefined}
             />
           )}
-          {stage === "error" && (
-            <ErrorStage
-              key="error"
-              message={errorMsg ?? "Something went wrong."}
-              onRetry={() => setStage("picker")}
-            />
-          )}
-        </AnimatePresence>
-      </div>
-    </BottomSheet>
+            {stage === "error" && (
+              <ErrorStage
+                key="error"
+                message={errorMsg ?? "Something went wrong."}
+                onRetry={() => setStage("picker")}
+              />
+            )}
+          </AnimatePresence>
+        </div>
+      </BottomSheet>
+
+      {/* Order preview — the "Review your selection" editor; apply creates
+          the PENDING order with the (possibly tweaked) selections, attaches
+          the try-on photo, and routes into visit booking (stacks on top of
+          this sheet; rendered after it in the DOM so it wins the shared
+          z-50). */}
+      <LibraryOrderPreviewSheet
+        open={orderPreviewOpen}
+        onClose={() => setOrderPreviewOpen(false)}
+        libraryId={libraryId ?? null}
+        onCreated={handleOrderCreated}
+      />
+    </>
   );
 }
 
@@ -705,16 +711,12 @@ function ResultStage({
   garmentId,
   onRefineResult,
   onOrderNow,
-  ordering,
-  orderError,
 }: {
   feed: FeedEntry[];
   garmentId?: string;
   onRefineResult: (instruction: string, url: string, suggestions: string[]) => void;
   /** Present only when the sheet knows the library design id. */
   onOrderNow?: () => void;
-  ordering: boolean;
-  orderError: string | null;
 }) {
   // The latest entry is always the last in the feed array.
   const latest = feed[feed.length - 1];
@@ -1051,28 +1053,17 @@ function ResultStage({
           </AnimatePresence>
         </form>
 
-        {/* ─── Order now (under the chat input) ────────────────────────── */}
+        {/* ─── Order now (under the chat input) — opens the "Review your
+               selection" editor; creation happens there. ─────────────── */}
         {onOrderNow && (
           <div className="shrink-0 pt-1.5">
-            {orderError && (
-              <p className="mb-1.5 text-center text-caption text-error-text">
-                {orderError}
-              </p>
-            )}
             <button
               type="button"
               onClick={onOrderNow}
-              disabled={ordering}
-              className="flex w-full items-center justify-center gap-2 rounded-pill px-4 py-3 text-body font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-pill px-4 py-3 text-body font-semibold text-chalk-white shadow-primary transition-all hover:brightness-105 active:scale-[0.98]"
               style={{ backgroundImage: "var(--tape-gradient)" }}
             >
-              {ordering && (
-                <span
-                  aria-hidden
-                  className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
-                />
-              )}
-              {ordering ? strings.libraryOrder.busy : strings.libraryOrder.cta}
+              {strings.libraryOrder.cta}
             </button>
           </div>
         )}
