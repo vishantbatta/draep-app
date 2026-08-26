@@ -696,6 +696,11 @@ function OrderDetailContent() {
       setPlaceError(
         err instanceof Error ? err.message : strings.orderDetail.payInitError,
       );
+      // slot_taken means the server already released the dead hold —
+      // refetch so the CTA ladder flips back to "Select Slot" at once.
+      if (err instanceof ApiError && err.code === "slot_taken") {
+        await refreshDetail();
+      }
     } finally {
       setPaying(false);
     }
@@ -714,6 +719,16 @@ function OrderDetailContent() {
       setCodConfirmOpen(false);
       await refreshDetail();
     } catch (err) {
+      if (err instanceof ApiError && err.code === "slot_taken") {
+        // The dead hold is released server-side — drop the sheets, put the
+        // message at the CTA (the sheet holding choiceError is closing),
+        // and refetch so the ladder flips back to "Select Slot".
+        setPayChoiceOpen(false);
+        setCodConfirmOpen(false);
+        setPlaceError(err.message);
+        await refreshDetail();
+        return;
+      }
       setChoiceError(
         err instanceof Error ? err.message : strings.payChoice.codError,
       );

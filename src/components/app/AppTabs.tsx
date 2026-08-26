@@ -50,12 +50,11 @@ import {
   Thread,
   User,
 } from "@/components/ui/icons";
-import { libraryApi, ordersApi } from "@/lib/api";
+import { ordersApi } from "@/lib/api";
 import { track } from "@/lib/analytics";
 import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import { normalizePhoneInput } from "@/lib/phone";
 import { msg91Enabled, otpLength, sendOtpViaMsg91, verifyOtpViaMsg91 } from "@/lib/msg91";
-import { useBookingStore } from "@/lib/booking-store";
 import { displayOrderNumber, formatDate, slotVisitLabel } from "@/lib/order-display";
 import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
@@ -317,7 +316,7 @@ function ProfileTab() {
   const sendOtp = useAuthStore((s) => s.sendOtp);
   const verifyOtp = useAuthStore((s) => s.verifyOtp);
   const verifyOtpWidget = useAuthStore((s) => s.verifyOtpWidget);
-  const updateProfile = useAuthStore((s) => s.updateProfile);  const hydrateFromLibraryOrder = useBookingStore((s) => s.hydrateFromLibraryOrder);
+  const updateProfile = useAuthStore((s) => s.updateProfile);
 
   const isLoggedIn = sessionType === "user";
 
@@ -332,7 +331,6 @@ function ProfileTab() {
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [reorderId, setReorderId] = useState<string | null>(null);
 
   const loadOrders = useCallback(async (p: number) => {
     setLoading(true);
@@ -474,22 +472,6 @@ function ProfileTab() {
       );
     } finally {
       setProfileBusy(false);
-    }
-  };
-
-  /* ── Re-order: draft from the same library design, land in review ─────── */
-  const handleReorder = async (order: OrderListItem) => {
-    if (!order.library_id) return;
-    setReorderId(order.id);
-    setError(null);
-    try {
-      const out = await libraryApi.draftFromLibrary(order.library_id);
-      await hydrateFromLibraryOrder(out.order);
-      router.push("/review");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : strings.errors.generic);
-    } finally {
-      setReorderId(null);
     }
   };
 
@@ -831,8 +813,8 @@ function ProfileTab() {
                         key={order.id}
                         className="relative rounded-card border border-hairline bg-chalk-white p-4 shadow-card"
                       >
-                        {/* The whole card opens the order page; the stretched
-                            link sits under the Re-order button (z-10). */}
+                        {/* The whole card opens the order page via the
+                            stretched link. */}
                         <Link
                           href={`/app/orders/${order.id}`}
                           className="after:absolute after:inset-0 after:content-['']"
@@ -885,16 +867,6 @@ function ProfileTab() {
                               ? formatPrice(order.total_price)
                               : ""}
                           </p>
-                          {order.library_id && (
-                            <Button
-                              variant="secondary"
-                              className="relative z-10"
-                              loading={reorderId === order.id}
-                              onClick={() => void handleReorder(order)}
-                            >
-                              {strings.dashboard.reorder}
-                            </Button>
-                          )}
                         </div>
                       </li>
                     );

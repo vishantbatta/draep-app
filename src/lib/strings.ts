@@ -250,7 +250,6 @@ export const strings = {
     ordersTitle: "Your orders",
     empty: "No orders yet — your first blouse is one tap away.",
     startDesign: "Start designing",
-    reorder: "Re-order",
     loadError: "Could not load your orders.",
     retry: "Retry",
     logout: "Sign out",

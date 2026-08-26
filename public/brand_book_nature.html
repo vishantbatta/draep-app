@@ -115,6 +115,17 @@ h2.sec{font-size:34px;margin-bottom:8px}
 .reason p strong{color:var(--text)}
 .vision-strip{margin-top:24px;border-radius:18px;padding:26px 30px;background:linear-gradient(90deg,rgba(246,4,164,.12),rgba(61,8,236,.12));border:1px solid var(--line);font-size:15.5px}
 .vision-strip .k{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#FF4FC0;display:block;margin-bottom:8px}
+.why-bold{background:var(--grad-btn)}
+.why-bold .eyebrow{background:none;-webkit-text-fill-color:#fff;color:#fff}
+.why-bold .sec{color:#fff}
+.why-bold .sec-sub{color:#fff}
+.wb-statement{font-family:'Poppins',sans-serif;font-size:clamp(20px,2.4vw,26px);font-weight:600;line-height:1.55;max-width:900px;margin:14px 0 34px}
+.why-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.why-card{background:rgba(10,1,20,.26);border:1px solid rgba(255,255,255,.22);border-radius:18px;padding:26px}
+.why-card .k{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.92);margin-bottom:10px}
+.why-card h3{font-size:19px;color:#fff;margin-bottom:8px}
+.why-card p{font-size:14.5px;color:#fff;line-height:1.65}
+.wb-close{margin-top:30px;font-style:italic;font-size:17px;color:#fff}
 
 /* PHILOSOPHY */
 .phil{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
@@ -279,7 +290,7 @@ footer{padding:34px 0;text-align:center;font-family:'IBM Plex Mono',monospace;fo
 footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 
 @media(max-width:880px){
-  .mv,.values,.comp-grid,.reasons,.dodont,.nature-grid,.voice-grid,.quotes,.merch,.qr-grid,.a11y-grid{grid-template-columns:1fr}
+  .mv,.values,.comp-grid,.reasons,.why-cards,.dodont,.nature-grid,.voice-grid,.quotes,.merch,.qr-grid,.a11y-grid{grid-template-columns:1fr}
   .swatches{grid-template-columns:repeat(2,1fr)}
   .phil,.lessons{grid-template-columns:1fr}
   .mark-grid{grid-template-columns:1fr 1fr}
@@ -294,7 +305,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 
 <header class="hero">
   <div class="wrap">
-    <span class="badge"><img src="/logo_alpha.png" alt="" aria-hidden="true">Draep Design System · Nature Edition · v0.3</span>
+    <span class="badge"><img src="/logo_alpha.png" alt="" aria-hidden="true">Draep Design System · Nature Edition · v0.4</span>
     <img class="logo" src="/logo_nature_transparent.png" alt="draep logo — alpha bloom mark and gradient wordmark">
     <h1>What you wear is who you are.<br><span class="grad-text">Paint the world the way you want!</span></h1>
     <p class="spirit">If Draep were a person, they would be a garden in bloom — every flower a different color, every color belonging. We believe your clothes are your self-portrait, and that gives you a quiet power: the responsibility to make the world a little more beautiful — or a little more dull — by what you choose to wear. We choose beautiful. Every time, for everyone.</p>
@@ -363,8 +374,33 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
   </div>
 </div></section>
 
+<section class="why-bold"><div class="wrap">
+  <div class="eyebrow">03 — Why Bold</div>
+  <h2 class="sec">Why We Go Bold</h2>
+  <p class="sec-sub">Bold color isn't decoration — it's an invitation.</p>
+  <p class="wb-statement">We feel that, as humans, when we wear clothes, we take on a small and wonderful responsibility: <strong>the clothes you put on influence the beauty of the world around you.</strong></p>
+  <div class="why-cards">
+    <div class="why-card">
+      <div class="k">The responsibility</div>
+      <h3>Beauty is in your hands</h3>
+      <p>What you wear speaks to the world before you say a word. Every outfit adds beauty to the day — or takes a little away. We choose to add.</p>
+    </div>
+    <div class="why-card">
+      <div class="k">The invitation</div>
+      <h3>Bold makes room for you</h3>
+      <p>A brand that whispers asks nothing of anyone. By being bold, we invite people into a space they can perceive as comfortable enough to truly express themselves.</p>
+    </div>
+    <div class="why-card">
+      <div class="k">The freedom</div>
+      <h3>Beautify it your way</h3>
+      <p>How you beautify the world around you is entirely your call. Bold is not a rulebook — it's permission to paint your part of the world the way you want.</p>
+    </div>
+  </div>
+  <p class="wb-close">That is why our colors refuse to whisper.</p>
+</div></section>
+
 <section><div class="wrap">
-  <div class="eyebrow">03 — The Name</div>
+  <div class="eyebrow">04 — The Name</div>
   <h2 class="sec">Why we spell it <span class="grad-text">d r a e p</span></h2>
   <p class="sec-sub">The unusual spelling isn't a typo — it's the whole brand compressed into five letters. Two reasons, one vision.</p>
   <div class="spell-stage">
@@ -396,7 +432,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 </div></section>
 
 <section style="background:var(--night2)"><div class="wrap">
-  <div class="eyebrow">04 — Visual Identity</div>
+  <div class="eyebrow">05 — Visual Identity</div>
   <h2 class="sec">Wear Your World</h2>
   <p class="sec-sub">A night-dark canvas so that every color — like every person — gets to be seen. The gradient is the hero; everything else makes room for it.</p>
   <div class="phil">
@@ -407,7 +443,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 </div></section>
 
 <section><div class="wrap">
-  <div class="eyebrow">05 — Color</div>
+  <div class="eyebrow">06 — Color</div>
   <h2 class="sec">The Bloom Palette</h2>
   <p class="sec-sub">Eight colors, one flower. Sampled from our logo — which was sampled from nature itself.</p>
   <div class="swatches">
@@ -438,7 +474,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 </div></section>
 
 <section style="background:var(--night2)"><div class="wrap">
-  <div class="eyebrow">06 — On White</div>
+  <div class="eyebrow">07 — On White</div>
   <h2 class="sec">The Light Theme</h2>
   <p class="sec-sub">Night is where the garden glows — but the same brand blooms in daylight. Same flower, deeper inks: every pair below meets WCAG 2.1 AA.</p>
   <div class="lt">
@@ -485,7 +521,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 </div></section>
 
 <section><div class="wrap">
-  <div class="eyebrow">07 — Typography</div>
+  <div class="eyebrow">08 — Typography</div>
   <h2 class="sec">Typography</h2>
   <p class="sec-sub">Three voices, one conversation: Poppins speaks, Inter explains, IBM Plex Mono measures.</p>
   <div class="type-spec">
@@ -507,7 +543,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 </div></section>
 
 <section style="background:var(--night2)"><div class="wrap">
-  <div class="eyebrow">08 — Components</div>
+  <div class="eyebrow">09 — Components</div>
   <h2 class="sec">Component Library</h2>
   <p class="sec-sub">The same components the product uses — re-homed in the garden. Night surfaces, petal curves, one glowing gradient.</p>
   <div class="comp-grid">
@@ -544,7 +580,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 </div></section>
 
 <section><div class="wrap">
-  <div class="eyebrow">09 — Voice</div>
+  <div class="eyebrow">10 — Voice</div>
   <h2 class="sec">Voice & Messaging</h2>
   <p class="sec-sub">Draep speaks like a garden in full bloom — warm, vivid, and completely uninterested in making anyone smaller.</p>
   <div class="voice-grid">
@@ -563,7 +599,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 </div></section>
 
 <section style="background:var(--night2)"><div class="wrap">
-  <div class="eyebrow">10 — The Marks</div>
+  <div class="eyebrow">11 — The Marks</div>
   <h2 class="sec">Using the Mark</h2>
   <p class="sec-sub">Two marks, one garden: the full lockup for space to speak, the alpha bloom for small places. Both bloom best at night.</p>
   <div class="mark-grid">
@@ -602,7 +638,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 </div></section>
 
 <section><div class="wrap">
-  <div class="eyebrow">11 — Merch</div>
+  <div class="eyebrow">12 — Merch</div>
   <h2 class="sec">Physical & Merch Design</h2>
   <p class="sec-sub">From screen to stitch — the garden comes with us. Embroider it, print it, grow it.</p>
   <div class="merch">
@@ -634,7 +670,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 </div></section>
 
 <section style="background:var(--night2)"><div class="wrap">
-  <div class="eyebrow">12 — Accessibility</div>
+  <div class="eyebrow">13 — Accessibility</div>
   <h2 class="sec">Accessibility — WCAG 2.1 AA</h2>
   <p class="sec-sub">A brand inspired by a flower that includes every color must include every person. Every text/background pair on this page is contrast-audited; nothing ships below AA.</p>
   <div class="a11y-grid">
@@ -656,7 +692,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
         <tr><td>Flamingo labels</td><td class="mono">#F604A4</td><td class="mono">#0A0114 night</td><td class="pass">5.3:1</td><td class="pass">AA</td></tr>
         <tr><td>Small gradient ink (worst stop)</td><td class="mono">gold→flamingo</td><td class="mono">#1D1130 panel</td><td class="pass">5.0:1</td><td class="pass">AA</td></tr>
         <tr><td>Large gradient ink (worst stop)</td><td class="mono">gold→violet</td><td class="mono">#0A0114 night</td><td class="lg">3.2:1</td><td class="pass">AA · large only</td></tr>
-        <tr><td>Buttons & persona (white on deep bloom)</td><td class="mono">#FFFFFF</td><td class="mono">#D6006B→#4B0BD8</td><td class="pass">5.2–9.0:1</td><td class="pass">AA</td></tr>
+        <tr><td>White on deep bloom (buttons, persona, Why-Bold band)</td><td class="mono">#FFFFFF</td><td class="mono">#D6006B→#4B0BD8</td><td class="pass">5.2–9.0:1</td><td class="pass">AA</td></tr>
         <tr><td>Light ink on white</td><td class="mono">#1C1230</td><td class="mono">#FFFFFF</td><td class="pass">17.8:1</td><td class="pass">AAA</td></tr>
         <tr><td>Light muted on white</td><td class="mono">#5B4B77</td><td class="mono">#FFFFFF</td><td class="pass">7.7:1</td><td class="pass">AAA</td></tr>
         <tr><td>Amber ink on white</td><td class="mono">#8A5A00</td><td class="mono">#FFFFFF</td><td class="pass">5.9:1</td><td class="pass">AA</td></tr>
@@ -694,11 +730,11 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 
 </main>
 
-<footer><img src="/logo_alpha.png" alt="" aria-hidden="true">Draep Design System · Nature Edition · v0.3 · inspired by a flower 🌸</footer>
+<footer><img src="/logo_alpha.png" alt="" aria-hidden="true">Draep Design System · Nature Edition · v0.4 · inspired by a flower 🌸</footer>
 
 <script>
 (function(){
-  var md = `# Draep Brand Book — Nature Edition (v0.3)
+  var md = `# Draep Brand Book — Nature Edition (v0.4)
 
 > **What you wear is who you are. Paint the world the way you want!**
 >
@@ -706,7 +742,7 @@ footer img{width:26px;height:26px;vertical-align:-7px;margin-right:10px}
 
 |  |  |
 | --- | --- |
-| **Version** | 0.3 — Nature Edition |
+| **Version** | 0.4 — Nature Edition |
 | **Inspiration** | Nature — most of all, one gerbera flower |
 | **Keywords** | 🌸 Inspired by nature · 🧡 Everyone included · ✊ Challenge the status quo · 🌍 Paint the world · ♿ WCAG 2.1 AA |
 
@@ -750,7 +786,17 @@ This brand book — and every color in it — is inspired by nature, most of all
 
 ---
 
-## 03 · Why we spell it "draep"
+## 03 · Why We Go Bold
+
+We feel that, as humans, when we wear clothes, we take on a responsibility for the beauty of the world around us. By being bold as a brand, we are inviting people into a space they can perceive as comfortable enough to express themselves — and to beautify the world around them as they wish.
+
+- **The responsibility** — what you wear speaks before you do; every outfit adds beauty to the world or takes a little away.
+- **The invitation** — bold says: this is a space comfortable enough to be exactly who you are.
+- **The freedom** — how you beautify the world is your call; bold is permission, not a rulebook.
+
+That is why our colors refuse to whisper.
+
+## 04 · Why we spell it "draep"
 
 The vowels — **a** and **e** — sit together at the heart of the word, held by the consonants around them.
 
@@ -762,13 +808,13 @@ The vowels — **a** and **e** — sit together at the heart of the word, held b
 
 ---
 
-## 04 · Visual Identity — "Wear Your World"
+## 05 · Visual Identity — "Wear Your World"
 
 - **Color Physics** — Night canvases let the bloom gradient (gold → coral → pink → magenta → purple → indigo, always left-to-right) glow like petals at dusk.
 - **Type Hierarchy** — Poppins for display, Inter for body, IBM Plex Mono for data.
 - **Spatial Logic** — Petal-soft curves, glows instead of hard shadows, empty space as soil.
 
-## 05 · The Bloom Palette
+## 06 · The Bloom Palette
 
 | | | | |
 | --- | --- | --- | --- |
@@ -779,7 +825,7 @@ Plus \`#0A0114\` Night canvas and \`#F5E7AE\` Petal Cream.
 
 **Proportion:** 60% night canvas · 30% petal depth · 10% full bloom gradient.
 
-## 06 · On White — The Light Theme
+## 07 · On White — The Light Theme
 
 Same flower, deeper inks. Every pair meets WCAG 2.1 AA:
 
@@ -794,22 +840,22 @@ Same flower, deeper inks. Every pair meets WCAG 2.1 AA:
 
 The blossom gradient stays decorative on light; gradient headlines use \`#C4006B → #3D08EC\` (≥ 5.9:1). Buttons keep the deep bloom gradient \`#D6006B → #4B0BD8\` with white text (≥ 5.2:1).
 
-## 07 · Typography
+## 08 · Typography
 Headings — Poppins · Body — Inter · Data — IBM Plex Mono.
 
-## 08 · Voice
+## 09 · Voice
 Warm, not shy · Bold, not loud · Inclusive, always · Celebrate difference · Invite responsibility · Question the usual.
 
 **Lines:** "What you wear is who you are. Wear yourself." · "Nature has every colour. So do you." · "Everyone included. Everyone in bloom."
 
-## 09 · Using the Marks
+## 10 · Using the Marks
 
 Two marks, one garden. **The full transparent lockup** blooms on night backgrounds (clear space = bloom-mark height on all sides; minimum width 140 px). **The alpha bloom mark** (transparent) is for favicons, app icons and sizes under 140 px — always on night. Never rotate, re-order, or re-color the wordmark — the spelling is the story.
 
-## 10 · Merch
+## 11 · Merch
 Eight petal embroidery threads · night boxes with seed-paper hang tags (plant the tag, grow a flower) · cream woven labels: "Made for exactly who you are." · alpha bloom favicon set from 16 px to 180 px touch icons.
 
-## 11 · Accessibility — WCAG 2.1 AA
+## 12 · Accessibility — WCAG 2.1 AA
 
 A brand that includes every color must include every person.
 
@@ -822,7 +868,7 @@ A brand that includes every color must include every person.
 
 ---
 
-*Draep Design System · Nature Edition · v0.3 · inspired by a flower 🌸*
+*Draep Design System · Nature Edition · v0.4 · inspired by a flower 🌸*
 `;
 
   function download(){

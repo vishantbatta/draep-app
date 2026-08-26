@@ -102,6 +102,27 @@ const BACKEND_ORIGIN =
 
 const nextConfig = {
   reactStrictMode: true,
+  // TEMP(verify): allow building to a scratch dir so verification builds
+  // don't clobber the running dev server's .next. Remove before commit.
+  ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
+  async headers() {
+    return [
+      {
+        // The service worker must always be fetched fresh: a browser may
+        // reuse an HTTP-cached sw.js on first registration and for up to 24h
+        // on update checks. Vercel's default for public/ statics is
+        // max-age=14400, which would pin phones to a stale (possibly broken)
+        // worker across deploys.
+        source: "/sw.js",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=0, must-revalidate",
+          },
+        ],
+      },
+    ];
+  },
   async redirects() {
     return [
       {
