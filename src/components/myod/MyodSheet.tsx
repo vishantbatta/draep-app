@@ -128,6 +128,18 @@ export function MyodSheet({
   // completion view.
   const [finished, setFinished] = useState(false);
 
+  // Step-intro overlay — plays when the flow moves FORWARD to a new step
+  // (default selections: right after the tap; non-default: after the
+  // sketching takeover clears). Dismissed by a timer, never an animation
+  // callback (webviews suspend rAF mid-transition).
+  const [intro, setIntro] = useState<{
+    title: string;
+    image?: string;
+    isExtras: boolean;
+  } | null>(null);
+  const prevStepIdxRef = useRef<number | null>(null);
+
+
   // AI product renders of the finished blouse (front/back/side), kicked off
   // by the Generate CTA. renderCtx keeps the exact inputs so the user can
   // retry a failed render without re-running the whole generate flow — and
@@ -282,6 +294,47 @@ export function MyodSheet({
     },
     [onBackChange, onStepChange],
   );
+
+  // ── Step-intro overlay ─────────────────────────────────────────────
+  // Fires when the active step moves FORWARD while ready — right away for
+  // default selections, and for non-default ones once the generating
+  // round-trip lands (step index and phase flip back to "ready" in the
+  // same commit, so the intro takes over exactly as the sketch overlay
+  // clears). Backward moves and the initial load don't intro.
+  useEffect(() => {
+    if (phase !== "ready" || finished || !activeStep) {
+      // A sketch takeover supersedes any intro still on screen.
+      if (phase === "generating") setIntro(null);
+      prevStepIdxRef.current = activeStepIdx;
+      return;
+    }
+    const prev = prevStepIdxRef.current;
+    prevStepIdxRef.current = activeStepIdx;
+    if (prev === null || activeStepIdx <= prev) return;
+    // Component photo: the component's own reference image, else its
+    // default (or first) option's — style components usually carry their
+    // assets on the variations. Multi-component steps skip the photo.
+    const solo =
+      activeStep.components.length === 1 ? activeStep.components[0] : undefined;
+    const previewOpt = solo
+      ? (solo.options.find((o) => o.id === solo.defaultOptionId) ??
+        solo.options[0])
+      : undefined;
+    setIntro({
+      title: activeStep.title,
+      image: solo?.assetUrl ?? previewOpt?.assetUrl,
+      isExtras: !!activeStep.isExtras,
+    });
+  }, [phase, finished, activeStepIdx, activeStep]);
+
+  // Timer-driven dismissal — the webview can suspend rAF mid-animation, so
+  // nothing downstream may wait on an animation callback. (Flight starts at
+  // 1.3s and the dissolve trails it; see StepIntroOverlay.)
+  useEffect(() => {
+    if (!intro) return;
+    const t = setTimeout(() => setIntro(null), 2500);
+    return () => clearTimeout(t);
+  }, [intro]);
 
   // Default selection per component — used to resolve the EFFECTIVE config
   // (explicit ∪ defaults) when deciding whether an edit changes the design.
@@ -882,6 +935,17 @@ export function MyodSheet({
             </div>
           )}
         </div>
+      )}
+
+      {/* Step intro — plays when the flow lands on a new step (trigger and
+          timing live in the effect above). Listed BEFORE the sketching
+          takeover so the takeover wins the rare frame both are mounted. */}
+      {intro && (
+        <StepIntroOverlay
+          title={intro.title}
+          image={intro.image}
+          isExtras={intro.isExtras}
+        />
       )}
 
       {/* Sketching takeover while an edit round-trip runs — a translucent band
@@ -1815,29 +1879,20 @@ function StepCards({
 }) {
   return (
     <div>
-      <div className="mb-3 px-1">
-        <div className="flex min-h-[26px] items-center justify-between gap-3">
-          {onBack ? (
-            <button
-              type="button"
-              onClick={onBack}
-              className="flex items-center gap-1 rounded-pill border border-hairline bg-chalk-white px-2.5 py-1 text-caption font-medium text-navy-interactive shadow-card transition-all ease-brand active:scale-[0.97] active:border-navy-interactive"
-            >
-              <ArrowLeft size={14} />
-              <span>Back</span>
-            </button>
-          ) : (
-            <span aria-hidden />
-          )}
+      {/* Step title/counter/eyebrow live in the host header (onStepChange);
+          only the standalone page's in-flow Back pill remains here. */}
+      {onBack && (
+        <div className="mb-3 px-1">
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex items-center gap-1 rounded-pill border border-hairline bg-chalk-white px-2.5 py-1 text-caption font-medium text-navy-interactive shadow-card transition-all ease-brand active:scale-[0.97] active:border-navy-interactive"
+          >
+            <ArrowLeft size={14} />
+            <span>Back</span>
+          </button>
         </div>
-        {/* Step counter + title live in the host header (onStepChange);
-            only the eyebrow intro remains in-flow. */}
-        <span className="eyebrow">{strings.myod.chooseEyebrow}</span>
-        <div className="mt-2 flex items-center gap-2" aria-hidden>
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-draep-orange shadow-[0_0_0_2px_rgba(248,144,16,0.22)]" />
-          <span className="tick-divider flex-1" />
-        </div>
-      </div>
+      )}
 
       {step.isExtras ? (
         <ExtrasList
@@ -2149,8 +2204,11 @@ function BrandSpinner({ size = 16 }: { size?: number }) {
  * regardless of prefers-reduced-motion: the takeover IS the feedback that
  * generation is under way, and a frozen static variant reads as a hung screen.
  */
-function SketchingOverlay() {
-  // top = bottom edge of the navy top bar; bottom = top edge of the tab bar.
+/** Band geometry shared by the in-band overlays: top = bottom edge of the
+ *  visible navy header, bottom = the tab bar's coverage (0 on pages like
+ *  /myod/{id} that have no tab bar). Measured once on mount — the bars are
+ *  fixed and don't move while an overlay is up. */
+function useBandInsets() {
   const [band, setBand] = useState({ top: 0, bottom: 0 });
 
   useLayoutEffect(() => {
@@ -2165,6 +2223,12 @@ function SketchingOverlay() {
       bottom: tabbarTop === undefined ? 0 : Math.max(0, innerHeight - tabbarTop),
     });
   }, []);
+
+  return band;
+}
+
+function SketchingOverlay() {
+  const band = useBandInsets();
 
   const dots = [0, 1, 2];
 
@@ -2306,6 +2370,194 @@ function SketchingOverlay() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Step intro — "Now choose your <step>" played when the flow lands on a new
+ * step. The step's photo (when the step is a single component with a
+ * reference image) and title settle into the frosted band, then the title
+ * flies up onto the host header slot — where the same text already sits —
+ * while the photo and frost dissolve. Entrance and flight are one-shot
+ * framer transitions; the flight target is measured by a timer (not an
+ * animation callback) and dismissal is timer-driven in MyodSheet.
+ */
+function StepIntroOverlay({
+  title,
+  image,
+  isExtras,
+}: {
+  title: string;
+  image?: string;
+  isExtras: boolean;
+}) {
+  const band = useBandInsets();
+  const titleRef = useRef<HTMLHeadingElement | null>(null);
+  // Translation + scale carrying the title onto the header slot; set when
+  // the flight begins (measured then, not on mount, since the entrance
+  // owns the first beat and rects can shift until it settles).
+  const [flight, setFlight] = useState<{
+    x: number;
+    y: number;
+    scale: number;
+  } | null>(null);
+  // Dominant color of the step photo, sampled down to a tiny canvas — the
+  // photo casts a soft shadow in its own palette. Null until sampled (or
+  // if the canvas taints / nothing loads): falls back to ink-navy.
+  const [glow, setGlow] = useState<string | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const headerTitle = document.querySelector<HTMLElement>(
+        "header.bg-ink-navy h1, header.bg-ink-navy h2",
+      );
+      const from = titleRef.current?.getBoundingClientRect();
+      const to = headerTitle?.getBoundingClientRect();
+      const fromSize = titleRef.current
+        ? parseFloat(getComputedStyle(titleRef.current).fontSize)
+        : 0;
+      const toSize = headerTitle
+        ? parseFloat(getComputedStyle(headerTitle).fontSize)
+        : 0;
+      if (!from || !to || !fromSize || !toSize) {
+        // No measurable header slot — still play the dissolve beat.
+        setFlight({ x: 0, y: 0, scale: 1 });
+        return;
+      }
+      setFlight({
+        x: to.left + to.width / 2 - (from.left + from.width / 2),
+        y: to.top + to.height / 2 - (from.top + from.height / 2),
+        scale: toSize / fromSize,
+      });
+    }, 1300);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Sample the photo's palette for its shadow (see `glow` above). Same-origin
+  // catalog/AI assets only — a tainted canvas just keeps the fallback.
+  useEffect(() => {
+    if (!image) return;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const s = 12;
+        const canvas = document.createElement("canvas");
+        canvas.width = s;
+        canvas.height = s;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, s, s);
+        const d = ctx.getImageData(0, 0, s, s).data;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i + 3] < 40) continue;
+          // Skip the white backdrop these reference shots sit on, so the
+          // average picks up the garment itself.
+          if (
+            Math.min(d[i], d[i + 1], d[i + 2]) > 235 &&
+            Math.max(d[i], d[i + 1], d[i + 2]) > 245
+          )
+            continue;
+          r += d[i];
+          g += d[i + 1];
+          b += d[i + 2];
+          n++;
+        }
+        if (!n) return;
+        setGlow(
+          `rgba(${Math.round(r / n)}, ${Math.round(g / n)}, ${Math.round(b / n)}, 0.4)`,
+        );
+      } catch {
+        // cross-origin without CORS headers — keep the fallback shadow
+      }
+    };
+    img.src = image;
+  }, [image]);
+
+  return (
+    <motion.div
+      data-step-intro
+      role="status"
+      aria-live="polite"
+      className="fixed left-0 right-0 z-[70] flex flex-col items-center justify-center gap-7 overflow-hidden px-8 text-center backdrop-blur-md"
+      style={{
+        top: band.top,
+        bottom: band.bottom,
+        // alpha-modifier utilities (bg-warm-sand/80) don't compile in this
+        // Tailwind setup — mix the token directly instead
+        backgroundColor: "color-mix(in srgb, var(--warm-sand) 86%, transparent)",
+      }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: flight ? 0 : 1 }}
+      transition={
+        flight
+          ? { delay: 0.35, duration: 0.35, ease: "easeOut" }
+          : { duration: 0.2 }
+      }
+    >
+      <div className="relative flex flex-col items-center">
+        {image && (
+          <motion.img
+            src={image}
+            alt={title}
+            className="mb-6 h-44 w-44 rounded-card object-cover"
+            style={{
+              boxShadow: `0 20px 44px -12px ${glow ?? "rgba(8, 48, 104, 0.35)"}`,
+            }}
+            initial={{ opacity: 0, scale: 0.86, y: 10 }}
+            animate={
+              flight
+                ? { opacity: 0, scale: 0.94, y: -8 }
+                : { opacity: 1, scale: 1, y: 0 }
+            }
+            transition={
+              flight
+                ? { duration: 0.3, ease: "easeIn" }
+                : { type: "spring", stiffness: 240, damping: 22 }
+            }
+          />
+        )}
+        <motion.p
+          initial={{ opacity: 0, y: 8 }}
+          animate={flight ? { opacity: 0, y: 0 } : { opacity: 1, y: 0 }}
+          transition={
+            flight
+              ? { duration: 0.25, ease: "easeIn" }
+              : { delay: 0.15, duration: 0.3 }
+          }
+          className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted"
+        >
+          {isExtras ? strings.myod.introEyebrowExtras : strings.myod.introEyebrow}
+        </motion.p>
+        <motion.h2
+          ref={titleRef}
+          className="mt-1.5 font-heading text-h2 font-semibold leading-tight text-ink-navy"
+          style={{ willChange: "transform, opacity" }}
+          initial={{ opacity: 0, y: 14, x: 0, scale: 1 }}
+          animate={
+            flight
+              ? { opacity: 0, x: flight.x, y: flight.y, scale: flight.scale }
+              : { opacity: 1, y: 0, x: 0, scale: 1 }
+          }
+          transition={
+            flight
+              ? {
+                  x: { duration: 0.5, ease: [0.5, 0, 0.15, 1] },
+                  y: { duration: 0.5, ease: [0.5, 0, 0.15, 1] },
+                  scale: { duration: 0.5, ease: [0.5, 0, 0.15, 1] },
+                  opacity: { delay: 0.18, duration: 0.32, ease: "easeIn" },
+                }
+              : { delay: 0.08, duration: 0.32, ease: "easeOut" }
+          }
+        >
+          {title}
+        </motion.h2>
+      </div>
+    </motion.div>
   );
 }
 

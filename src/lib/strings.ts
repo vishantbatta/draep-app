@@ -502,6 +502,11 @@ export const strings = {
     // Full-page takeover while the AI redraws the sketch
     sketchTitle: "Sketching it for you",
     sketchHint: "This usually takes under a minute",
+    // Step-intro overlay: eyebrow above the step title before it flies up
+    // into the host header. Extras gets its own phrasing ("…your Fit,
+    // details & add-ons" would read wrong).
+    introEyebrow: "Now choose your",
+    introEyebrowExtras: "Up next",
     done: "Done",
     // Final CTA on the extras step + completion view
     finalCta: "Generate Blouse",
