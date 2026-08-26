@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import L from "leaflet";
+import type * as LType from "leaflet";
 // NOTE: leaflet/dist/leaflet.css is imported once in src/styles/globals.css.
 
 /** pin → [lat, lng, area] for every pin code observed in the lead dump. */
@@ -62,7 +62,7 @@ const LEAD_PINS = [
   "560064","560078","560002","560076","560036","560102","560068","560099","560067",
 ];
 
-const CENTER: L.LatLngTuple = [12.9716, 77.665];
+const CENTER: LType.LatLngTuple = [12.9716, 77.665];
 const ZOOM = 11;
 
 /** Blue → cyan → green → amber → red, matched to the legend gradient. */
@@ -87,7 +87,7 @@ function intensityColor(t: number): string {
 }
 
 export function LeadsHeatmap() {
-  const mapRef = useRef<L.Map | null>(null);
+  const mapRef = useRef<LType.Map | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -103,47 +103,60 @@ export function LeadsHeatmap() {
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
 
-    const map = L.map(containerRef.current, { zoomControl: false }).setView(CENTER, ZOOM);
-    L.control.zoom({ position: "topright" }).addTo(map);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-      maxZoom: 18,
-    }).addTo(map);
+    // Leaflet touches `window` at import time — load it in the browser only.
+    import("leaflet").then((mod) => {
+      if (cancelled || !containerRef.current) return;
+      const L = mod.default;
 
-    for (const [pin, count] of counts) {
-      const geo = PIN_GEO[pin];
-      if (!geo) continue;
-      const t = count / maxCount;
-
-      // Soft blurred halo = the "heat" reading; crisp dot = the exact pin.
-      L.circleMarker([geo[0], geo[1]], {
-        radius: 18 + t * 26,
-        stroke: false,
-        fillColor: intensityColor(t),
-        fillOpacity: 0.28,
-        interactive: false,
+      const map = L.map(containerRef.current, { zoomControl: false }).setView(CENTER, ZOOM);
+      L.control.zoom({ position: "topright" }).addTo(map);
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        maxZoom: 18,
       }).addTo(map);
 
-      L.circleMarker([geo[0], geo[1]], {
-        radius: 5 + t * 8,
-        fillColor: intensityColor(t),
-        fillOpacity: 0.9,
-        color: "#ffffff",
-        weight: 1.5,
-        opacity: 0.7,
-      })
-        .bindPopup(
-          `<b>${pin}</b> — ${geo[2]}<br/><span style="font-size:18px;font-weight:700;">${count}</span> lead${count > 1 ? "s" : ""}`
-        )
-        .addTo(map);
-    }
+      for (const [pin, count] of counts) {
+        const geo = PIN_GEO[pin];
+        if (!geo) continue;
+        const t = count / maxCount;
 
-    mapRef.current = map;
+        // Soft blurred halo = the "heat" reading; crisp dot = the exact pin.
+        L.circleMarker([geo[0], geo[1]], {
+          radius: 18 + t * 26,
+          stroke: false,
+          fillColor: intensityColor(t),
+          fillOpacity: 0.28,
+          interactive: false,
+        }).addTo(map);
+
+        L.circleMarker([geo[0], geo[1]], {
+          radius: 5 + t * 8,
+          fillColor: intensityColor(t),
+          fillOpacity: 0.9,
+          color: "#ffffff",
+          weight: 1.5,
+          opacity: 0.7,
+        })
+          .bindPopup(
+            `<b>${pin}</b> — ${geo[2]}<br/><span style="font-size:18px;font-weight:700;">${count}</span> lead${count > 1 ? "s" : ""}`
+          )
+          .addTo(map);
+      }
+
+      mapRef.current = map;
+      cleanup = () => {
+        map.remove();
+        mapRef.current = null;
+      };
+    });
+
     return () => {
-      map.remove();
-      mapRef.current = null;
+      cancelled = true;
+      cleanup?.();
     };
   }, [counts, maxCount]);
 
