@@ -13,7 +13,14 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { LoginGateSheet } from "@/components/auth/LoginGateSheet";
 import { BottomSheet } from "@/components/ui/BottomSheet";
@@ -846,6 +853,13 @@ export function MyodSheet({
           )}
         </div>
       )}
+
+      {/* Sketching takeover while an edit round-trip runs — a translucent band
+          strictly between the app's top bar and bottom tab bar (both stay
+          visible and tappable). Above the sheet content within that band
+          (z-[70] > sheet z-50 and the sticky CTA z-40), a plain conditional
+          mount like the phase swaps above. */}
+      {phase === "generating" && <SketchingOverlay />}
 
       {/* ── Sticky final CTA (extras step) ────────────────────────────────
           Sits above the viewport bottom; the root's pb-32 reserves scroll
@@ -2094,6 +2108,186 @@ function BrandSpinner({ size = 16 }: { size?: number }) {
       animate={{ rotate: 360 }}
       transition={{ repeat: Infinity, ease: "linear", duration: 0.7 }}
     />
+  );
+}
+
+/**
+ * Translucent takeover while the AI redraws the sketch (phase "generating").
+ * The logo mark floats inside a "running stitch" ring that crawls like a
+ * sewing-machine feed, with a needle dot orbiting ahead of it.
+ *
+ * A BAND, NOT THE FULL PAGE: the overlay is inset to sit strictly between the
+ * app's top bar and bottom tab bar, which stay visible and tappable. Both bars
+ * are plain in-flow elements (no z-index that could out-rank a fixed overlay),
+ * so the band is measured from them on mount — the overlay only ever mounts
+ * client-side after a tap (initial phase is "loading-tree"), and the standalone
+ * /myod/[garment_id] page has a top bar but no tab bar, which the measurement
+ * handles naturally. The surface is frosted warm-sand so the configurator
+ * shows through.
+ *
+ * Mounted as a plain conditional (same webview-suspension rationale as the
+ * phase swap — every animation below is an additive loop that simply freezes
+ * if rAF stops; nothing downstream waits on it). The loops deliberately run
+ * regardless of prefers-reduced-motion: the takeover IS the feedback that
+ * generation is under way, and a frozen static variant reads as a hung screen.
+ */
+function SketchingOverlay() {
+  // top = bottom edge of the navy top bar; bottom = top edge of the tab bar.
+  const [band, setBand] = useState({ top: 0, bottom: 0 });
+
+  useLayoutEffect(() => {
+    const header = [...document.querySelectorAll<HTMLElement>("header")].find(
+      (h) => h.offsetParent !== null && h.classList.contains("bg-ink-navy"),
+    );
+    const tabbarTop = document
+      .querySelector('nav[role="tablist"]')
+      ?.getBoundingClientRect().top;
+    setBand({
+      top: header ? header.getBoundingClientRect().bottom : 0,
+      bottom: tabbarTop === undefined ? 0 : Math.max(0, innerHeight - tabbarTop),
+    });
+  }, []);
+
+  const dots = [0, 1, 2];
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label={`${strings.myod.sketchTitle}…`}
+      className="fixed left-0 right-0 z-[70] flex flex-col items-center justify-center gap-7 overflow-hidden px-8 text-center backdrop-blur-md"
+      style={{
+        top: band.top,
+        bottom: band.bottom,
+        // alpha-modifier utilities (bg-warm-sand/80) don't compile in this
+        // Tailwind setup — mix the token directly instead
+        backgroundColor: "color-mix(in srgb, var(--warm-sand) 80%, transparent)",
+      }}
+    >
+      {/* the mark, ringed by a running stitch */}
+      <div className="relative h-44 w-44">
+        {/* soft brand glow — centered on the mark itself, not the band, so it
+            can't drift when the overlay height changes */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[440px] w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.08]"
+          style={{ backgroundImage: "var(--tape-gradient)" }}
+        />
+        <svg viewBox="0 0 176 176" className="absolute inset-0 h-full w-full" aria-hidden>
+          <defs>
+            <linearGradient id="myod-stitch-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" style={{ stopColor: "var(--draep-orange)" }} />
+              <stop offset="100%" style={{ stopColor: "var(--deep-ember)" }} />
+            </linearGradient>
+          </defs>
+          {/* faint outer hoop */}
+          <circle
+            cx="88"
+            cy="88"
+            r="84"
+            fill="none"
+            stroke="var(--hairline)"
+            strokeWidth="1.5"
+          />
+          {/* the running stitch — the dash offset loops over exactly one
+              dash period, so the crawl repeats seamlessly forever */}
+          <motion.circle
+            cx="88"
+            cy="88"
+            r="76"
+            fill="none"
+            stroke="url(#myod-stitch-grad)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeDasharray="5 10"
+            initial={{ strokeDashoffset: 15 }}
+            animate={{ strokeDashoffset: 0 }}
+            transition={{ repeat: Infinity, ease: "linear", duration: 0.5 }}
+          />
+        </svg>
+
+        {/* needle orbiting the stitch (inset puts it on the r=76 ring) */}
+        <motion.div
+          aria-hidden
+          className="absolute inset-[12px]"
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, ease: "linear", duration: 3.2 }}
+        >
+          <span
+            className="absolute left-1/2 top-0 block h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{
+              backgroundImage: "var(--tape-gradient)",
+              boxShadow: "0 0 10px 2px rgba(248, 144, 16, 0.45)",
+            }}
+          />
+        </motion.div>
+
+        <motion.img
+          src="/logo_alpha_icon.png"
+          alt=""
+          className="absolute inset-0 m-auto h-[74%] w-auto object-contain"
+          style={{ filter: "drop-shadow(0 12px 24px rgba(8, 48, 104, 0.16))" }}
+          initial={{ opacity: 0, scale: 0.82 }}
+          animate={{ opacity: 1, scale: [0.94, 1.03, 0.94] }}
+          transition={{
+            opacity: { duration: 0.35 },
+            scale: { repeat: Infinity, duration: 2.6, ease: "easeInOut" },
+          }}
+        />
+      </div>
+
+      {/* copy + stitch ticks */}
+      <div className="relative flex flex-col items-center gap-2">
+        <motion.h2
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.4 }}
+          className="font-heading text-h2 font-semibold leading-tight text-ink-navy"
+        >
+          {strings.myod.sketchTitle}
+          {dots.map((i) => (
+            <motion.span
+              key={i}
+              aria-hidden
+              className="inline-block"
+              animate={{ opacity: [0.15, 1, 0.15] }}
+              transition={{
+                duration: 1.2,
+                repeat: Infinity,
+                delay: i * 0.2,
+                ease: "easeInOut",
+              }}
+            >
+              .
+            </motion.span>
+          ))}
+        </motion.h2>
+        <motion.p
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25, duration: 0.4 }}
+          className="text-body text-muted"
+        >
+          {strings.myod.sketchHint}
+        </motion.p>
+        <div aria-hidden className="mt-1.5 flex items-center gap-1.5">
+          {dots.map((i) => (
+            <motion.span
+              key={i}
+              className="block h-1 w-5 rounded-pill"
+              style={{ backgroundImage: "var(--tape-gradient)" }}
+              animate={{ opacity: [0.15, 0.85, 0.15] }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                delay: i * 0.25,
+                ease: "easeInOut",
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

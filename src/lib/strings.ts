@@ -499,6 +499,9 @@ export const strings = {
     chooseEyebrow: "Choose your",
     loadingTree: "Loading your design options…",
     generating: "Designing…",
+    // Full-page takeover while the AI redraws the sketch
+    sketchTitle: "Sketching it for you",
+    sketchHint: "This usually takes under a minute",
     done: "Done",
     // Final CTA on the extras step + completion view
     finalCta: "Generate Blouse",
