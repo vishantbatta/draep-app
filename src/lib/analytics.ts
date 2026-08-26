@@ -59,7 +59,7 @@ export type AnalyticsEvent =
   | { event: "myod_render_failed" }
   | { event: "myod_render_reused" }
   | { event: "myod_render_regenerate"; has_comment: boolean }
-  | { event: "myod_order_cta"; cta: "complete_order" }
+  | { event: "myod_order_cta"; cta: "complete_order" | "order_now" }
   | { event: "myod_order_created"; order_id: string }
   | { event: "myod_tried_on" };
 

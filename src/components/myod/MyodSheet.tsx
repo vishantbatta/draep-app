@@ -177,8 +177,11 @@ export function MyodSheet({
   // Logged in but still owing name/gender — the gate collects these too.
   const profileIncomplete = isLoggedIn && (!user?.name || !user?.gender);
   const [showLoginGate, setShowLoginGate] = useState(false);
-  // Generate was tapped while logged out — re-run it after the gate verifies.
-  const [generateAfterLogin, setGenerateAfterLogin] = useState(false);
+  // A gated CTA (preview or order) was tapped while logged out — re-run that
+  // specific action after the gate verifies and the profile form completes.
+  const [pendingAfterLogin, setPendingAfterLogin] = useState<
+    "preview" | "order" | null
+  >(null);
 
   // ── Load the garment tree on mount ──────────────────────────────────
   useEffect(() => {
@@ -521,6 +524,7 @@ export function MyodSheet({
     // logged-in user.)
     if (authHydrated && (!isLoggedIn || profileIncomplete)) {
       setShowLoginGate(true);
+      setPendingAfterLogin("preview");
       return;
     }
     // Swap in the completion view and kick off the 3-view AI render. The
@@ -554,16 +558,60 @@ export function MyodSheet({
     profileIncomplete,
   ]);
 
+  // ── Order Now CTA — straight to a pending order, preview optional ───
+  // Same order call as the completion page's Complete Order, but reachable
+  // without rendering first: whatever AI previews exist attach as inspiration
+  // images, and none is fine.
+  const [orderNowError, setOrderNowError] = useState<string | null>(null);
+  const handleOrderNow = useCallback(async () => {
+    if (ordering || !tree) return;
+    setOrderNowError(null);
+    if (authHydrated && (!isLoggedIn || profileIncomplete)) {
+      setShowLoginGate(true);
+      setPendingAfterLogin("order");
+      return;
+    }
+    setOrdering(true);
+    track({ event: "myod_order_cta", cta: "order_now" });
+    try {
+      const order = await createMyodOrder({
+        garmentId: tree.id,
+        selections,
+        assets: renderViews.map((v) => v.url),
+      });
+      track({ event: "myod_order_created", order_id: order.id });
+      router.push(`/app/orders/${order.id}`);
+    } catch (err) {
+      setOrderNowError(
+        err instanceof ApiError && err.message
+          ? err.message
+          : "We couldn't create your order. Please try again.",
+      );
+      setOrdering(false);
+    }
+  }, [
+    ordering,
+    tree,
+    renderViews,
+    selections,
+    router,
+    authHydrated,
+    isLoggedIn,
+    profileIncomplete,
+  ]);
+
   // The gate's verify flips sessionType in the store; this effect re-runs the
-  // blocked generate on the next render, with a logged-in closure (fresh
+  // blocked action on the next render, with a logged-in closure (fresh
   // selections etc.) instead of the stale one from before the sheet opened.
   // The gate's onSuccess fires only after the profile form (if shown) saves,
   // so a complete session is guaranteed by the time this runs.
   useEffect(() => {
-    if (!generateAfterLogin || !isLoggedIn || profileIncomplete) return;
-    setGenerateAfterLogin(false);
-    handleGenerate();
-  }, [generateAfterLogin, isLoggedIn, profileIncomplete, handleGenerate]);
+    if (!pendingAfterLogin || !isLoggedIn || profileIncomplete) return;
+    const which = pendingAfterLogin;
+    setPendingAfterLogin(null);
+    if (which === "preview") handleGenerate();
+    else handleOrderNow();
+  }, [pendingAfterLogin, isLoggedIn, profileIncomplete, handleGenerate, handleOrderNow]);
 
   // Fresh step, fresh scroll: option lists are long and the old step's
   // scroll position would otherwise land the new step mid-list. Reset
@@ -695,7 +743,16 @@ export function MyodSheet({
           }
           style={footerInset ? { bottom: footerInset } : undefined}
         >
-          <div className="mx-auto flex w-full max-w-column items-center justify-between gap-3 px-4 py-3">
+          <div className="mx-auto w-full max-w-column px-4">
+            {orderNowError && (
+              <p
+                role="alert"
+                className="pt-2 text-caption font-medium text-error-text"
+              >
+                {orderNowError}
+              </p>
+            )}
+            <div className="flex items-center justify-between gap-3 py-3">
             <button
               type="button"
               onClick={() => setPriceSheetOpen(true)}
@@ -712,12 +769,26 @@ export function MyodSheet({
             <button
               type="button"
               onClick={handleGenerate}
-              className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-pill text-body font-semibold text-chalk-white shadow-brand transition-all ease-brand active:scale-[0.98]"
+              className="flex h-12 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-pill border border-hairline-strong bg-chalk-white px-2 text-caption font-semibold text-ink-navy transition-all ease-brand active:scale-[0.98] active:border-navy-interactive"
+            >
+              <Sparkles size={15} className="shrink-0" />
+              {strings.myod.aiPreviewCta}
+            </button>
+            <button
+              type="button"
+              onClick={handleOrderNow}
+              disabled={ordering}
+              className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-pill text-body font-semibold text-chalk-white shadow-brand transition-all ease-brand active:scale-[0.98] disabled:opacity-60"
               style={{ backgroundImage: "var(--tape-gradient)" }}
             >
-              {strings.myod.finalCta}
-              <ArrowRight size={18} />
+              {ordering ? (
+                <BrandSpinner size={16} />
+              ) : (
+                strings.myod.orderNowCta
+              )}
+              {!ordering && <ArrowRight size={18} />}
             </button>
+            </div>
           </div>
         </div>
       )}
@@ -803,14 +874,15 @@ export function MyodSheet({
         total={priceBreakdown.total}
       />
 
-      {/* Login gate — opens when Generate Blouse is tapped logged-out; the
-          verify success closes it and the effect above re-runs generate. */}
+      {/* Login gate — opens when a gated CTA is tapped logged-out; the
+          verify success closes it and the effect above re-runs whichever
+          action was blocked. */}
       <LoginGateSheet
         open={showLoginGate}
         onClose={() => setShowLoginGate(false)}
         onSuccess={() => {
+          // pendingAfterLogin was tagged by whichever CTA opened the gate.
           setShowLoginGate(false);
-          setGenerateAfterLogin(true);
         }}
       />
     </div>

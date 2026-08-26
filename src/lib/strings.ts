@@ -185,14 +185,12 @@ export const strings = {
   },
 
   /** Mid-flow login gate (bottom sheet) — phone+OTP to continue an action.
-   *  Callers can override title/message for their surface (LoginGateSheet props).
-   *  profileTitle/profileMessage label the name+gender step the same sheet
-   *  shows after a fresh OTP signup (or on entry for an incomplete user). */
+   *  Callers can override title/message for their surface (LoginGateSheet
+   *  props). The name+gender collection itself lives in the app-wide
+   *  ProfileCompletionGate (dashboard.* profile strings). */
   loginGate: {
     title: "Login to generate",
     message: "Verify your phone number once — it keeps your design and orders safe.",
-    profileTitle: "One last stitch",
-    profileMessage: "Tell us your name and gender — your orders and fittings will know it's you.",
   },
 
   /** "Order Now" on the library design detail sheet (Explore tab). */
@@ -245,7 +243,9 @@ export const strings = {
     demoHint: "Demo mode: any phone works with code 123456.",
     loginError: "Could not verify. Please try again.",
     profileTitle: "One last stitch",
-    profileBody: "Tell us your name — your orders and fittings will know it's you.",
+    profileBody: "Tell us your name and gender — your orders and fittings will know it's you.",
+    profileBodyName: "Tell us your name — your orders and fittings will know it's you.",
+    profileBodyGender: "Tell us your gender — your orders and fittings will know it's you.",
     nameLabel: "Your name",
     namePlaceholder: "What should we call you?",
     genderLabel: "Gender",
@@ -519,6 +519,8 @@ export const strings = {
     done: "Done",
     // Final CTA on the extras step + completion view
     finalCta: "Generate Blouse",
+    aiPreviewCta: "AI Preview",
+    orderNowCta: "Order Now",
     finalTitle: "Your blouse is ready",
     finalBody: "Every choice you made is reflected in the previews above.",
     finalKeepEditing: "Keep editing",

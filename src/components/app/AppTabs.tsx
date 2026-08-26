@@ -360,7 +360,7 @@ function HeaderDescription({ text }: { text?: string }) {
       <p
         ref={ref}
         className={
-          "max-w-[340px] text-body leading-relaxed text-chalk-white/85 " +
+          "max-w-[340px] text-caption leading-relaxed text-chalk-white/85 " +
           (expanded ? "" : "line-clamp-2")
         }
       >
