@@ -4,15 +4,18 @@
  * POST /myod/svg-edit — sends current front/back SVGs + full config + history,
  * returns updated front/back SVGs.
  *
- * POST /myod/render — sends the FINAL front/back SVGs + config summary,
- * returns realistic product photos (front/back/side) of the finished blouse.
+ * POST /myod/render-stream — sends the final config summary (the render is
+ * specified by config text alone, no line drawings); the backend renders
+ * front/back/side as one chained conversation and streams each finished
+ * photo as an SSE event (renderBlouseViews fires onView per view).
+ * POST /myod/render is the non-streaming equivalent.
  *
  * POST /myod/order — turns a finished run into a pending order (selections
  * as items, renders as inspiration images) for booking on /app/orders/{id}.
  * The garment note starts empty — the customer adds one on the order page.
  */
 
-import { apiPost } from "./client";
+import { ApiError, apiPost, apiPostStream } from "./client";
 import type { Selections } from "@/lib/myod-steps";
 
 export interface MyodSvgEditResult {
@@ -54,8 +57,6 @@ export interface MyodRenderResult {
 }
 
 export interface MyodRenderParams {
-  frontSvg: string;
-  backSvg: string;
   configText: string;
   /** Optional customer feedback for a refinement pass. */
   comment?: string;
@@ -67,15 +68,79 @@ export interface MyodRenderParams {
 
 export async function renderBlouseViews(
   params: MyodRenderParams,
+  /**
+   * Fired once per finished view — the backend renders the views as one
+   * chained conversation and streams each image as an SSE `view` event, so
+   * the UI can paint it while the remaining views are still rendering.
+   */
+  onView?: (view: MyodRenderView) => void,
 ): Promise<MyodRenderResult> {
-  return apiPost<MyodRenderResult>("/myod/render", {
-    front_svg: params.frontSvg,
-    back_svg: params.backSvg,
+  const res = await apiPostStream("/myod/render-stream", {
     config_text: params.configText,
     ...(params.comment ? { comment: params.comment } : {}),
     ...(params.referenceImages?.length ? { reference_images: params.referenceImages } : {}),
     ...(params.skipViews?.length ? { skip_views: params.skipViews } : {}),
   });
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  const views: MyodRenderView[] = [];
+  let buffer = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // Frames are separated by a blank line; parse every complete one.
+      for (let sep = buffer.indexOf("\n\n"); sep >= 0; sep = buffer.indexOf("\n\n")) {
+        const frame = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const event = parseSseFrame(frame);
+        if (!event) continue;
+        if (event.name === "view") {
+          const view = JSON.parse(event.data) as MyodRenderView;
+          if (view.view && view.url) {
+            views.push(view);
+            onView?.(view);
+          }
+        } else if (event.name === "error") {
+          const err = JSON.parse(event.data) as {
+            code?: string;
+            message?: string;
+            status?: number;
+            details?: Record<string, unknown>;
+          };
+          throw new ApiError(
+            err.code ?? "myod_render_failed",
+            err.message ?? "We couldn't render the final images. Please try again.",
+            err.status ?? 502,
+            err.details ?? {},
+          );
+        }
+        // `done` needs no handling — the views above are the result.
+        // `view_failed` is also skipped: missing views surface as gaps the
+        // completion screen already knows how to render + gap-fill.
+      }
+    }
+  } catch (err) {
+    // The stream died mid-set (e.g. the dev proxy's ~60s ceiling landing
+    // while the last view is still rendering). Views that already landed
+    // are good — keep them and let the completion screen gap-fill the rest.
+    if (!views.length || (err instanceof DOMException && err.name === "AbortError"))
+      throw err;
+  }
+  return { views };
+}
+
+/** One SSE frame: `event: <name>` + `data: <json>` (data may span lines). */
+function parseSseFrame(frame: string): { name: string; data: string } | null {
+  let name = "message";
+  const dataLines: string[] = [];
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("event:")) name = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+  }
+  if (!dataLines.length) return null;
+  return { name, data: dataLines.join("\n") };
 }
 
 export interface MyodOrderResult {

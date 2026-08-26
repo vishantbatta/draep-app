@@ -66,6 +66,23 @@ import type { GarmentTreeOut } from "@/types/api";
 
 type Phase = "loading-tree" | "ready" | "generating" | "error";
 
+/** One line of the render config, read as a sentence by the render model:
+ *  "- Component (component description) is Variation — Sub (variation +
+ *  sub-option descriptions)". Descriptions the catalog lacks are omitted. */
+function renderConfigLine(
+  label: string,
+  compDesc: string | undefined,
+  value: string,
+  ...descs: (string | undefined)[]
+): string {
+  let line = `- ${label}`;
+  if (compDesc) line += ` (${compDesc})`;
+  line += ` is ${value}`;
+  const d = descs.filter(Boolean).join(" ");
+  if (d) line += ` (${d})`;
+  return line;
+}
+
 /** Active-step info reported to host headers via onStepChange. */
 export type HostedStep = { index: number; total: number; title: string };
 
@@ -171,8 +188,11 @@ export function MyodSheet({
   // ── Login gate on Generate Blouse ──────────────────────────────────
   // Anonymous visitors verify their phone before the AI render fires.
   const sessionType = useAuthStore((s) => s.sessionType);
+  const user = useAuthStore((s) => s.user);
   const authHydrated = useAuthHydrated();
   const isLoggedIn = sessionType === "user";
+  // Logged in but still owing name/gender — the gate collects these too.
+  const profileIncomplete = isLoggedIn && (!user?.name || !user?.gender);
   const [showLoginGate, setShowLoginGate] = useState(false);
   // Generate was tapped while logged out — re-run it after the gate verifies.
   const [generateAfterLogin, setGenerateAfterLogin] = useState(false);
@@ -410,7 +430,11 @@ export function MyodSheet({
   // Unlike buildConfigSummary (which predates opt-in add-ons and falls back
   // to an add-on's first variation when unset), this builder is accurate for
   // renders: critical components resolve to explicit ∪ default, opt-in
-  // add-ons appear ONLY when the user actually enabled them.
+  // add-ons appear ONLY when the user actually enabled them. Each line is a
+  // sentence — "Component (component description) is Variation — Sub
+  // (variation + sub descriptions)" via renderConfigLine — because the
+  // render prompt is specified by this text alone: the DB descriptions are
+  // the model's entire visual vocabulary.
   const buildRenderConfig = useCallback(
     (sels: Selections): string => {
       const lines: string[] = [];
@@ -420,26 +444,44 @@ export function MyodSheet({
           if (c.kind === "toggle" || c.options.length === 0) {
             if (sel && sel.variationId !== "__off__") {
               const opt = c.options.find((o) => o.id === sel.variationId);
-              let line = `- ${c.label}: ${opt?.label ?? "on"}`;
-              if (sel.variationTypeId && opt?.subOptions) {
-                const sub = opt.subOptions.find(
-                  (s) => s.id === sel.variationTypeId,
-                );
-                if (sub) line += ` — ${sub.label}`;
-              }
+              const sub = sel.variationTypeId
+                ? opt?.subOptions?.find((s) => s.id === sel.variationTypeId)
+                : undefined;
+              let value = opt?.label ?? "on";
+              if (sub) value += ` — ${sub.label}`;
+              let line = renderConfigLine(
+                c.label,
+                c.description,
+                value,
+                opt?.description,
+                sub?.description,
+              );
               if (sel.placement)
                 line += ` (placed on ${placementLabel(sel.placement)})`;
-              if (c.description) line += ` — ${c.description}`;
               lines.push(line);
             }
             continue;
           }
-          // Multi-spot add-on: one line per spot.
+          // Multi-spot add-on: one line per spot (the option label already
+          // names the spot).
           if (c.section === "Add-ons" && sel?.picks && sel.picks.length > 0) {
             for (const pick of sel.picks) {
               const opt = c.options.find((o) => o.id === pick.variationId);
               if (!opt) continue;
-              lines.push(`- ${c.label}: ${opt.label}`);
+              const sub = pick.variationTypeId
+                ? opt.subOptions?.find((s) => s.id === pick.variationTypeId)
+                : undefined;
+              let value = opt.label;
+              if (sub) value += ` — ${sub.label}`;
+              lines.push(
+                renderConfigLine(
+                  c.label,
+                  c.description,
+                  value,
+                  opt.description,
+                  sub?.description,
+                ),
+              );
             }
             continue;
           }
@@ -449,15 +491,22 @@ export function MyodSheet({
               : (sel?.variationId ?? c.defaultOptionId);
           const opt = c.options.find((o) => o.id === chosenId);
           if (!opt) continue;
-          let line = `- ${c.label}: ${opt.label}`;
           const subId =
             sel?.variationTypeId ??
             opt.defaultSubOptionId ??
             opt.subOptions?.[0]?.id;
           const sub = opt.subOptions?.find((s) => s.id === subId);
-          if (sub) line += ` — ${sub.label}`;
-          if (opt.description) line += ` — ${opt.description}`;
-          lines.push(line);
+          let value = opt.label;
+          if (sub) value += ` — ${sub.label}`;
+          lines.push(
+            renderConfigLine(
+              c.label,
+              c.description,
+              value,
+              opt.description,
+              sub?.description,
+            ),
+          );
         }
       }
       return lines.join("\n");
@@ -615,6 +664,9 @@ export function MyodSheet({
   // re-rendered (the backend skips the named ones), the good photos stay
   // on screen while the gaps spin, and the response is merged in by view
   // instead of replacing the set.
+  // The render streams: each view merges in the moment the backend finishes
+  // it, so the completion grid fills tile by tile while later views are
+  // still being drawn.
   const startRender = useCallback(
     (ctx: RenderCtx, opts?: { skipViews?: string[] }) => {
       const targeted = !!opts?.skipViews?.length;
@@ -622,22 +674,25 @@ export function MyodSheet({
       if (!targeted) setRenderViews([]);
       setRenderError(null);
       setRenderPhase("rendering");
-      renderBlouseViews({
-        frontSvg: ctx.frontSvg,
-        backSvg: ctx.backSvg,
-        configText: ctx.configText,
-        comment: ctx.comment,
-        referenceImages: ctx.referenceImages,
-        skipViews: opts?.skipViews,
-      })
+      renderBlouseViews(
+        {
+          configText: ctx.configText,
+          comment: ctx.comment,
+          referenceImages: ctx.referenceImages,
+          skipViews: opts?.skipViews,
+        },
+        (view) => setRenderViews((prev) => mergeRenderViews(prev, [view])),
+      )
         .then((res) => {
+          // Merge (not replace) — the streamed views are already on screen;
+          // this folds in anything the stream missed (e.g. a race where the
+          // final `done` event carried a view the parser hadn't yielded).
+          setRenderViews((prev) => mergeRenderViews(prev, res.views));
           if (targeted) {
-            setRenderViews((prev) => mergeRenderViews(prev, res.views));
             // Even with nothing new, keep the grid: the missing tiles show
             // their own retry.
             setRenderPhase("done");
           } else {
-            setRenderViews(res.views);
             setRenderPhase(res.views.length ? "done" : "error");
           }
           if (res.views.length)
@@ -692,17 +747,21 @@ export function MyodSheet({
   const showFinalCta = onExtrasStep && !finished;
 
   const handleGenerate = useCallback(() => {
-    // Login gate: anonymous visitors verify their phone before generating.
-    // (Not-hydrated-yet passes through — by CTA time the persisted session
-    // has long rehydrated; a stale null here would gate a logged-in user.)
-    if (authHydrated && !isLoggedIn) {
+    // Login gate: anonymous visitors verify their phone before generating;
+    // logged-in users owing their name/gender complete the profile in the
+    // same sheet. (Not-hydrated-yet passes through — by CTA time the
+    // persisted session has long rehydrated; a stale null here would gate a
+    // logged-in user.)
+    if (authHydrated && (!isLoggedIn || profileIncomplete)) {
       setShowLoginGate(true);
       return;
     }
     if (phase === "generating") return;
     // After the drawings are final, swap in the completion view and kick off
-    // the 3-view AI render off the FINAL svgs (passed explicitly — the state
-    // closure would still hold the pre-edit pair).
+    // the 3-view AI render (specified by the config text alone). The FINAL
+    // svgs are still passed in — they gate the render on the drawings being
+    // done and key the reuse check below (the state closure would otherwise
+    // hold the pre-edit pair).
     const finish = (
       finalSvgs?: { frontSvg: string; backSvg: string } | null,
     ) => {
@@ -798,16 +857,19 @@ export function MyodSheet({
     renderPhase,
     authHydrated,
     isLoggedIn,
+    profileIncomplete,
   ]);
 
   // The gate's verify flips sessionType in the store; this effect re-runs the
   // blocked generate on the next render, with a logged-in closure (fresh
   // selections etc.) instead of the stale one from before the sheet opened.
+  // The gate's onSuccess fires only after the profile form (if shown) saves,
+  // so a complete session is guaranteed by the time this runs.
   useEffect(() => {
-    if (!generateAfterLogin || !isLoggedIn) return;
+    if (!generateAfterLogin || !isLoggedIn || profileIncomplete) return;
     setGenerateAfterLogin(false);
     handleGenerate();
-  }, [generateAfterLogin, isLoggedIn, handleGenerate]);
+  }, [generateAfterLogin, isLoggedIn, profileIncomplete, handleGenerate]);
 
   // Fresh step, fresh scroll: option lists are long and the old step's
   // scroll position would otherwise land the new step mid-list. Reset

@@ -214,3 +214,59 @@ export function apiDelete<T>(
 export function apiUpload<T>(path: string, formData: FormData): Promise<T> {
   return request<T>(path, { method: "POST", body: formData });
 }
+
+// POST whose response body is consumed as a stream (SSE endpoints): same
+// URL prefix + auth header + error-envelope normalization as request(), but
+// the body is left unread so the caller can walk res.body chunk by chunk.
+// (EventSource can't POST, so the SSE parsing lives with the caller.)
+export async function apiPostStream(
+  path: string,
+  body?: unknown,
+  opts?: Omit<RequestOptions, "method" | "body">,
+): Promise<Response> {
+  const { headers = {}, skipAuth = false, signal } = opts ?? {};
+  const finalHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "text/event-stream",
+    ...headers,
+  };
+  if (!skipAuth) {
+    const token = getToken();
+    if (token) {
+      finalHeaders["Authorization"] = `Bearer ${token}`;
+    }
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(buildUrl(path), {
+      method: "POST",
+      headers: finalHeaders,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiError(
+      "network_error",
+      "Could not reach the server. Check your connection and try again.",
+      0,
+    );
+  }
+
+  if (!response.ok || !response.body) {
+    let envelope: ApiErrorEnvelope | null = null;
+    try {
+      envelope = (await response.json()) as ApiErrorEnvelope;
+    } catch {
+      // non-JSON error body — fall through to the generic envelope
+    }
+    throw new ApiError(
+      envelope?.error?.code ?? "unknown_error",
+      envelope?.error?.message ?? "An unexpected error occurred.",
+      response.status,
+      envelope?.error?.details ?? {},
+    );
+  }
+  return response;
+}
