@@ -26,7 +26,7 @@
  * the legacy test-mode endpoints are the fallback.
  */
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 
@@ -263,39 +263,58 @@ function CreateTab() {
 
   return (
     <div className="column flex h-full flex-col bg-warm-sand">
-      {/* Slim navy header — badge + title, tape seam (Brand Book §6) */}
+      {/* Navy header that doubles as the step banner — the badge/back row
+          sits above the component name + its catalogue description, so the
+          top nav IS the "choose your …" section (no separate body card). */}
       <header className="relative flex flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white">
         <div
-          aria-hidden
-          className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full opacity-20 blur-md"
-          style={{ background: "var(--tape-gradient)" }}
-        />
-        <div className="relative z-10 flex items-center gap-3 px-4 py-2.5">
-          {headerBack.back ? (
-            <button
-              type="button"
-              onClick={headerBack.back}
-              className="flex flex-none items-center gap-1 rounded-pill border border-hairline bg-chalk-white px-2.5 py-1 text-caption font-medium text-navy-interactive shadow-card transition-all ease-brand active:scale-[0.97] active:border-navy-interactive"
-            >
-              <ArrowLeft size={14} />
-              <span>Back</span>
-            </button>
-          ) : (
-            <span
-              aria-hidden
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-chalk-white shadow-[0_1px_2px_rgba(208,96,16,0.3)]"
-              style={{ backgroundImage: "var(--tape-gradient)" }}
-            >
-              <Scissors size={18} />
-            </span>
-          )}
-          <div className="min-w-0">
-            <span className="font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white/80">
+          className={
+            "relative z-10 flex flex-col gap-3 px-4 " +
+            (headerStep?.description ? "py-6" : "py-3")
+          }
+        >
+          <div className="flex items-center justify-between gap-3">
+            {headerBack.back ? (
+              <button
+                type="button"
+                onClick={headerBack.back}
+                className="flex flex-none items-center gap-1 rounded-pill px-1 py-1.5 text-caption font-medium text-chalk-white transition-opacity ease-brand active:opacity-70"
+              >
+                <ArrowLeft size={14} />
+                <span>Back</span>
+              </button>
+            ) : (
+              <span
+                aria-hidden
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-chalk-white shadow-[0_1px_2px_rgba(208,96,16,0.3)]"
+                style={{ backgroundImage: "var(--tape-gradient)" }}
+              >
+                <Scissors size={18} />
+              </span>
+            )}
+            <span className="font-mono text-caption font-medium uppercase tracking-[0.18em] text-chalk-white/80">
               {headerStep ? `Step ${headerStep.index + 1} / ${headerStep.total}` : "MYOD"}
             </span>
-            <h2 className="truncate font-heading text-h3 font-semibold leading-tight text-chalk-white">
-              {headerStep?.title ?? strings.myod.sheetTitle}
-            </h2>
+          </div>
+          {/* Component photo left, name + description right — the banner
+              mirrors the catalogue card for the step's component. */}
+          <div className="flex items-center gap-3.5">
+            {headerStep?.image ? (
+              <img
+                src={headerStep.image}
+                alt=""
+                aria-hidden
+                className="h-20 w-20 flex-none rounded-card border border-chalk-white/15 bg-mist-navy object-cover shadow-card"
+              />
+            ) : null}
+            <div className="min-w-0">
+              <h2 className="font-heading text-h1 font-semibold leading-tight text-chalk-white">
+                {headerStep?.title ?? strings.myod.sheetTitle}
+              </h2>
+              {headerStep?.description && (
+                <HeaderDescription text={headerStep.description} />
+              )}
+            </div>
           </div>
         </div>
         {/* Tape-gradient seam (Brand Book §6) */}
@@ -310,6 +329,52 @@ function CreateTab() {
           onStepChange={handleStepChange}
         />
       </div>
+    </div>
+  );
+}
+
+function HeaderDescription({ text }: { text?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const ref = useRef<HTMLParagraphElement | null>(null);
+
+  // Reset when the step (text) changes, then measure after paint.
+  useEffect(() => {
+    setExpanded(false);
+  }, [text]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Measure the UNCLAMPED height (inline style beats the line-clamp-2
+    // class), then restore the clamp and compare against the clamped box.
+    el.style.webkitLineClamp = "unset";
+    const full = el.scrollHeight;
+    el.style.webkitLineClamp = "";
+    const clamped = el.clientHeight;
+    setOverflows(full > clamped + 1);
+  }, [text]);
+
+  if (!text) return null;
+  return (
+    <div>
+      <p
+        ref={ref}
+        className={
+          "max-w-[340px] text-body leading-relaxed text-chalk-white/85 " +
+          (expanded ? "" : "line-clamp-2")
+        }
+      >
+        {text}
+      </p>
+      {overflows && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 font-mono text-caption font-medium uppercase tracking-[0.14em] text-chalk-white underline decoration-chalk-white/40 underline-offset-4 transition-opacity ease-brand active:opacity-70"
+        >
+          {expanded ? "Read less" : "Read more"}
+        </button>
+      )}
     </div>
   );
 }

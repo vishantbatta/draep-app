@@ -1,17 +1,15 @@
 "use client";
 
 /**
- * MyodSheet — "Make Your Own Draep", vector SVG configurator.
+ * MyodSheet — "Make Your Own Draep", step-by-step configurator.
  *
- * Shows two SVG line drawings (front + back) of the garment. On load, uses the
- * garment's asset_urls as the base SVGs. When the user selects a non-default
- * option, sends the current SVGs + full config + edit history to
- * /myod/svg-edit and gets back updated front + back SVGs.
- *
- * No render-mode toggle — just the one A1 (SVG edit) approach.
+ * Each step's selections are recorded locally (no sketch round-trip per
+ * tap). The final "Generate Blouse" CTA renders the finished blouse as
+ * three AI photos, specified entirely by the config text built from the
+ * selections.
  */
 
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
@@ -40,7 +38,6 @@ import { ApiError } from "@/lib/api/client";
 import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import {
   createMyodOrder,
-  editBlouseSvg,
   renderBlouseViews,
   type MyodRenderView,
 } from "@/lib/api/myod";
@@ -62,10 +59,11 @@ import {
 } from "@/lib/myod-steps";
 import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
+import { useDominantColor } from "@/lib/use-dominant-color";
 import { track } from "@/lib/analytics";
 import type { GarmentTreeOut } from "@/types/api";
 
-type Phase = "loading-tree" | "ready" | "generating" | "error";
+type Phase = "loading-tree" | "ready" | "error";
 
 /** One line of the render config, read as a sentence by the render model:
  *  "- Component (component description) is Variation — Sub (variation +
@@ -94,7 +92,16 @@ const STEP_INTRO_MS = 5000;
 const TIMER_RING_C = 2 * Math.PI * 15.5;
 
 /** Active-step info reported to host headers via onStepChange. */
-export type HostedStep = { index: number; total: number; title: string };
+/** Step info reported to host headers. `description` (the component's
+ * catalogue description) and `image` (its catalogue asset) let the host
+ * header double as the step banner. */
+export type HostedStep = {
+  index: number;
+  total: number;
+  title: string;
+  description?: string;
+  image?: string;
+};
 
 export function MyodSheet({
   garmentId,
@@ -136,16 +143,6 @@ export function MyodSheet({
   const [activeStepIdx, setActiveStepIdx] = useState(0);
   const [selections, setSelections] = useState<Selections>({});
 
-  // Current SVGs (start from asset_urls, then updated by svg-edit)
-  const [frontSvg, setFrontSvg] = useState<string | null>(null);
-  const [backSvg, setBackSvg] = useState<string | null>(null);
-
-  // Track what the current SVGs depict (for skip-if-matches)
-  const [imageSelections, setImageSelections] = useState<Selections>({});
-  const genTokenRef = useRef(0);
-
-  // Edit history (accumulated text)
-  const historyRef = useRef<string[]>([]);
   // Root of this flow — used to find the scroll container that hosts it
   // (the window on /app/create, a nested overflow body on /myod/{id}).
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -175,8 +172,6 @@ export function MyodSheet({
   // renders instead of re-calling the model. Regeneration adds a customer
   // comment + the previous renders as image references.
   type RenderCtx = {
-    frontSvg: string;
-    backSvg: string;
     configText: string;
     comment?: string;
     referenceImages?: string[];
@@ -242,30 +237,6 @@ export function MyodSheet({
         // Prefill the extras rows with what the CATALOG marks as default —
         // never an invented first option. See extrasDefaults().
         setSelections(extrasDefaults(buildDesignSteps(t)));
-        // Starts empty: the skip-check compares EFFECTIVE selections (explicit
-        // ∪ defaults) on both sides, so the defaults don't need seeding here.
-        setImageSelections({});
-        setActiveStepIdx(0);
-        // Load base SVGs from asset_urls (fetch the SVG file content)
-        const assets = t.asset_urls ?? [];
-        const fetchSvg = async (
-          url: string | undefined,
-        ): Promise<string | null> => {
-          if (!url) return null;
-          try {
-            const res = await fetch(url);
-            if (!res.ok) return null;
-            const text = await res.text();
-            return text.trim().startsWith("<svg") ? text : null;
-          } catch {
-            return null;
-          }
-        };
-        const front = await fetchSvg(assets[0]);
-        const back = (await fetchSvg(assets[1])) ?? front;
-        if (cancelled) return;
-        setFrontSvg(front);
-        setBackSvg(back);
         setPhase("ready");
         track({ event: "myod_opened", source: "library" });
       } catch (err) {
@@ -294,7 +265,7 @@ export function MyodSheet({
     !finished &&
     activeStepIdx > 0 &&
     phase !== "loading-tree" &&
-    !(phase === "error" && !frontSvg);
+    phase !== "error";
   useEffect(() => {
     if (!onBackChange) return;
     onBackChange(
@@ -308,15 +279,32 @@ export function MyodSheet({
   // Report the active step for the host header. Depends on primitives only
   // (the reported object is rebuilt per render), so it fires on actual step
   // changes. Null once the flow finishes — hosts revert to their branding.
+  // The description + component image ride along so the host header can BE
+  // the step banner (photo, component name, what it means) instead of a
+  // slim title bar.
   const headerStepTitle = activeStep && !finished ? activeStep.title : null;
   useEffect(() => {
     if (!onStepChange) return;
+    const solo =
+      activeStep && activeStep.components.length === 1
+        ? activeStep.components[0]
+        : undefined;
+    const previewOpt = solo
+      ? (solo.options.find((o) => o.id === solo.defaultOptionId) ??
+        solo.options[0])
+      : undefined;
     onStepChange(
-      headerStepTitle === null
+      headerStepTitle === null || !activeStep
         ? null
-        : { index: activeStepIdx, total: steps.length, title: headerStepTitle },
+        : {
+            index: activeStepIdx,
+            total: steps.length,
+            title: headerStepTitle,
+            description: solo?.description,
+            image: solo?.assetUrl ?? previewOpt?.assetUrl,
+          },
     );
-  }, [headerStepTitle, activeStepIdx, steps.length, onStepChange]);
+  }, [headerStepTitle, activeStep, activeStepIdx, steps.length, onStepChange]);
   // Clear the hosted header if the configurator unmounts (tab closes).
   useEffect(
     () => () => {
@@ -327,15 +315,10 @@ export function MyodSheet({
   );
 
   // ── Step-intro overlay ─────────────────────────────────────────────
-  // Fires when the active step moves FORWARD while ready — right away for
-  // default selections, and for non-default ones once the generating
-  // round-trip lands (step index and phase flip back to "ready" in the
-  // same commit, so the intro takes over exactly as the sketch overlay
-  // clears). Backward moves and the initial load don't intro.
+  // Fires when the active step moves FORWARD while ready. Backward moves
+  // and the initial load don't intro.
   useEffect(() => {
     if (phase !== "ready" || finished || !activeStep) {
-      // A sketch takeover supersedes any intro still on screen.
-      if (phase === "generating") setIntro(null);
       prevStepIdxRef.current = activeStepIdx;
       return;
     }
@@ -369,9 +352,6 @@ export function MyodSheet({
     return () => clearTimeout(t);
   }, [intro]);
 
-  // Default selection per component — used to resolve the EFFECTIVE config
-  // (explicit ∪ defaults) when deciding whether an edit changes the design.
-  const defaultsMap = useMemo(() => defaultSelections(steps), [steps]);
   const allComponents = useMemo(
     () => steps.flatMap((s) => s.components),
     [steps],
@@ -382,67 +362,9 @@ export function MyodSheet({
     () => computeSelectionPrice(steps, selections, tree?.base_price ?? null),
     [steps, selections, tree],
   );
-  // Add-ons that are part of the base design (default-on). When one is cleared
-  // from the live design it needs an "__off__" tombstone in the image state,
-  // so re-enabling it later is detected as a real change.
-  const baseAddonIds = useMemo(
-    () =>
-      allComponents
-        .filter((c) => c.section === "Add-ons" && defaultsMap[c.id])
-        .map((c) => c.id),
-    [allComponents, defaultsMap],
-  );
-
-  // ── Config summary builder ──────────────────────────────────────────
-  const buildConfigSummary = useCallback(
-    (sels: Selections): string => {
-      if (!tree) return "";
-      const lines: string[] = [];
-      for (const c of sortedComponents(tree)) {
-        const sel = sels[c.id];
-        // Add-ons are opt-in: they appear only once the user enables them —
-        // never fall back to a default/first variation that wasn't chosen.
-        // Components resolve to explicit ∪ catalog default; a component with
-        // no default at all is omitted rather than invented.
-        const isAddon = c.section === "Add-ons";
-        // Multi-spot add-on: one line per spot (labels already name the spot).
-        if (isAddon && sel?.picks && sel.picks.length > 0) {
-          for (const pick of sel.picks) {
-            const opt = c.options.find((o) => o.id === pick.variationId);
-            if (!opt) continue;
-            let line = `- ${c.label}: ${opt.label}`;
-            if (c.description) line += ` — ${c.description}`;
-            if (opt.description) line += ` | ${opt.description}`;
-            lines.push(line);
-          }
-          continue;
-        }
-        const chosenId = isAddon
-          ? sel?.variationId
-          : (sel?.variationId ?? c.defaultOptionId);
-        const opt = c.options.find((o) => o.id === chosenId);
-        if (!opt) continue;
-        let line = `- ${c.label}: ${opt.label}`;
-        if (c.description) line += ` — ${c.description}`;
-        if (opt.description) line += ` | ${opt.description}`;
-        if (sel?.variationTypeId && opt.subOptions) {
-          const sub = opt.subOptions.find((s) => s.id === sel.variationTypeId);
-          if (sub) {
-            line += ` (${sub.label})`;
-            if (sub.description) line += ` [${sub.description}]`;
-          }
-        }
-        lines.push(line);
-      }
-      return lines.join("\n");
-    },
-    [tree],
-  );
 
   // ── Config for the final AI render ─────────────────────────────────
-  // Unlike buildConfigSummary (which predates opt-in add-ons and falls back
-  // to an add-on's first variation when unset), this builder is accurate for
-  // renders: critical components resolve to explicit ∪ default, opt-in
+  // Critical components resolve to explicit ∪ default; opt-in
   // add-ons appear ONLY when the user actually enabled them. Each line is a
   // sentence — "Component (component description) is Variation — Sub
   // (variation + sub descriptions)" via renderConfigLine — because the
@@ -527,75 +449,10 @@ export function MyodSheet({
     [steps],
   );
 
-  // ── Apply an edit ───────────────────────────────────────────────────
-  // Returns the FINAL { frontSvg, backSvg } on success (null on failure or
-  // when superseded) so callers like the Generate flow can immediately chain
-  // a render off the just-generated drawings without stale-closure reads.
-  const applyChange = useCallback(
-    async (
-      changeLabel: string,
-      changeDescription: string,
-      allSelections: Selections,
-    ): Promise<{ frontSvg: string; backSvg: string } | null> => {
-      if (!frontSvg || !backSvg) return null;
-      const token = ++genTokenRef.current;
-      setErrorMsg(null);
-      setPhase("generating");
-
-      const currentConfig = buildConfigSummary(imageSelections);
-      const newConfig = buildConfigSummary(allSelections);
-      const historyText = historyRef.current.length
-        ? "EDIT HISTORY (all changes applied so far):\n" +
-          historyRef.current.map((h, i) => `  ${i + 1}. ${h}`).join("\n")
-        : "EDIT HISTORY: (none yet)";
-
-      try {
-        const result = await editBlouseSvg({
-          currentFrontSvg: frontSvg,
-          currentBackSvg: backSvg,
-          currentConfig,
-          newConfig,
-          changeLabel,
-          changeDescription,
-          editHistory: historyText,
-        });
-        if (token !== genTokenRef.current) return null;
-        setFrontSvg(result.front_svg);
-        setBackSvg(result.back_svg);
-        // Record the new image state, keeping explicit "off" tombstones for
-        // components that were on and are now cleared — otherwise re-enabling
-        // them later would compare equal to the default and skip the redraw.
-        // Base-design (default-on) add-ons count as "on" in the image being
-        // replaced even before any redraw recorded them.
-        const nextImage: Selections = { ...allSelections };
-        for (const id of new Set([
-          ...Object.keys(imageSelections),
-          ...baseAddonIds,
-        ])) {
-          if (!(id in nextImage)) nextImage[id] = { variationId: "__off__" };
-        }
-        setImageSelections(nextImage);
-        historyRef.current.push(changeLabel);
-        setPhase("ready");
-        track({ event: "myod_succeeded" });
-        return { frontSvg: result.front_svg, backSvg: result.back_svg };
-      } catch (err) {
-        if (token !== genTokenRef.current) return null;
-        setErrorMsg(
-          err instanceof Error ? err.message : "Something went wrong.",
-        );
-        setPhase("ready");
-        track({
-          event: "myod_failed",
-          error: err instanceof Error ? err.message : undefined,
-        });
-        return null;
-      }
-    },
-    [frontSvg, backSvg, imageSelections, buildConfigSummary, baseAddonIds],
-  );
-
   // ── Option tap ──────────────────────────────────────────────────────
+  // Selections are recorded locally only — no sketch round-trip per tap.
+  // The final AI render (Generate Blouse) is specified by the config text
+  // built from these selections, so nothing needs to be drawn mid-flow.
   const handleSelectOption = useCallback(
     (componentId: string, sel: ComponentSelection | null) => {
       const next = { ...selections };
@@ -604,67 +461,25 @@ export function MyodSheet({
       setSelections(next);
 
       const step = steps[activeStepIdx];
-      const shouldAdvance = !step?.isExtras;
-      // Advance only if the user is still on the step this tap was made on.
-      // Rapid re-taps on the same step (possible now that selections stay
-      // enabled during generation) then advance exactly once instead of once
-      // per tap, and a background generation never yanks the user forward
+      // Advance only on the choice steps, and only if the user is still on
+      // the step this tap was made on — rapid re-taps on the same step
+      // advance exactly once, and a late tap never yanks the user forward
       // after they've navigated back.
-      const tappedIdx = activeStepIdx;
-      const advance = () => {
-        if (!shouldAdvance) return;
+      if (!step?.isExtras) {
+        const tappedIdx = activeStepIdx;
         setActiveStepIdx((i) =>
           i === tappedIdx ? Math.min(steps.length - 1, i + 1) : i,
         );
-      };
-
-      // Skip the Gemini round-trip when the requested config resolves to the
-      // same effective design as the current image. See requestedForCompare /
-      // depictedForCompare for how each side resolves defaults and off states.
-      const sameSelection = (x?: ComponentSelection, y?: ComponentSelection) =>
-        (x?.variationId ?? null) === (y?.variationId ?? null) &&
-        (x?.variationTypeId ?? null) === (y?.variationTypeId ?? null) &&
-        myodPicksEqual(x?.picks, y?.picks);
-      const sameDesign = allComponents.every((c) =>
-        sameSelection(
-          requestedForCompare(c, next[c.id], defaultsMap),
-          depictedForCompare(c, imageSelections[c.id], defaultsMap),
-        ),
-      );
-      if (sameDesign) {
-        advance();
-        return;
       }
 
-      const change = sel
+      const instruction = sel
         ? step
           ? describeSelection(step, componentId, sel)
           : ""
         : `${step?.components.find((c) => c.id === componentId)?.label ?? "Add-on"} → off`;
-
-      // Build full change description with component + variation descriptions
-      const comp = step?.components.find((c) => c.id === componentId);
-      const opt = comp?.options.find((o) => o.id === sel?.variationId);
-      let changeDesc = "";
-      if (comp?.description) changeDesc += comp.description + "\n";
-      if (opt?.description) changeDesc += opt.description;
-      if (sel?.variationTypeId && opt?.subOptions) {
-        const sub = opt.subOptions.find((s) => s.id === sel.variationTypeId);
-        if (sub?.description) changeDesc += "\n" + sub.description;
-      }
-
-      track({ event: "myod_refined", instruction: change });
-      void applyChange(change, changeDesc, next).then(advance);
+      track({ event: "myod_refined", instruction });
     },
-    [
-      selections,
-      imageSelections,
-      steps,
-      activeStepIdx,
-      defaultsMap,
-      allComponents,
-      applyChange,
-    ],
+    [selections, steps, activeStepIdx],
   );
 
   const retry = useCallback(() => {
@@ -769,101 +584,28 @@ export function MyodSheet({
       setShowLoginGate(true);
       return;
     }
-    if (phase === "generating") return;
-    // After the drawings are final, swap in the completion view and kick off
-    // the 3-view AI render (specified by the config text alone). The FINAL
-    // svgs are still passed in — they gate the render on the drawings being
-    // done and key the reuse check below (the state closure would otherwise
-    // hold the pre-edit pair).
-    const finish = (
-      finalSvgs?: { frontSvg: string; backSvg: string } | null,
-    ) => {
-      setFinished(true);
-      track({ event: "myod_generated" });
-      const front = finalSvgs?.frontSvg ?? frontSvg;
-      const back = finalSvgs?.backSvg ?? backSvg;
-      if (front && back) {
-        const configText = buildRenderConfig(selections);
-        // Reuse the existing renders when nothing behind them changed: same
-        // drawings + same effective config (covers the keep-editing →
-        // Generate-again loop). "rendering" also reuses — a matching render
-        // is already in flight; "error" re-renders (there is nothing to show).
-        const reusable =
-          renderCtx &&
-          (renderPhase === "done" || renderPhase === "rendering") &&
-          renderCtx.frontSvg === front &&
-          renderCtx.backSvg === back &&
-          renderCtx.configText === configText;
-        if (reusable) {
-          track({ event: "myod_render_reused" });
-          return;
-        }
-        startRender({ frontSvg: front, backSvg: back, configText });
-      }
-    };
-    // Same effective-config check as option taps: if the drawings already
-    // depict the full config there is nothing left to generate. See
-    // requestedForCompare / depictedForCompare for the fallback semantics.
-    const sameSel = (x?: ComponentSelection, y?: ComponentSelection) =>
-      (x?.variationId ?? null) === (y?.variationId ?? null) &&
-      (x?.variationTypeId ?? null) === (y?.variationTypeId ?? null) &&
-      myodPicksEqual(x?.picks, y?.picks);
-    const sameDesign = allComponents.every((c) =>
-      sameSel(
-        requestedForCompare(c, selections[c.id], defaultsMap),
-        depictedForCompare(c, imageSelections[c.id], defaultsMap),
-      ),
-    );
-    if (sameDesign) {
-      finish();
+    // Swap in the completion view and kick off the 3-view AI render. The
+    // render is specified by the config text built from the selections
+    // alone — no sketch is drawn at any point in the flow.
+    setFinished(true);
+    track({ event: "myod_generated" });
+    const configText = buildRenderConfig(selections);
+    // Reuse the existing renders when nothing behind them changed (covers
+    // the keep-editing → Generate-again loop). "rendering" also reuses — a
+    // matching render is already in flight; "error" re-renders (there is
+    // nothing to show).
+    const reusable =
+      renderCtx &&
+      (renderPhase === "done" || renderPhase === "rendering") &&
+      renderCtx.configText === configText;
+    if (reusable) {
+      track({ event: "myod_render_reused" });
       return;
     }
-    // One final pass that folds every pending non-default choice into a
-    // single instruction, so the output reflects the complete design.
-    const lines: string[] = [];
-    for (const step of steps) {
-      for (const c of step.components) {
-        const sel = selections[c.id];
-        if (!sel) continue;
-        if (sel.variationId === "__off__") {
-          lines.push(`${c.label}: off`);
-          continue;
-        }
-        // Multi-spot add-on: one line per spot.
-        if (sel.picks && sel.picks.length > 0) {
-          for (const pick of sel.picks) {
-            const opt = c.options.find((o) => o.id === pick.variationId);
-            lines.push(`${c.label}: ${opt?.label ?? "on"}`);
-          }
-          continue;
-        }
-        const opt = c.options.find((o) => o.id === sel.variationId);
-        let line = `${c.label}: ${opt?.label ?? "on"}`;
-        if (sel.variationTypeId && opt?.subOptions) {
-          const sub = opt.subOptions.find((s) => s.id === sel.variationTypeId);
-          if (sub) line += ` — ${sub.label}`;
-        }
-        if (sel.placement)
-          line += ` — placed at ${placementLabel(sel.placement)}`;
-        lines.push(line);
-      }
-    }
-    const desc = lines.length
-      ? "Apply every pending selection in one final pass:\n" +
-        lines.map((l) => "  • " + l).join("\n")
-      : "Final blouse with all defaults.";
     track({ event: "myod_generate" });
-    void applyChange("Final blouse", desc, selections).then(finish);
+    startRender({ configText });
   }, [
-    phase,
-    steps,
     selections,
-    imageSelections,
-    defaultsMap,
-    allComponents,
-    applyChange,
-    frontSvg,
-    backSvg,
     buildRenderConfig,
     startRender,
     renderCtx,
@@ -932,7 +674,7 @@ export function MyodSheet({
     !!activeStep &&
     !showFinalCta &&
     phase !== "loading-tree" &&
-    !(phase === "error" && !frontSvg);
+    phase !== "error";
 
   return (
     // pb grows on the extras step so the sticky final CTA never overlaps the
@@ -953,38 +695,28 @@ export function MyodSheet({
           : undefined
       }
     >
-      {/* Phase swap is a plain conditional (no AnimatePresence/motion):
+      {/* Phase swap is a plain conditional (no motion exit/enter):
           exit/enter animations run on requestAnimationFrame, which browsers
           suspend in backgrounded webviews — gating the main UI on them froze
           this flow at the loading screen until the tab was foregrounded. */}
       {phase === "loading-tree" && <LoadingTree key="lt" />}
-      {phase === "error" && !frontSvg && (
+      {phase === "error" && (
         <ErrorStage
           key="err"
           message={errorMsg ?? "Something went wrong."}
           onRetry={retry}
         />
       )}
-      {phase !== "loading-tree" && !(phase === "error" && !frontSvg) && (
+      {phase !== "loading-tree" && phase !== "error" && (
         <div className="flex flex-col gap-4">
-          {/* SVG previews */}
-          <SvgStage
-            frontSvg={frontSvg}
-            backSvg={backSvg}
-            generating={phase === "generating"}
-          />
-
           {/* Step options — after Generate the completion view takes over the
               full page (rendered at the root below). */}
           {!finished && activeStep && (
             <StepCards
               step={activeStep}
               selections={selections}
-              // Stays enabled while generating: re-selecting mid-flight is
-              // safe — genTokenRef drops the stale response and the newest
-              // request already carries the full config.
               disabled={false}
-              generating={phase === "generating"}
+              generating={false}
               onBack={
                 // Hosted (header) Back owns this while onBackChange is set.
                 onBackChange
@@ -1013,8 +745,7 @@ export function MyodSheet({
       )}
 
       {/* Step intro — plays when the flow lands on a new step (trigger and
-          timing live in the effect above). Listed BEFORE the sketching
-          takeover so the takeover wins the rare frame both are mounted. */}
+          timing live in the effect above). */}
       {intro && (
         <StepIntroOverlay
           title={intro.title}
@@ -1023,13 +754,6 @@ export function MyodSheet({
           isExtras={intro.isExtras}
         />
       )}
-
-      {/* Sketching takeover while an edit round-trip runs — a translucent band
-          strictly between the app's top bar and bottom tab bar (both stay
-          visible and tappable). Above the sheet content within that band
-          (z-[70] > sheet z-50 and the sticky CTA z-40), a plain conditional
-          mount like the phase swaps above. */}
-      {phase === "generating" && <SketchingOverlay />}
 
       {/* ── Sticky final CTA (extras step) ────────────────────────────────
           Sits above the viewport bottom; the root's pb-32 reserves scroll
@@ -1060,21 +784,11 @@ export function MyodSheet({
             <button
               type="button"
               onClick={handleGenerate}
-              disabled={phase === "generating"}
-              className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-pill text-body font-semibold text-chalk-white shadow-brand transition-all ease-brand active:scale-[0.98] disabled:opacity-60"
+              className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-pill text-body font-semibold text-chalk-white shadow-brand transition-all ease-brand active:scale-[0.98]"
               style={{ backgroundImage: "var(--tape-gradient)" }}
             >
-              {phase === "generating" ? (
-                <>
-                  <BrandSpinner size={18} />
-                  {strings.myod.generating}
-                </>
-              ) : (
-                <>
-                  {strings.myod.finalCta}
-                  <ArrowRight size={18} />
-                </>
-              )}
+              {strings.myod.finalCta}
+              <ArrowRight size={18} />
             </button>
           </div>
         </div>
@@ -1236,81 +950,6 @@ function PriceBreakdownSheet({
   );
 }
 
-function defaultSelections(steps: DesignStep[]): Selections {
-  const out: Selections = {};
-  for (const step of steps) {
-    for (const comp of step.components) {
-      if (comp.kind === "toggle") {
-        if (comp.defaultOn) out[comp.id] = { variationId: "__toggle_on__" };
-        continue;
-      }
-      // Add-ons are opt-in: only default-on ones belong to the base design.
-      // A default-on add-on resolves to its default variation, else its first
-      // variation — mirroring extrasDefaults so seeded rows count as
-      // "default" in the same-design checks (no spurious redraws).
-      if (comp.section === "Add-ons" && !comp.defaultOn) continue;
-      const def =
-        comp.defaultOptionId ??
-        (comp.defaultOn ? comp.options[0]?.id : undefined);
-      if (!def) continue;
-      const opt = comp.options.find((o) => o.id === def);
-      out[comp.id] = {
-        variationId: def,
-        variationTypeId: opt?.defaultSubOptionId ?? opt?.subOptions?.[0]?.id,
-      };
-    }
-  }
-  return out;
-}
-
-/** Sentinel meaning "explicitly off" — never equal to a real variation id. */
-const OFF_SELECTION: ComponentSelection = { variationId: "__off__" };
-
-/** Deep compare of two selections' multi-spot picks (order-sensitive). */
-function myodPicksEqual(
-  a: PlacementPick[] | undefined,
-  b: PlacementPick[] | undefined,
-): boolean {
-  const pa = a ?? [];
-  const pb = b ?? [];
-  if (pa.length !== pb.length) return false;
-  return pa.every(
-    (p, i) =>
-      p.variationId === pb[i].variationId &&
-      (p.variationTypeId ?? null) === (pb[i].variationTypeId ?? null) &&
-      p.placement === pb[i].placement,
-  );
-}
-
-/**
- * Effective-selection resolution for the skip-if-same-design checks. The two
- * sides answer different questions, so they fall back differently:
- *  - REQUESTED (what the user wants): non-add-ons fall back to catalog
- *    defaults; add-ons are opt-in, so unset means OFF.
- *  - DEPICTED (what the current image shows): the recorded image selection
- *    first (incl. "__off__" tombstones), else the base design — the catalog
- *    defaults, which include default-on add-ons — else OFF for add-ons.
- * Net effect: the seeded default walk is a no-op, while clearing a default-on
- * add-on or enabling an opt-in one always counts as a real change.
- */
-function requestedForCompare(
-  comp: StepComponent,
-  sel: ComponentSelection | undefined,
-  defaultsMap: Selections,
-): ComponentSelection | undefined {
-  if (comp.section !== "Add-ons") return sel ?? defaultsMap[comp.id];
-  return sel ?? OFF_SELECTION;
-}
-
-function depictedForCompare(
-  comp: StepComponent,
-  imageSel: ComponentSelection | undefined,
-  defaultsMap: Selections,
-): ComponentSelection | undefined {
-  if (comp.section !== "Add-ons") return imageSel ?? defaultsMap[comp.id];
-  return imageSel ?? defaultsMap[comp.id] ?? OFF_SELECTION;
-}
-
 /**
  * Seed the extras ("Fit, details & add-ons") rows with CATALOG defaults only —
  * nothing arbitrary:
@@ -1320,9 +959,6 @@ function depictedForCompare(
  *    else stays opt-in. A default-on toggle starts ON; a default-on choice
  *    selects its default variation, falling back to the first variation when
  *    admin hasn't named one (being ON requires a concrete pick).
- * The sub-type resolution mirrors defaultSelections so seeded rows compare
- * equal to the effective defaults in the skip-if-matches check (no spurious
- * redraws on entering extras).
  */
 function extrasDefaults(steps: DesignStep[]): Selections {
   const out: Selections = {};
@@ -1354,85 +990,6 @@ function extrasDefaults(steps: DesignStep[]): Selections {
     }
   }
   return out;
-}
-
-function sortedComponents(tree: GarmentTreeOut) {
-  // Flatten steps → components in display order
-  return buildDesignSteps(tree).flatMap((s) => s.components);
-}
-
-/* ============================================================ */
-/*  SVG stage (front + back)                                    */
-/* ============================================================ */
-
-function SvgStage({
-  frontSvg,
-  backSvg,
-  generating,
-}: {
-  frontSvg: string | null;
-  backSvg: string | null;
-  generating: boolean;
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      {/* Front */}
-      <div className="relative overflow-hidden rounded-card bg-mist-navy">
-        <AnimatePresence mode="wait">
-          {frontSvg && !generating ? (
-            <motion.div
-              key={frontSvg.slice(0, 40)}
-              className="flex aspect-[400/460] w-full items-center justify-center [&_svg]:block [&_svg]:h-full [&_svg]:w-full"
-              initial={{ opacity: 0.4, scale: 1.04 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.4 }}
-              // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{ __html: frontSvg }}
-            />
-          ) : (
-            <motion.div
-              key="loading-front"
-              className="flex aspect-[400/460] w-full items-center justify-center"
-            >
-              <GeneratingLoader />
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <div className="pointer-events-none absolute left-2 top-2 rounded-pill border border-white/10 bg-ink-navy px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-chalk-white shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-          Front
-        </div>
-      </div>
-
-      {/* Back */}
-      <div className="relative overflow-hidden rounded-card bg-mist-navy">
-        <AnimatePresence mode="wait">
-          {backSvg && !generating ? (
-            <motion.div
-              key={backSvg.slice(0, 40)}
-              className="flex aspect-[400/460] w-full items-center justify-center [&_svg]:block [&_svg]:h-full [&_svg]:w-full"
-              initial={{ opacity: 0.4, scale: 1.04 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.4 }}
-              // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{ __html: backSvg }}
-            />
-          ) : (
-            <motion.div
-              key="loading-back"
-              className="flex aspect-[400/460] w-full items-center justify-center"
-            >
-              <GeneratingLoader />
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <div className="pointer-events-none absolute left-2 top-2 rounded-pill border border-white/10 bg-ink-navy px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-chalk-white shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-          Back
-        </div>
-      </div>
-    </div>
-  );
 }
 
 /* ============================================================ */
@@ -2267,27 +1824,6 @@ function BrandSpinner({ size = 16 }: { size?: number }) {
     />
   );
 }
-
-/**
- * Translucent takeover while the AI redraws the sketch (phase "generating").
- * The logo mark floats inside a "running stitch" ring that crawls like a
- * sewing-machine feed, with a needle dot orbiting ahead of it.
- *
- * A BAND, NOT THE FULL PAGE: the overlay is inset to sit strictly between the
- * app's top bar and bottom tab bar, which stay visible and tappable. Both bars
- * are plain in-flow elements (no z-index that could out-rank a fixed overlay),
- * so the band is measured from them on mount — the overlay only ever mounts
- * client-side after a tap (initial phase is "loading-tree"), and the standalone
- * /myod/[garment_id] page has a top bar but no tab bar, which the measurement
- * handles naturally. The surface is frosted warm-sand so the configurator
- * shows through.
- *
- * Mounted as a plain conditional (same webview-suspension rationale as the
- * phase swap — every animation below is an additive loop that simply freezes
- * if rAF stops; nothing downstream waits on it). The loops deliberately run
- * regardless of prefers-reduced-motion: the takeover IS the feedback that
- * generation is under way, and a frozen static variant reads as a hung screen.
- */
 /** Band geometry shared by the in-band overlays: top = bottom edge of the
  *  visible navy header, bottom = the tab bar's coverage (0 on pages like
  *  /myod/{id} that have no tab bar). Measured once on mount — the bars are
@@ -2309,152 +1845,6 @@ function useBandInsets() {
   }, []);
 
   return band;
-}
-
-function SketchingOverlay() {
-  const band = useBandInsets();
-
-  const dots = [0, 1, 2];
-
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      aria-label={`${strings.myod.sketchTitle}…`}
-      className="fixed left-0 right-0 z-[70] flex flex-col items-center justify-center gap-7 overflow-hidden px-8 text-center backdrop-blur-md"
-      style={{
-        top: band.top,
-        bottom: band.bottom,
-        // alpha-modifier utilities (bg-warm-sand/80) don't compile in this
-        // Tailwind setup — mix the token directly instead
-        backgroundColor: "color-mix(in srgb, var(--warm-sand) 80%, transparent)",
-      }}
-    >
-      {/* the mark, ringed by a running stitch */}
-      <div className="relative h-44 w-44">
-        {/* soft brand glow — centered on the mark itself, not the band, so it
-            can't drift when the overlay height changes */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[440px] w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.08]"
-          style={{ backgroundImage: "var(--tape-gradient)" }}
-        />
-        <svg viewBox="0 0 176 176" className="absolute inset-0 h-full w-full" aria-hidden>
-          <defs>
-            <linearGradient id="myod-stitch-grad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" style={{ stopColor: "var(--draep-orange)" }} />
-              <stop offset="100%" style={{ stopColor: "var(--deep-ember)" }} />
-            </linearGradient>
-          </defs>
-          {/* faint outer hoop */}
-          <circle
-            cx="88"
-            cy="88"
-            r="84"
-            fill="none"
-            stroke="var(--hairline)"
-            strokeWidth="1.5"
-          />
-          {/* the running stitch — the dash offset loops over exactly one
-              dash period, so the crawl repeats seamlessly forever */}
-          <motion.circle
-            cx="88"
-            cy="88"
-            r="76"
-            fill="none"
-            stroke="url(#myod-stitch-grad)"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeDasharray="5 10"
-            initial={{ strokeDashoffset: 15 }}
-            animate={{ strokeDashoffset: 0 }}
-            transition={{ repeat: Infinity, ease: "linear", duration: 0.5 }}
-          />
-        </svg>
-
-        {/* needle orbiting the stitch (inset puts it on the r=76 ring) */}
-        <motion.div
-          aria-hidden
-          className="absolute inset-[12px]"
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, ease: "linear", duration: 3.2 }}
-        >
-          <span
-            className="absolute left-1/2 top-0 block h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
-            style={{
-              backgroundImage: "var(--tape-gradient)",
-              boxShadow: "0 0 10px 2px rgba(248, 144, 16, 0.45)",
-            }}
-          />
-        </motion.div>
-
-        <motion.img
-          src="/logo_alpha_icon.png"
-          alt=""
-          className="absolute inset-0 m-auto h-[74%] w-auto object-contain"
-          style={{ filter: "drop-shadow(0 12px 24px rgba(8, 48, 104, 0.16))" }}
-          initial={{ opacity: 0, scale: 0.82 }}
-          animate={{ opacity: 1, scale: [0.94, 1.03, 0.94] }}
-          transition={{
-            opacity: { duration: 0.35 },
-            scale: { repeat: Infinity, duration: 2.6, ease: "easeInOut" },
-          }}
-        />
-      </div>
-
-      {/* copy + stitch ticks */}
-      <div className="relative flex flex-col items-center gap-2">
-        <motion.h2
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15, duration: 0.4 }}
-          className="font-heading text-h2 font-semibold leading-tight text-ink-navy"
-        >
-          {strings.myod.sketchTitle}
-          {dots.map((i) => (
-            <motion.span
-              key={i}
-              aria-hidden
-              className="inline-block"
-              animate={{ opacity: [0.15, 1, 0.15] }}
-              transition={{
-                duration: 1.2,
-                repeat: Infinity,
-                delay: i * 0.2,
-                ease: "easeInOut",
-              }}
-            >
-              .
-            </motion.span>
-          ))}
-        </motion.h2>
-        <motion.p
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25, duration: 0.4 }}
-          className="text-body text-muted"
-        >
-          {strings.myod.sketchHint}
-        </motion.p>
-        <div aria-hidden className="mt-1.5 flex items-center gap-1.5">
-          {dots.map((i) => (
-            <motion.span
-              key={i}
-              className="block h-1 w-5 rounded-pill"
-              style={{ backgroundImage: "var(--tape-gradient)" }}
-              animate={{ opacity: [0.15, 0.85, 0.15] }}
-              transition={{
-                duration: 1.5,
-                repeat: Infinity,
-                delay: i * 0.25,
-                ease: "easeInOut",
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -2492,7 +1882,7 @@ function StepIntroOverlay({
   // Dominant color of the step photo, sampled down to a tiny canvas — the
   // photo casts a soft shadow in its own palette. Null until sampled (or
   // if the canvas taints / nothing loads): falls back to ink-navy.
-  const [glow, setGlow] = useState<string | null>(null);
+  const glow = useDominantColor(image);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -2520,51 +1910,6 @@ function StepIntroOverlay({
     }, STEP_INTRO_MS - 1000);
     return () => clearTimeout(t);
   }, []);
-
-  // Sample the photo's palette for its shadow (see `glow` above). Same-origin
-  // catalog/AI assets only — a tainted canvas just keeps the fallback.
-  useEffect(() => {
-    if (!image) return;
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      try {
-        const s = 12;
-        const canvas = document.createElement("canvas");
-        canvas.width = s;
-        canvas.height = s;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        ctx.drawImage(img, 0, 0, s, s);
-        const d = ctx.getImageData(0, 0, s, s).data;
-        let r = 0;
-        let g = 0;
-        let b = 0;
-        let n = 0;
-        for (let i = 0; i < d.length; i += 4) {
-          if (d[i + 3] < 40) continue;
-          // Skip the white backdrop these reference shots sit on, so the
-          // average picks up the garment itself.
-          if (
-            Math.min(d[i], d[i + 1], d[i + 2]) > 235 &&
-            Math.max(d[i], d[i + 1], d[i + 2]) > 245
-          )
-            continue;
-          r += d[i];
-          g += d[i + 1];
-          b += d[i + 2];
-          n++;
-        }
-        if (!n) return;
-        setGlow(
-          `rgba(${Math.round(r / n)}, ${Math.round(g / n)}, ${Math.round(b / n)}, 0.4)`,
-        );
-      } catch {
-        // cross-origin without CORS headers — keep the fallback shadow
-      }
-    };
-    img.src = image;
-  }, [image]);
 
   return (
     <motion.div
@@ -3907,73 +3252,6 @@ function ComponentCards({
     </div>
   );
 }
-
-/* ============================================================ */
-/*  Loading / generating / error                                */
-/* ============================================================ */
-
-function GeneratingLoader() {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="relative flex flex-col items-center gap-4"
-    >
-      <div className="relative flex h-28 w-28 items-center justify-center">
-        <motion.div
-          aria-hidden
-          className="absolute inset-0 rounded-full bg-draep-orange/15 blur-3xl"
-          animate={{ opacity: [0.5, 0.85, 0.5] }}
-          transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
-        />
-        <motion.div
-          aria-hidden
-          className="absolute inset-7 rounded-full opacity-95"
-          style={{ backgroundImage: "var(--tape-gradient)" }}
-          animate={{ scale: [1, 1.12, 1], opacity: [0.85, 1, 0.85] }}
-          transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-        />
-        {[0, 1, 2].map((i) => (
-          <motion.div
-            key={i}
-            aria-hidden
-            className="absolute h-2.5 w-2.5 rounded-full bg-chalk-white shadow"
-            style={{ offsetPath: "path('M 56 14 A 42 42 0 1 1 55.9 14 Z')" }}
-            animate={{ offsetDistance: ["0%", "100%"] }}
-            transition={{
-              duration: 2.2,
-              repeat: Infinity,
-              ease: "linear",
-              delay: i * 0.73,
-            }}
-          />
-        ))}
-        <Sparkles size={24} className="relative z-10 text-chalk-white" />
-      </div>
-      <motion.p
-        className="font-heading text-h3 font-semibold text-ink-navy"
-        animate={{ opacity: [0.65, 1, 0.65] }}
-        transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-      >
-        {strings.myod.generating}
-      </motion.p>
-      <div className="h-1.5 w-36 overflow-hidden rounded-pill bg-tape-silver">
-        <div
-          className="h-full rounded-full"
-          style={{
-            width: "100%",
-            transform: "scaleX(0)",
-            transformOrigin: "left",
-            backgroundImage: "var(--tape-gradient)",
-            animation: "myod-progress-fill 60s linear forwards",
-          }}
-        />
-      </div>
-    </motion.div>
-  );
-}
-
 function LoadingTree() {
   return (
     <motion.div

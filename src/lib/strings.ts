@@ -520,7 +520,7 @@ export const strings = {
     // Final CTA on the extras step + completion view
     finalCta: "Generate Blouse",
     finalTitle: "Your blouse is ready",
-    finalBody: "Every choice you made is reflected in the final drawings above.",
+    finalBody: "Every choice you made is reflected in the previews above.",
     finalKeepEditing: "Keep editing",
     finalDone: "Back to library",
     // AI render of the finished blouse (front / back / side)
