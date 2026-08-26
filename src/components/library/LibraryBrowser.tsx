@@ -71,6 +71,8 @@ export function LibraryBrowser() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
+  // True while an infinite-scroll page is in flight (drives the bottom loader).
+  const [loadingMore, setLoadingMore] = useState(false);
 
   /* ── Filter state ───────────────────────────────────────────────────── */
   const [facets, setFacets] = useState<LibraryFacetsOut | null>(null);
@@ -188,16 +190,19 @@ export function LibraryBrowser() {
 
   /* ── Infinite scroll: fetch next page when loader enters viewport ──── */
   const fetchNextPage = useCallback(async () => {
-    if (!nextCursor || listLoading) return;
+    if (!nextCursor || listLoading || loadingMore) return;
     const cursor = nextCursor;
+    setLoadingMore(true);
     try {
       const out = await libraryApi.listLibrary({ limit: 24, cursor, ...filters });
       setItems((prev) => [...prev, ...out.items]);
       setNextCursor(out.next_cursor);
     } catch {
       // Best effort — keep what we have; user can retry by scrolling.
+    } finally {
+      setLoadingMore(false);
     }
-  }, [nextCursor, listLoading, filters]);
+  }, [nextCursor, listLoading, loadingMore, filters]);
 
   useEffect(() => {
     const loader = loaderRef.current;
@@ -450,16 +455,22 @@ export function LibraryBrowser() {
             </div>
           )}
 
-          {/* Infinite scroll loader — tape-gradient sliver */}
+          {/* Infinite scroll sentinel + loader — the spinner tells the user
+              the next page of designs is on its way. */}
           <div ref={loaderRef} className="h-1" aria-hidden />
-          {nextCursor && listLoading && items.length > 0 && (
-            <div className="flex items-center justify-center py-5">
+          {loadingMore && items.length > 0 && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center justify-center gap-2 py-6"
+            >
               <div
                 aria-hidden
-                className="h-1 w-24 overflow-hidden rounded-pill bg-tape-silver"
-              >
-                <div className="h-full w-1/2 animate-pulse bg-tape" />
-              </div>
+                className="h-4 w-4 animate-spin rounded-full border-2 border-tape-silver border-t-draep-orange"
+              />
+              <span className="text-caption font-medium text-muted">
+                {strings.style.loadingMore}
+              </span>
             </div>
           )}
         </div>

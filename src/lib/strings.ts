@@ -48,6 +48,7 @@ export const strings = {
     librarySubheading: "Handpicked blouse designs — tap any to make it yours.",
     filterAll: "All",
     loadingLibrary: "Loading the library…",
+    loadingMore: "Loading more designs…",
     loadError: "Couldn't load designs. Pull down to retry.",
     emptyLibrary: "No designs match those filters yet.",
     detailLoading: "Loading this design…",
