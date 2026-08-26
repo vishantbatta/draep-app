@@ -14,7 +14,6 @@ import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -59,7 +58,6 @@ import {
 } from "@/lib/myod-steps";
 import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
-import { useDominantColor } from "@/lib/use-dominant-color";
 import { track } from "@/lib/analytics";
 import type { GarmentTreeOut } from "@/types/api";
 
@@ -81,15 +79,6 @@ function renderConfigLine(
   if (d) line += ` (${d})`;
   return line;
 }
-
-/** How long the step-intro overlay holds before its timer dismisses it —
- *  the single source shared by the dismissal timer and the overlay's
- *  progress ring so the two can never drift apart. */
-const STEP_INTRO_MS = 5000;
-
-/** Circumference of the reading-timer ring (r=15.5 in its 36-unit viewBox) —
- *  the dash length whose offset the countdown sweeps across. */
-const TIMER_RING_C = 2 * Math.PI * 15.5;
 
 /** Active-step info reported to host headers via onStepChange. */
 /** Step info reported to host headers. `description` (the component's
@@ -151,18 +140,6 @@ export function MyodSheet({
   // the image matches their full config — swaps the step list for the
   // completion view.
   const [finished, setFinished] = useState(false);
-
-  // Step-intro overlay — plays when the flow moves FORWARD to a new step
-  // (default selections: right after the tap; non-default: after the
-  // sketching takeover clears). Dismissed by a timer, never an animation
-  // callback (webviews suspend rAF mid-transition).
-  const [intro, setIntro] = useState<{
-    title: string;
-    description?: string;
-    image?: string;
-    isExtras: boolean;
-  } | null>(null);
-  const prevStepIdxRef = useRef<number | null>(null);
 
 
   // AI product renders of the finished blouse (front/back/side), kicked off
@@ -313,44 +290,6 @@ export function MyodSheet({
     },
     [onBackChange, onStepChange],
   );
-
-  // ── Step-intro overlay ─────────────────────────────────────────────
-  // Fires when the active step moves FORWARD while ready. Backward moves
-  // and the initial load don't intro.
-  useEffect(() => {
-    if (phase !== "ready" || finished || !activeStep) {
-      prevStepIdxRef.current = activeStepIdx;
-      return;
-    }
-    const prev = prevStepIdxRef.current;
-    prevStepIdxRef.current = activeStepIdx;
-    if (prev === null || activeStepIdx <= prev) return;
-    // Component photo: the component's own reference image (what the admin
-    // catalogue shows for it), else its default (or first) option's — some
-    // components may carry no assets of their own. Multi-component steps
-    // skip the photo.
-    const solo =
-      activeStep.components.length === 1 ? activeStep.components[0] : undefined;
-    const previewOpt = solo
-      ? (solo.options.find((o) => o.id === solo.defaultOptionId) ??
-        solo.options[0])
-      : undefined;
-    setIntro({
-      title: activeStep.title,
-      description: solo?.description,
-      image: solo?.assetUrl ?? previewOpt?.assetUrl,
-      isExtras: !!activeStep.isExtras,
-    });
-  }, [phase, finished, activeStepIdx, activeStep]);
-
-  // Timer-driven dismissal — the webview can suspend rAF mid-animation, so
-  // nothing downstream may wait on an animation callback. (The exit flight
-  // starts at 4s and the dissolve trails it; see StepIntroOverlay.)
-  useEffect(() => {
-    if (!intro) return;
-    const t = setTimeout(() => setIntro(null), STEP_INTRO_MS);
-    return () => clearTimeout(t);
-  }, [intro]);
 
   const allComponents = useMemo(
     () => steps.flatMap((s) => s.components),
@@ -742,17 +681,6 @@ export function MyodSheet({
             </div>
           )}
         </div>
-      )}
-
-      {/* Step intro — plays when the flow lands on a new step (trigger and
-          timing live in the effect above). */}
-      {intro && (
-        <StepIntroOverlay
-          title={intro.title}
-          description={intro.description}
-          image={intro.image}
-          isExtras={intro.isExtras}
-        />
       )}
 
       {/* ── Sticky final CTA (extras step) ────────────────────────────────
@@ -1822,223 +1750,6 @@ function BrandSpinner({ size = 16 }: { size?: number }) {
       animate={{ rotate: 360 }}
       transition={{ repeat: Infinity, ease: "linear", duration: 0.7 }}
     />
-  );
-}
-/** Band geometry shared by the in-band overlays: top = bottom edge of the
- *  visible navy header, bottom = the tab bar's coverage (0 on pages like
- *  /myod/{id} that have no tab bar). Measured once on mount — the bars are
- *  fixed and don't move while an overlay is up. */
-function useBandInsets() {
-  const [band, setBand] = useState({ top: 0, bottom: 0 });
-
-  useLayoutEffect(() => {
-    const header = [...document.querySelectorAll<HTMLElement>("header")].find(
-      (h) => h.offsetParent !== null && h.classList.contains("bg-ink-navy"),
-    );
-    const tabbarTop = document
-      .querySelector('nav[role="tablist"]')
-      ?.getBoundingClientRect().top;
-    setBand({
-      top: header ? header.getBoundingClientRect().bottom : 0,
-      bottom: tabbarTop === undefined ? 0 : Math.max(0, innerHeight - tabbarTop),
-    });
-  }, []);
-
-  return band;
-}
-
-/**
- * Step intro — "Now choose your <step>" played when the flow lands on a new
- * step. The step's photo (when the step is a single component with a
- * reference image) and title settle into the frosted band, then the title
- * flies up onto the host header slot — where the same text already sits —
- * while the photo and frost dissolve. Entrance and flight are one-shot
- * framer transitions; the flight target is measured by a timer (not an
- * animation callback) and dismissal is timer-driven in MyodSheet.
- */
-function StepIntroOverlay({
-  title,
-  description,
-  image,
-  isExtras,
-}: {
-  title: string;
-  description?: string;
-  image?: string;
-  isExtras: boolean;
-}) {
-  const band = useBandInsets();
-  const titleRef = useRef<HTMLHeadingElement | null>(null);
-  // Translation + scale carrying the title onto the header slot; set when
-  // the flight begins (measured then, not on mount, since the entrance
-  // owns the first beat and rects can shift until it settles). Timed so
-  // the dissolve it triggers lands just before the STEP_INTRO_MS dismissal
-  // — the hold is for reading, the exit only needs its own final second.
-  const [flight, setFlight] = useState<{
-    x: number;
-    y: number;
-    scale: number;
-  } | null>(null);
-  // Dominant color of the step photo, sampled down to a tiny canvas — the
-  // photo casts a soft shadow in its own palette. Null until sampled (or
-  // if the canvas taints / nothing loads): falls back to ink-navy.
-  const glow = useDominantColor(image);
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const headerTitle = document.querySelector<HTMLElement>(
-        "header.bg-ink-navy h1, header.bg-ink-navy h2",
-      );
-      const from = titleRef.current?.getBoundingClientRect();
-      const to = headerTitle?.getBoundingClientRect();
-      const fromSize = titleRef.current
-        ? parseFloat(getComputedStyle(titleRef.current).fontSize)
-        : 0;
-      const toSize = headerTitle
-        ? parseFloat(getComputedStyle(headerTitle).fontSize)
-        : 0;
-      if (!from || !to || !fromSize || !toSize) {
-        // No measurable header slot — still play the dissolve beat.
-        setFlight({ x: 0, y: 0, scale: 1 });
-        return;
-      }
-      setFlight({
-        x: to.left + to.width / 2 - (from.left + from.width / 2),
-        y: to.top + to.height / 2 - (from.top + from.height / 2),
-        scale: toSize / fromSize,
-      });
-    }, STEP_INTRO_MS - 1000);
-    return () => clearTimeout(t);
-  }, []);
-
-  return (
-    <motion.div
-      data-step-intro
-      role="status"
-      aria-live="polite"
-      className="fixed left-0 right-0 z-[70] flex flex-col items-center justify-center gap-7 overflow-hidden px-8 text-center backdrop-blur-md"
-      style={{
-        top: band.top,
-        bottom: band.bottom,
-        // alpha-modifier utilities (bg-warm-sand/80) don't compile in this
-        // Tailwind setup — mix the token directly instead
-        backgroundColor: "color-mix(in srgb, var(--warm-sand) 86%, transparent)",
-      }}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: flight ? 0 : 1 }}
-      transition={
-        flight
-          ? { delay: 0.35, duration: 0.35, ease: "easeOut" }
-          : { duration: 0.2 }
-      }
-    >
-      <div className="relative flex flex-col items-center">
-        {image && (
-          <motion.img
-            src={image}
-            alt={title}
-            className="mb-6 h-44 w-44 rounded-card object-cover"
-            style={{
-              boxShadow: `0 20px 44px -12px ${glow ?? "rgba(8, 48, 104, 0.35)"}`,
-            }}
-            initial={{ opacity: 0, scale: 0.86, y: 10 }}
-            animate={
-              flight
-                ? { opacity: 0, scale: 0.94, y: -8 }
-                : { opacity: 1, scale: 1, y: 0 }
-            }
-            transition={
-              flight
-                ? { duration: 0.3, ease: "easeIn" }
-                : { type: "spring", stiffness: 240, damping: 22 }
-            }
-          />
-        )}
-        <motion.p
-          initial={{ opacity: 0, y: 8 }}
-          animate={flight ? { opacity: 0, y: 0 } : { opacity: 1, y: 0 }}
-          transition={
-            flight
-              ? { duration: 0.25, ease: "easeIn" }
-              : { delay: 0.15, duration: 0.3 }
-          }
-          className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted"
-        >
-          {isExtras ? strings.myod.introEyebrowExtras : strings.myod.introEyebrow}
-        </motion.p>
-        <motion.h2
-          ref={titleRef}
-          className="mt-1.5 font-heading text-h2 font-semibold leading-tight text-ink-navy"
-          style={{ willChange: "transform, opacity" }}
-          initial={{ opacity: 0, y: 14, x: 0, scale: 1 }}
-          animate={
-            flight
-              ? { opacity: 0, x: flight.x, y: flight.y, scale: flight.scale }
-              : { opacity: 1, y: 0, x: 0, scale: 1 }
-          }
-          transition={
-            flight
-              ? {
-                  x: { duration: 0.5, ease: [0.5, 0, 0.15, 1] },
-                  y: { duration: 0.5, ease: [0.5, 0, 0.15, 1] },
-                  scale: { duration: 0.5, ease: [0.5, 0, 0.15, 1] },
-                  opacity: { delay: 0.18, duration: 0.32, ease: "easeIn" },
-                }
-              : { delay: 0.08, duration: 0.32, ease: "easeOut" }
-          }
-        >
-          {title}
-        </motion.h2>
-        {description && (
-          <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={flight ? { opacity: 0, y: 0 } : { opacity: 1, y: 0 }}
-            transition={
-              flight
-                ? { duration: 0.25, ease: "easeIn" }
-                : { delay: 0.24, duration: 0.32, ease: "easeOut" }
-            }
-            className="mt-2.5 max-w-[280px] text-body leading-relaxed text-ink"
-          >
-            {description}
-          </motion.p>
-        )}
-        {/* Reading timer, not a loader — the ring UNWINDS over exactly the
-            dismissal timer (STEP_INTRO_MS), so "time left to read" is what
-            it shows, and empty coincides with the step handing over. */}
-        <svg
-          aria-hidden
-          viewBox="0 0 36 36"
-          className="mt-8 h-8 w-8 -rotate-90"
-        >
-          <circle
-            cx="18"
-            cy="18"
-            r="15.5"
-            fill="none"
-            strokeWidth="2.5"
-            style={{
-              // alpha-modifier utilities don't compile in this Tailwind
-              // setup — mix the token directly instead
-              stroke: "color-mix(in srgb, var(--ink-navy) 14%, transparent)",
-            }}
-          />
-          <motion.circle
-            cx="18"
-            cy="18"
-            r="15.5"
-            fill="none"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            style={{ stroke: "var(--ink-navy)" }}
-            strokeDasharray={TIMER_RING_C}
-            initial={{ strokeDashoffset: 0 }}
-            animate={{ strokeDashoffset: TIMER_RING_C }}
-            transition={{ duration: STEP_INTRO_MS / 1000, ease: "linear" }}
-          />
-        </svg>
-      </div>
-    </motion.div>
   );
 }
 
