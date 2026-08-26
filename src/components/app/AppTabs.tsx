@@ -31,7 +31,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 
 import { LibraryBrowser } from "@/components/library/LibraryBrowser";
-import { MyodSheet } from "@/components/myod/MyodSheet";
+import { MyodSheet, type HostedStep } from "@/components/myod/MyodSheet";
 import { OrderStatusPills } from "@/components/order/OrderStatus";
 import { ScreenShell } from "@/components/layout/ScreenShell";
 import { Banner } from "@/components/ui/Banner";
@@ -253,6 +253,14 @@ function CreateTab() {
     setHeaderBack({ back });
   }, []);
 
+  // Active step reported by the configurator — the header mirrors it
+  // ("STEP n / m" eyebrow + step title) instead of static branding. Null
+  // (tree loading / after completion) falls back to the MYOD title.
+  const [headerStep, setHeaderStep] = useState<HostedStep | null>(null);
+  const handleStepChange = useCallback((step: HostedStep | null) => {
+    setHeaderStep(step);
+  }, []);
+
   return (
     <div className="column flex h-full flex-col bg-warm-sand">
       {/* Slim navy header — badge + title, tape seam (Brand Book §6) */}
@@ -283,10 +291,10 @@ function CreateTab() {
           )}
           <div className="min-w-0">
             <span className="font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white/80">
-              MYOD
+              {headerStep ? `Step ${headerStep.index + 1} / ${headerStep.total}` : "MYOD"}
             </span>
             <h2 className="truncate font-heading text-h3 font-semibold leading-tight text-chalk-white">
-              {strings.myod.sheetTitle}
+              {headerStep?.title ?? strings.myod.sheetTitle}
             </h2>
           </div>
         </div>
@@ -296,7 +304,11 @@ function CreateTab() {
 
       {/* Body: the configurator */}
       <div className="min-h-0 flex-1 overflow-y-auto pt-4">
-        <MyodSheet footerInset={TAB_BAR_INSET} onBackChange={handleBackChange} />
+        <MyodSheet
+          footerInset={TAB_BAR_INSET}
+          onBackChange={handleBackChange}
+          onStepChange={handleStepChange}
+        />
       </div>
     </div>
   );

@@ -11,15 +11,25 @@
  * pre-generated default and is refined as the user makes selections.
  */
 
+import { useCallback, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
-import { MyodSheet } from "@/components/myod/MyodSheet";
+import { MyodSheet, type HostedStep } from "@/components/myod/MyodSheet";
 import { ArrowLeft } from "@/components/ui/icons";
+import { strings } from "@/lib/strings";
 
 export default function MyodPage() {
   const router = useRouter();
   const params = useParams<{ garment_id: string }>();
   const garmentId = typeof params?.garment_id === "string" ? params.garment_id : undefined;
+
+  // Active step reported by the configurator — the header mirrors it
+  // ("STEP n / m" eyebrow + step title) instead of static branding. Null
+  // (tree loading / after completion) falls back to the MYOD title.
+  const [headerStep, setHeaderStep] = useState<HostedStep | null>(null);
+  const handleStepChange = useCallback((step: HostedStep | null) => {
+    setHeaderStep(step);
+  }, []);
 
   return (
     <div className="column flex h-dvh flex-col bg-warm-sand">
@@ -40,12 +50,12 @@ export default function MyodPage() {
           >
             <ArrowLeft size={20} />
           </button>
-          <div>
+          <div className="min-w-0">
             <span className="font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white/80">
-              MYOD
+              {headerStep ? `Step ${headerStep.index + 1} / ${headerStep.total}` : "MYOD"}
             </span>
-            <h1 className="font-heading text-h3 font-semibold text-chalk-white">
-              Make Your Own Draep
+            <h1 className="truncate font-heading text-h3 font-semibold text-chalk-white">
+              {headerStep?.title ?? strings.myod.sheetTitle}
             </h1>
           </div>
         </div>
@@ -56,7 +66,7 @@ export default function MyodPage() {
 
       {/* ───── Body: full-page configurator ───── */}
       <div className="min-h-0 flex-1 overflow-y-auto pt-4">
-        <MyodSheet garmentId={garmentId} />
+        <MyodSheet garmentId={garmentId} onStepChange={handleStepChange} />
       </div>
     </div>
   );

@@ -66,10 +66,14 @@ import type { GarmentTreeOut } from "@/types/api";
 
 type Phase = "loading-tree" | "ready" | "generating" | "error";
 
+/** Active-step info reported to host headers via onStepChange. */
+export type HostedStep = { index: number; total: number; title: string };
+
 export function MyodSheet({
   garmentId,
   footerInset,
   onBackChange,
+  onStepChange,
 }: {
   garmentId?: string;
   /**
@@ -86,6 +90,14 @@ export function MyodSheet({
    * MyodSheet hides its own in-flow Back pill.
    */
   onBackChange?: (back: (() => void) | null) => void;
+  /**
+   * Hosts that own the page header (the /app create tab and the standalone
+   * /myod page) show the active step there — "Step n / m" eyebrow + step
+   * title — instead of static branding. Reported on every step change; null
+   * while no step is active (tree loading) or after completion, so the host
+   * can fall back to its default header.
+   */
+  onStepChange?: (step: HostedStep | null) => void;
 }) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("loading-tree");
@@ -248,8 +260,28 @@ export function MyodSheet({
         : null,
     );
   }, [hostedBackAvailable, onBackChange]);
-  // Clear the hosted button if the configurator unmounts (tab closes).
-  useEffect(() => () => onBackChange?.(null), [onBackChange]);
+
+  // ── Hosted step header ─────────────────────────────────────────────
+  // Report the active step for the host header. Depends on primitives only
+  // (the reported object is rebuilt per render), so it fires on actual step
+  // changes. Null once the flow finishes — hosts revert to their branding.
+  const headerStepTitle = activeStep && !finished ? activeStep.title : null;
+  useEffect(() => {
+    if (!onStepChange) return;
+    onStepChange(
+      headerStepTitle === null
+        ? null
+        : { index: activeStepIdx, total: steps.length, title: headerStepTitle },
+    );
+  }, [headerStepTitle, activeStepIdx, steps.length, onStepChange]);
+  // Clear the hosted header if the configurator unmounts (tab closes).
+  useEffect(
+    () => () => {
+      onBackChange?.(null);
+      onStepChange?.(null);
+    },
+    [onBackChange, onStepChange],
+  );
 
   // Default selection per component — used to resolve the EFFECTIVE config
   // (explicit ∪ defaults) when deciding whether an edit changes the design.
@@ -819,8 +851,6 @@ export function MyodSheet({
           {!finished && activeStep && (
             <StepCards
               step={activeStep}
-              stepIndex={activeStepIdx}
-              totalSteps={steps.length}
               selections={selections}
               // Stays enabled while generating: re-selecting mid-flight is
               // safe — genTokenRef drops the stale response and the newest
@@ -1770,8 +1800,6 @@ function RegenerateSheet({
 
 function StepCards({
   step,
-  stepIndex,
-  totalSteps,
   selections,
   disabled,
   generating,
@@ -1779,16 +1807,12 @@ function StepCards({
   onSelect,
 }: {
   step: DesignStep;
-  stepIndex: number;
-  totalSteps: number;
   selections: Selections;
   disabled: boolean;
   generating: boolean;
   onBack?: () => void;
   onSelect: (componentId: string, sel: ComponentSelection | null) => void;
 }) {
-  // Extras step has no counter (it's the open-ended final step).
-  const showCounter = !step.isExtras && totalSteps > 1;
   return (
     <div>
       <div className="mb-3 px-1">
@@ -1805,16 +1829,10 @@ function StepCards({
           ) : (
             <span aria-hidden />
           )}
-          {showCounter && (
-            <span className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
-              Step {stepIndex + 1} / {totalSteps}
-            </span>
-          )}
         </div>
+        {/* Step counter + title live in the host header (onStepChange);
+            only the eyebrow intro remains in-flow. */}
         <span className="eyebrow">{strings.myod.chooseEyebrow}</span>
-        <p className="mt-1 font-heading text-h3 font-semibold leading-snug text-ink-navy">
-          {step.title}
-        </p>
         <div className="mt-2 flex items-center gap-2" aria-hidden>
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-draep-orange shadow-[0_0_0_2px_rgba(248,144,16,0.22)]" />
           <span className="tick-divider flex-1" />
