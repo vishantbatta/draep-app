@@ -2195,6 +2195,7 @@ function AxisValueCard({
   value,
   option,
   selected,
+  sub,
   disabled,
   multi,
   fallbackUrl,
@@ -2203,6 +2204,8 @@ function AxisValueCard({
   value: string;
   option: StepOption | undefined;
   selected: boolean;
+  /** Secondary line under the name — e.g. a configured spot's combo. */
+  sub?: string;
   disabled?: boolean;
   multi?: boolean;
   fallbackUrl?: string;
@@ -2268,6 +2271,11 @@ function AxisValueCard({
           </span>
           <OptionPrice price={option?.price} />
         </span>
+        {sub && (
+          <span className="mt-0.5 block truncate text-[10px] font-medium leading-tight text-muted">
+            {sub}
+          </span>
+        )}
       </div>
     </button>
   );
@@ -2278,7 +2286,9 @@ function AxisValueCard({
  * after the first — e.g. Shape, then Size — gets its own sheet with a preview
  * of what the picks so far resolve to and a 2-column grid of that axis's
  * value cards. Tapping a value reports to onPick (the picker advances to the
- * next axis or, on the last axis, commits); ✕ goes back one step.
+ * next axis or, on the last axis, finishes the run); ✕ goes back one step.
+ * When supplied, `onRemove` (per-spot runs' first sheet) drops the placement
+ * being configured and returns to the placement view.
  */
 function AxisStepSheet({
   axisLabel,
@@ -2291,6 +2301,7 @@ function AxisStepSheet({
   fallbackUrl,
   onPick,
   onBack,
+  onRemove,
 }: {
   axisLabel: string;
   stepNumber: number;
@@ -2302,6 +2313,7 @@ function AxisStepSheet({
   fallbackUrl?: string;
   onPick: (value: string) => void;
   onBack: () => void;
+  onRemove?: () => void;
 }) {
   return (
     <BottomSheet open onClose={onBack} title={axisLabel}>
@@ -2339,6 +2351,16 @@ function AxisStepSheet({
             />
           ))}
         </div>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={disabled}
+            className="self-center pt-1 text-caption font-medium text-accent-text underline underline-offset-2 disabled:opacity-50"
+          >
+            Remove this placement
+          </button>
+        )}
       </div>
     </BottomSheet>
   );
@@ -2350,11 +2372,13 @@ function AxisStepSheet({
  * axes before committing. Modes by component shape: bool add-ons (enable +
  * place), axis-wizard add-ons (varying across 2+ axes — a step-by-step sheet
  * per axis in the order Where → Style → Type → Shape → Size → Color, only
- * the axes that actually vary; Where is multi-select with a Continue, the
- * rest single-select advancing on tap, last tap commits), placement-flat
- * add-ons (every option IS a spot — cards toggle multi-select, one pick per
- * spot), and everything else (image card per variation, with a type sheet
- * for typed ones).
+ * the axes that actually vary; with a Where axis it's a loop — tapping a
+ * placement immediately opens that spot's OWN run of the remaining axes
+ * until Save commits one pick per configured spot; without one the axes
+ * share a single run whose last tap commits), placement-flat add-ons (every
+ * option IS a spot — cards toggle multi-select, one pick per spot), and
+ * everything else (image card per variation, with a type sheet for typed
+ * ones).
  * Nothing is applied to the live design until the wizard/Confirm commits —
  * `onConfirm` fires once and the sheet closes.
  */
@@ -2473,10 +2497,10 @@ function ExtrasPicker({
     return { ...(seed?.axisValues ?? {}) };
   });
 
-  // Active placements for add-ons with a Where axis — ONE shared combination
-  // is picked for every active spot (a key hole on the back and both
-  // sleeves). Seeded from the selection's picks, else its single spot, else
-  // the catalog default's spot.
+  // Active placements for add-ons with a Where axis. Each selected spot gets
+  // its OWN combination of the remaining axes (Front can be Round · Small
+  // while Back is Drop · Medium). Seeded from the selection's picks, else its
+  // single spot, else the catalog default's spot.
   const [spots, setSpots] = useState<string[]>(() => {
     if (!whereAxis) return [];
     if (initialSelection?.picks?.length)
@@ -2488,6 +2512,35 @@ function ExtrasPicker({
     const w = whereOf(seedOpt);
     return w ? [w] : [];
   });
+
+  // Per-spot axis selections for the Where-axis wizard: spot → {axisKey:
+  // value}. A spot's run through the remaining axis sheets writes here; a
+  // Save commits one pick per spot with a COMPLETE combo, each resolving to
+  // that spot's own variation. Seeded from the current selection's picks.
+  const [spotCombos, setSpotCombos] = useState<
+    Record<string, Record<string, string>>
+  >(() => {
+    if (!whereAxis) return {};
+    const rest = allAxes.slice(1);
+    const seed: Record<string, Record<string, string>> = {};
+    for (const p of initialSelection?.picks ?? []) {
+      const o = component.options.find((op) => op.id === p.variationId);
+      if (!o || whereOf(o) !== p.placement) continue;
+      const combo: Record<string, string> = {};
+      for (const a of rest) {
+        const v = o.axisValues?.[a.key];
+        if (v !== undefined) combo[a.key] = v;
+      }
+      seed[p.placement] = combo;
+    }
+    return seed;
+  });
+
+  // The spot whose axis sheets are open (Where-axis wizard). While set,
+  // wizStep 1..restAxes.length indexes into restAxes for THIS spot; ✕ on the
+  // first sheet returns to the placement view (any partial combo is kept for
+  // the resume, but only complete combos are saved).
+  const [configSpot, setConfigSpot] = useState<string | null>(null);
 
   // For toggle add-ons there are no option cards — the add-on's own asset
   // (when it has one) + enable/disable + place.
@@ -2581,24 +2634,51 @@ function ExtrasPicker({
   // Axis wizard — any add-on varying across 2+ axes, with or without a
   // placement: a step-by-step sheet per axis in the order Where → Style →
   // Type → Shape → Size → Color, only the axes that actually vary. Step 0
-  // renders in this sheet; each later axis opens its own sheet above. The
-  // Where step is multi-select (a Continue advances); the rest are
-  // single-select and advance on tap, with the last tap committing the
-  // combination — one shared combo for every selected spot.
+  // renders in this sheet; each later axis opens its own sheet above.
+  // With a Where axis it's a LOOP, not a batch: tapping a placement
+  // immediately opens that spot's OWN run of the remaining axes (Front can be
+  // Round · Small while Back is Drop · Medium); the run ends back at the
+  // placement view, where Save commits one pick per configured spot. Without
+  // one, the axes share a single run whose last tap commits.
   if (allAxes.length >= 2) {
     const hostAxis = allAxes[0];
     const whereStep = hostAxis.key === "where";
-    const stepAxis = allAxes[wizStep] ?? hostAxis;
     const restAxes = whereAxis ? allAxes.slice(1) : allAxes;
-    // Partial match: axes the user hasn't stepped to yet don't constrain.
-    const matchesPartial = (o: StepOption, override?: [string, string]) =>
-      allAxes.every((a) => {
-        if (a.key === "where") return true;
-        const v = override?.[0] === a.key ? override[1] : axisSel[a.key];
+    const stepAxis = whereAxis
+      ? (restAxes[wizStep - 1] ?? hostAxis)
+      : (allAxes[wizStep] ?? hostAxis);
+    const capitalize = (v: string) => v.charAt(0).toUpperCase() + v.slice(1);
+    const comboOf = (spot: string | null | undefined): Record<string, string> =>
+      (spot && spotCombos[spot]) || {};
+    const comboSummary = (combo: Record<string, string>) =>
+      restAxes
+        .map((a) => combo[a.key])
+        .filter(Boolean)
+        .map(capitalize)
+        .join(" · ");
+    const comboComplete = (spot: string) =>
+      restAxes.every((a) => spotCombos[spot]?.[a.key] !== undefined);
+    const configuredSpots = spots.filter(comboComplete);
+    // The combo the open sheets constrain by: the configured spot's own picks,
+    // or the shared single run when there's no Where axis. Axes not picked
+    // yet don't constrain; `override` trials a value for one axis.
+    const activeCombo = whereAxis ? comboOf(configSpot) : axisSel;
+    const matchesCombo = (
+      o: StepOption,
+      combo: Record<string, string>,
+      override?: [string, string],
+    ) =>
+      restAxes.every((a) => {
+        const v = override?.[0] === a.key ? override[1] : combo[a.key];
         return v === undefined || o.axisValues?.[a.key] === v;
       });
+    const matchesPartial = (o: StepOption, override?: [string, string]) =>
+      matchesCombo(o, activeCombo, override);
     const atSpots = (o: StepOption) =>
-      !whereAxis || spots.some((w) => whereOf(o) === w);
+      !whereAxis ||
+      (configSpot
+        ? whereOf(o) === configSpot
+        : spots.some((w) => whereOf(o) === w));
     const cardsFor = (
       axis: StepAxis,
     ): { value: string; option: StepOption | undefined }[] =>
@@ -2606,7 +2686,7 @@ function ExtrasPicker({
         ? axis.values.map((val) => ({
             value: val,
             option: component.options.find(
-              (o) => whereOf(o) === val && matchesPartial(o),
+              (o) => whereOf(o) === val && matchesCombo(o, comboOf(val)),
             ),
           }))
         : axis.values.map((val) => ({
@@ -2618,38 +2698,81 @@ function ExtrasPicker({
     const previewOpt = component.options.find(
       (o) => matchesPartial(o) && atSpots(o),
     );
-    const partialSummary = [
-      ...(whereAxis && spots.length
-        ? [spots.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" + ")]
-        : []),
-      ...restAxes
-        .map((a) => axisSel[a.key])
-        .filter(Boolean)
-        .map((v) => v!.charAt(0).toUpperCase() + v!.slice(1)),
-    ].join(" · ");
+    const partialSummary = whereAxis
+      ? [
+          configSpot
+            ? capitalize(configSpot)
+            : spots.length
+              ? spots.map(capitalize).join(" + ")
+              : "",
+          configSpot ? comboSummary(comboOf(configSpot)) : "",
+        ]
+          .filter(Boolean)
+          .join(" — ")
+      : restAxes
+          .map((a) => axisSel[a.key])
+          .filter(Boolean)
+          .map(capitalize)
+          .join(" · ");
+    // Start (or re-open) a spot's own run of the remaining axis sheets —
+    // adds the spot to the selection if it's new.
+    const openSpotConfig = (spot: string) => {
+      setSpots((prev) => (prev.includes(spot) ? prev : [...prev, spot]));
+      setConfigSpot(spot);
+      setWizStep(1);
+    };
+    // Commit one pick per spot with a complete combo — each resolves to that
+    // spot's own variation, so spots can carry different shapes/sizes.
+    const commitSpots = () => {
+      const picks: PlacementPick[] = [];
+      for (const spot of configuredSpots) {
+        const combo = spotCombos[spot];
+        const o = component.options.find(
+          (opt) =>
+            whereOf(opt) === spot &&
+            restAxes.every((a) => opt.axisValues?.[a.key] === combo[a.key]),
+        );
+        if (o) picks.push({ variationId: o.id, placement: spot });
+      }
+      if (picks.length) onConfirm({ variationId: picks[0].variationId, picks });
+    };
+    // Drop a spot (and its combo) from the selection entirely.
+    const removeSpot = (spot: string) => {
+      setSpots((prev) => prev.filter((v) => v !== spot));
+      setSpotCombos((prev) => {
+        const next = { ...prev };
+        delete next[spot];
+        return next;
+      });
+      setConfigSpot(null);
+      setWizStep(0);
+    };
     const pickValue = (axis: StepAxis, value: string) => {
+      if (whereAxis) {
+        // Spot run: write into this spot's combo; the last axis lands back on
+        // the placement view (Save / configure another spot).
+        const spot = configSpot;
+        if (!spot) return;
+        setSpotCombos((prev) => ({
+          ...prev,
+          [spot]: { ...prev[spot], [axis.key]: value },
+        }));
+        if (wizStep >= restAxes.length) {
+          setConfigSpot(null);
+          setWizStep(0);
+        } else {
+          setWizStep(wizStep + 1);
+        }
+        return;
+      }
+      // Shared single run (no Where axis): the last tap commits.
       const next = { ...axisSel, [axis.key]: value };
       setAxisSel(next);
       if (wizStep >= allAxes.length - 1) {
-        // Last axis: resolve the full combination and commit.
-        if (whereAxis) {
-          const picks: PlacementPick[] = [];
-          for (const w of spots) {
-            const o = component.options.find(
-              (opt) =>
-                whereOf(opt) === w &&
-                restAxes.every((a) => opt.axisValues?.[a.key] === next[a.key]),
-            );
-            if (o) picks.push({ variationId: o.id, placement: w });
-          }
-          if (picks.length)
-            onConfirm({ variationId: picks[0].variationId, picks });
-        } else {
-          const o = component.options.find((opt) =>
-            restAxes.every((a) => opt.axisValues?.[a.key] === next[a.key]),
-          );
-          if (o) onConfirm({ ...draft, variationId: o.id });
-        }
+        const o = component.options.find((opt) =>
+          allAxes.every((a) => opt.axisValues?.[a.key] === next[a.key]),
+        );
+        if (o) onConfirm({ ...draft, variationId: o.id });
       } else {
         setWizStep(wizStep + 1);
       }
@@ -2685,18 +2808,24 @@ function ExtrasPicker({
                       ? spots.includes(value)
                       : axisSel[hostAxis.key] === value
                   }
+                  sub={
+                    whereStep && comboComplete(value)
+                      ? comboSummary(comboOf(value))
+                      : undefined
+                  }
                   disabled={disabled}
                   multi={whereStep}
                   fallbackUrl={component.assetUrl}
-                  onClick={() =>
-                    whereStep
-                      ? setSpots((prev) =>
-                          prev.includes(value)
-                            ? prev.filter((v) => v !== value)
-                            : [...prev, value],
-                        )
-                      : pickValue(hostAxis, value)
-                  }
+                  onClick={() => {
+                    if (!whereStep) {
+                      pickValue(hostAxis, value);
+                      return;
+                    }
+                    // Loop, not a batch: tapping a placement immediately opens
+                    // that spot's own axis run — adding it if new, editing if
+                    // already configured.
+                    openSpotConfig(value);
+                  }}
                 />
               ))}
             </div>
@@ -2704,27 +2833,40 @@ function ExtrasPicker({
         </div>
         {whereStep ? (
           <PickerFooter
-            canConfirm={spots.length > 0}
-            onConfirm={() => setWizStep(1)}
-            confirmLabel="Continue"
+            canConfirm={configuredSpots.length > 0}
+            onConfirm={commitSpots}
+            confirmLabel="Save"
           />
         ) : null}
         {wizStep >= 1 ? (
           <AxisStepSheet
-            key={stepAxis.key}
+            key={`${configSpot ?? "shared"}-${stepAxis.key}`}
             axisLabel={stepAxis.label}
-            stepNumber={wizStep + 1}
-            stepCount={allAxes.length}
+            stepNumber={whereAxis ? wizStep : wizStep + 1}
+            stepCount={whereAxis ? restAxes.length : allAxes.length}
             cards={cardsFor(stepAxis).map((c) => ({
               ...c,
-              selected: axisSel[stepAxis.key] === c.value,
+              selected: activeCombo[stepAxis.key] === c.value,
             }))}
             previewOption={previewOpt}
             caption={partialSummary}
             disabled={disabled}
             fallbackUrl={component.assetUrl}
             onPick={(v) => pickValue(stepAxis, v)}
-            onBack={() => setWizStep(wizStep - 1)}
+            onBack={() => {
+              if (wizStep > 1) setWizStep(wizStep - 1);
+              else {
+                // ✕ on a spot's first sheet: back to the placement view
+                // (a partial combo is kept but only completes on a full run).
+                setConfigSpot(null);
+                setWizStep(0);
+              }
+            }}
+            onRemove={
+              whereAxis && configSpot && wizStep === 1
+                ? () => removeSpot(configSpot)
+                : undefined
+            }
           />
         ) : null}
       </>
