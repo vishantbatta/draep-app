@@ -2351,8 +2351,10 @@ function AxisStepSheet({
  * place), axis-wizard add-ons (varying across 2+ axes — a step-by-step sheet
  * per axis in the order Where → Style → Type → Shape → Size → Color, only
  * the axes that actually vary; Where is multi-select with a Continue, the
- * rest single-select advancing on tap, last tap commits), and everything
- * else (image card per variation, with a type sheet for typed ones).
+ * rest single-select advancing on tap, last tap commits), placement-flat
+ * add-ons (every option IS a spot — cards toggle multi-select, one pick per
+ * spot), and everything else (image card per variation, with a type sheet
+ * for typed ones).
  * Nothing is applied to the live design until the wizard/Confirm commits —
  * `onConfirm` fires once and the sheet closes.
  */
@@ -2401,8 +2403,22 @@ function ExtrasPicker({
     component.options.find((o) => o.id === component.defaultOptionId) ??
     (component.defaultOn ? component.options[0] : undefined);
 
-  const [draft, setDraft] = useState<ComponentSelection | null>(
-    initialSelection
+  // Placement-flat add-on (e.g. Piping, Lace Border): every option card IS a
+  // spot and nothing else varies. The card list runs as toggleable
+  // multi-select — one add-on can sit on several spots at once (one pick per
+  // spot, priced per spot, like the axis wizard's Where step).
+  const placementFlat =
+    !isToggle &&
+    allAxes.length < 2 &&
+    component.options.length > 1 &&
+    component.options.every((o) =>
+      (component.placements ?? []).some(
+        (p) => p.toLowerCase() === o.label.toLowerCase(),
+      ),
+    );
+
+  const [draft, setDraft] = useState<ComponentSelection | null>(() => {
+    const base = initialSelection
       ? { ...initialSelection }
       : isToggle
         ? component.defaultOn
@@ -2419,8 +2435,24 @@ function ExtrasPicker({
               variationTypeId: defaultOpt.defaultSubOptionId,
               ...(hasPlacement ? { placement: component.placements![0] } : {}),
             }
-          : null,
-  );
+          : null;
+    // Placement-flat: normalize a single-spot draft into a one-pick draft so
+    // the card list can toggle spots uniformly through `picks`.
+    if (!placementFlat || !base || base.picks?.length) return base;
+    const spot = (component.placements ?? []).find(
+      (p) =>
+        p.toLowerCase() === (base.placement ?? "").toLowerCase() ||
+        p.toLowerCase() ===
+          (component.options.find((o) => o.id === base.variationId)?.label ??
+            "").toLowerCase(),
+    );
+    return spot
+      ? {
+          variationId: base.variationId,
+          picks: [{ variationId: base.variationId, placement: spot }],
+        }
+      : base;
+  });
 
   // Variation whose type sheet is open (null = closed). Picking a type
   // writes it into the draft; dismissing keeps the draft untouched.
@@ -2709,7 +2741,9 @@ function ExtrasPicker({
     <>
       <div className="flex flex-col gap-2.5 py-2">
         {component.options.map((opt) => {
-          const selected = opt.id === selectedId;
+          const selected = placementFlat
+            ? !!draft?.picks?.some((p) => p.variationId === opt.id)
+            : opt.id === selectedId;
           const chosenSub = opt.subOptions?.find(
             (s) => s.id === draft?.variationTypeId,
           );
@@ -2741,6 +2775,27 @@ function ExtrasPicker({
                 type="button"
                 disabled={disabled}
                 onClick={() => {
+                  // Placement-flat: cards are spots — tapping toggles the
+                  // spot in/out (multi-select; Confirm commits all picked
+                  // spots, priced per spot).
+                  if (placementFlat) {
+                    setDraft((d) => {
+                      const picks = d?.picks ?? [];
+                      const next = picks.some((p) => p.variationId === opt.id)
+                        ? picks.filter((p) => p.variationId !== opt.id)
+                        : [
+                            ...picks,
+                            {
+                              variationId: opt.id,
+                              placement: whereOf(opt) ?? opt.label,
+                            },
+                          ];
+                      return next.length
+                        ? { variationId: next[0].variationId, picks: next }
+                        : null;
+                    });
+                    return;
+                  }
                   // Variations with types (e.g. Shoulder → Strappy) drill
                   // into a type bottom-sheet instead of selecting outright.
                   if (opt.subOptions?.length) {
