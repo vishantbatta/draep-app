@@ -202,7 +202,11 @@ export default function UsersListPage() {
     try {
       const filters: Record<string, string> = {};
       // roles is a JSONB array — membership needs the json_contains op.
-      const filterOps: Record<string, string> = { roles: "json_contains" };
+      // name is a search box — needs contains (ILIKE), not exact equality.
+      const filterOps: Record<string, string> = {
+        roles: "json_contains",
+        name: "contains",
+      };
       if (filterRole !== "all") filters.roles = filterRole;
       if (search) filters.name = search;
 
