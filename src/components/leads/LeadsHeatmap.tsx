@@ -12,44 +12,51 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type * as LType from "leaflet";
 // NOTE: leaflet/dist/leaflet.css is imported once in src/styles/globals.css.
 
-/** pin → [lat, lng, area] for every pin code observed in the lead dump. */
+/**
+ * pin → [lat, lng, area] for every pin code observed in the lead dump.
+ *
+ * Coordinates are geocoded from the India Post post-office name for each pin
+ * (source: GeoNames IN postal data → OSM Nominatim). Two pins are hand-placed
+ * where OSM had no match: 560035 (interpolated on Sarjapur Rd) and 560077
+ * (Kothanur near Thanisandra — Nominatim resolved the wrong Kothanahalli).
+ */
 const PIN_GEO: Record<string, [number, number, string]> = {
-  "560002": [12.9716, 77.5946, "Ashok Nagar"],
-  "560003": [12.9758, 77.6045, "Shivajinagar"],
-  "560004": [12.9791, 77.6100, "Bharathi Nagar"],
-  "560008": [12.981, 77.587, "Malleshwaram"],
-  "560011": [12.9719, 77.5942, "Bangalore East"],
-  "560016": [12.9591, 77.617, "Jayanagar East"],
-  "560017": [12.953, 77.625, "J.P. Nagar Phase 1"],
-  "560022": [12.9352, 77.6245, "BTM Layout 1st Stage"],
-  "560024": [12.9698, 77.75, "Whitefield"],
-  "560032": [12.927, 77.622, "BTM Layout 2nd Stage"],
-  "560035": [12.917, 77.635, "Bommanahalli"],
-  "560036": [12.9698, 77.748, "ITPL Road"],
-  "560037": [12.9591, 77.697, "Marathahalli"],
-  "560038": [12.9516, 77.696, "Kadubeesanahalli"],
-  "560043": [12.9698, 77.75, "Garudachar Palya"],
-  "560045": [12.9256, 77.587, "Girinagar"],
-  "560048": [12.96, 77.57, "Rajajinagar"],
-  "560049": [12.906, 77.589, "Kumaraswamy Layout"],
-  "560050": [12.98, 77.54, "Yeshwanthpur"],
-  "560051": [12.987, 77.555, "Peenya"],
-  "560054": [12.973, 77.632, "CV Raman Nagar"],
-  "560061": [12.98, 77.639, "Banaswadi"],
-  "560064": [12.978, 77.641, "Kalyan Nagar"],
-  "560066": [12.984, 77.576, "Rajajinagar Industrial"],
-  "560067": [12.99, 77.556, "Peenya Industrial"],
-  "560068": [13.013, 77.647, "Hebbal"],
-  "560070": [12.973, 77.658, "Dodda Banaswadi"],
-  "560076": [12.984, 77.702, "Mahadevapura"],
-  "560077": [12.967, 77.71, "Budigere Cross"],
-  "560078": [13.0358, 77.597, "Yelahanka New Town"],
-  "560087": [12.97, 77.74, "Whitefield Main"],
-  "560091": [12.915, 77.62, "Mico Layout"],
-  "560099": [12.955, 77.69, "Ramamurthy Nagar"],
-  "560100": [12.919, 77.632, "Hulimavu"],
-  "560102": [12.95, 77.68, "KR Puram"],
-  "560103": [13.04, 77.58, "Yelahanka Old Town"],
+  "560002": [13.02223, 77.56718, "Bangalore City"],
+  "560003": [13.00274, 77.57033, "Malleswaram"],
+  "560004": [12.94173, 77.5755, "Basavanagudi"],
+  "560008": [12.96092, 77.63879, "HAL II Stage"],
+  "560011": [12.93386, 77.58303, "Jayanagar 3rd Block"],
+  "560016": [13.01202, 77.67778, "Ramamurthy Nagar"],
+  "560017": [12.96218, 77.66355, "Vimanapura"],
+  "560022": [13.01769, 77.5555, "Yeshwanthpur"],
+  "560024": [13.05019, 77.6076, "Hebbal Kempapura"],
+  "560032": [13.02542, 77.59601, "R T Nagar"],
+  "560035": [12.9035, 77.7001, "Carmelram (Sarjapur Rd)"],
+  "560036": [13.00055, 77.67546, "Krishnarajapuram"],
+  "560037": [12.97759, 77.71556, "Kundalahalli"],
+  "560038": [12.97329, 77.64047, "Indiranagar"],
+  "560043": [13.01416, 77.65185, "Banaswadi"],
+  "560045": [13.03001, 77.62088, "Arabic College"],
+  "560048": [12.99592, 77.71928, "Hoodi"],
+  "560049": [13.05377, 77.71733, "Virgonagar"],
+  "560050": [12.92782, 77.55662, "Banashankari"],
+  "560051": [12.99103, 77.57793, "Kumara Park West"],
+  "560054": [13.03336, 77.55818, "Mathikere"],
+  "560061": [12.89926, 77.53217, "Subramanyapura"],
+  "560064": [13.09889, 77.58065, "Yelahanka Satellite Town"],
+  "560066": [12.99574, 77.75795, "Whitefield"],
+  "560067": [12.97936, 77.79073, "Samethanahalli"],
+  "560068": [12.90346, 77.623, "Bommanahalli"],
+  "560070": [12.9181, 77.55766, "Padmanabhanagar"],
+  "560076": [12.87735, 77.6028, "Hulimavu"],
+  "560077": [13.075, 77.635, "Kothanur (Thanisandra)"],
+  "560078": [12.90969, 77.58661, "JP Nagar"],
+  "560087": [12.92098, 77.7361, "Gunjur"],
+  "560091": [12.99123, 77.48701, "Herohalli"],
+  "560099": [12.81602, 77.68922, "Bommasandra"],
+  "560100": [12.88718, 77.61127, "Electronics City"],
+  "560102": [12.91162, 77.63886, "HSR Layout"],
+  "560103": [12.93205, 77.68429, "Bellandur"],
 };
 
 /** Raw lead dump: one entry per lead. */
