@@ -31,6 +31,7 @@ import {
   ChevronDown,
   ChevronRight,
   Close,
+  Pencil,
   Plus,
   Sparkles,
 } from "@/components/ui/icons";
@@ -1907,6 +1908,14 @@ function RegenerateSheet({
         <p className="text-caption leading-snug text-muted">
           {strings.myod.regenBody}
         </p>
+        {/* Regen redraws photos only — the design itself is locked here;
+            the editing flow (Keep editing) is where selections change. */}
+        <div className="flex items-start gap-2 rounded-card border border-hairline-strong bg-warm-sand px-3 py-2.5">
+          <Pencil size={14} className="mt-0.5 flex-none text-ink-navy" />
+          <p className="text-caption leading-snug text-ink">
+            {strings.myod.regenNote}
+          </p>
+        </div>
         <textarea
           value={comment}
           onChange={(e) => setComment(e.target.value)}

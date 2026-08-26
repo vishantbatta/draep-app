@@ -541,6 +541,8 @@ export const strings = {
       "Estimate for your selections — the final price is confirmed when you book.",
     regenTitle: "Refine the render",
     regenBody: "Tell us what to change — we'll redraw the photos keeping your design.",
+    regenNote:
+      "Regeneration only redraws the photos — all your selections stay exactly the same. To change the design itself, go back to the editing flow and change it there.",
     regenPlaceholder: "e.g. make the piping thinner, deepen the back cut",
     regenCta: "Regenerate",
     tryOnCta: "Try it on",
