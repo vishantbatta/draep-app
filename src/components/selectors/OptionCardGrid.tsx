@@ -10,7 +10,7 @@
 
 import { OptionCard } from "@/components/selectors/OptionCard";
 import { SubOptionChips } from "@/components/selectors/SubOptionChips";
-import { usePreviewSetter } from "@/components/layout/DesignScreenShell";
+import { usePreviewSetter } from "@/components/layout/PreviewContext";
 import { optionPriceLabel } from "@/lib/use-category";
 import { selectionLayerId } from "@/components/preview/layerManifest";
 import { OptionIllustration } from "@/components/selectors/glyphs";

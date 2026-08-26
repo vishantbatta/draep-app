@@ -70,7 +70,7 @@ function ReviewContent() {
 
   return (
     <>
-      <TapeProgress currentRoute="/review" />
+      <TapeProgress />
 
       <ScreenShell hasPriceBar className="pt-4">
         {/* Front + back previews side by side per spec §5.5 */}

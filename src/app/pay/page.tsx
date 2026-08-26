@@ -231,7 +231,7 @@ export default function PayPage() {
 
   return (
     <>
-      <TapeProgress currentRoute="/review" />
+      <TapeProgress />
       <ScreenShell className="pt-4">
         <p className="eyebrow">Payment</p>
         <h1 className="font-heading text-h1 text-ink-navy">

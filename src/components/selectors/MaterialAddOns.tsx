@@ -4,7 +4,6 @@
  * MaterialAddOns — shared list of material add-on rows (spec §6.7).
  *
  * Used by:
- *   - /design/add-ons page (wrapped in DesignScreenShell)
  *   - ReviewEditSheet (inside a BottomSheet)
  *
  * One source of truth for the AddOnRow wiring — no duplication.

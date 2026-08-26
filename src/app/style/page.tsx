@@ -32,7 +32,7 @@ import { libraryApi } from "@/lib/api";
 import { useBookingStore } from "@/lib/booking-store";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
-import { DESIGN_ROUTES, REVIEW_ROUTE } from "@/lib/routing";
+import { REVIEW_ROUTE } from "@/lib/routing";
 import type {
   LibraryDetailOut,
   LibraryListItemOut,
@@ -155,7 +155,7 @@ export default function StylePage() {
     await clearDraft();
     await initDraft();
     track({ event: "landing_cta_tapped", resumed: false });
-    router.push(DESIGN_ROUTES[0]);
+    router.push("/myod/blouse");
   }, [clearDraft, initDraft, router]);
 
   const handleUpload = () => fileInputRef.current?.click();

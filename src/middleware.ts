@@ -12,13 +12,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isProtectedRoute } from "@/lib/routing";
 
 const DRAFT_COOKIE_NAME = "draep_draft";
-const PUBLIC_PATHS = new Set(["/", "/design/cut"]);
+const PUBLIC_PATHS = new Set(["/"]);
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Landing and the very first design step are always public — the latter
-  // is where we initialize the draft, so blocking it would deadlock.
+  // Landing is public; the /design/* first step that initialized the draft
+  // no longer exists.
   if (PUBLIC_PATHS.has(pathname) || !isProtectedRoute(pathname)) {
     return NextResponse.next();
   }
