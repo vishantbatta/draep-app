@@ -41,12 +41,19 @@ import {
 } from "@/lib/image-prefetch";
 import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import {
+  clearMyodDraft,
+  loadMyodDraft,
+  sanitizeMyodSelections,
+  saveMyodDraft,
+} from "@/lib/myod-draft";
+import {
   createMyodOrder,
   renderBlouseSheet,
   type MyodRenderView,
 } from "@/lib/api/myod";
 import {
   buildDesignSteps,
+  buildRenderConfigText,
   computeSelectionPrice,
   describeSelection,
   labelText,
@@ -67,23 +74,6 @@ import { track } from "@/lib/analytics";
 import type { GarmentTreeOut } from "@/types/api";
 
 type Phase = "loading-tree" | "ready" | "error";
-
-/** One line of the render config, read as a sentence by the render model:
- *  "- Component (component description) is Variation — Sub (variation +
- *  sub-option descriptions)". Descriptions the catalog lacks are omitted. */
-function renderConfigLine(
-  label: string,
-  compDesc: string | undefined,
-  value: string,
-  ...descs: (string | undefined)[]
-): string {
-  let line = `- ${label}`;
-  if (compDesc) line += ` (${compDesc})`;
-  line += ` is ${value}`;
-  const d = descs.filter(Boolean).join(" ");
-  if (d) line += ` (${d})`;
-  return line;
-}
 
 /** Active-step info reported to host headers via onStepChange. */
 /** Step info reported to host headers. `description` (the component's
@@ -223,7 +213,22 @@ export function MyodSheet({
         // Prefill the extras rows with what the CATALOG marks as default —
         // never an invented first option. See extrasDefaults().
         const nextSteps = buildDesignSteps(t);
-        setSelections(extrasDefaults(nextSteps));
+        // Session-draft restore: a refresh brings the design back — saved
+        // selections win over catalog defaults, entries whose options an
+        // admin deleted since drop out, and a saved render is reused as-is
+        // (Generate then reuses it instead of re-billing, because the config
+        // text rebuilt from the restored selections matches byte-for-byte).
+        const saved = loadMyodDraft(t.id);
+        const restored = saved
+          ? sanitizeMyodSelections(saved.selections, nextSteps)
+          : {};
+        const merged = { ...extrasDefaults(nextSteps), ...restored };
+        setSelections(merged);
+        if (saved?.renderViews.length) {
+          setRenderViews(saved.renderViews);
+          setRenderCtx({ configText: buildRenderConfigText(nextSteps, merged) });
+          setRenderPhase("done");
+        }
         // Warm the browser cache with every step's images in the background
         // (idle-started, 3 at a time) so later steps render fully populated
         // instead of popping in thumbnail by thumbnail.
@@ -324,81 +329,7 @@ export function MyodSheet({
   // render prompt is specified by this text alone: the DB descriptions are
   // the model's entire visual vocabulary.
   const buildRenderConfig = useCallback(
-    (sels: Selections): string => {
-      const lines: string[] = [];
-      for (const step of steps) {
-        for (const c of step.components) {
-          const sel = sels[c.id];
-          if (c.kind === "toggle" || c.options.length === 0) {
-            if (sel && sel.variationId !== "__off__") {
-              const opt = c.options.find((o) => o.id === sel.variationId);
-              const sub = sel.variationTypeId
-                ? opt?.subOptions?.find((s) => s.id === sel.variationTypeId)
-                : undefined;
-              let value = opt?.label ?? "on";
-              if (sub) value += ` — ${sub.label}`;
-              let line = renderConfigLine(
-                c.label,
-                c.description,
-                value,
-                opt?.description,
-                sub?.description,
-              );
-              if (sel.placement)
-                line += ` (placed on ${placementLabel(sel.placement)})`;
-              lines.push(line);
-            }
-            continue;
-          }
-          // Multi-spot add-on: one line per spot (the option label already
-          // names the spot).
-          if (c.section === "Add-ons" && sel?.picks && sel.picks.length > 0) {
-            for (const pick of sel.picks) {
-              const opt = c.options.find((o) => o.id === pick.variationId);
-              if (!opt) continue;
-              const sub = pick.variationTypeId
-                ? opt.subOptions?.find((s) => s.id === pick.variationTypeId)
-                : undefined;
-              let value = opt.label;
-              if (sub) value += ` — ${sub.label}`;
-              lines.push(
-                renderConfigLine(
-                  c.label,
-                  c.description,
-                  value,
-                  opt.description,
-                  sub?.description,
-                ),
-              );
-            }
-            continue;
-          }
-          const chosenId =
-            c.section === "Add-ons"
-              ? sel?.variationId
-              : (sel?.variationId ?? c.defaultOptionId);
-          const opt = c.options.find((o) => o.id === chosenId);
-          if (!opt) continue;
-          const subId =
-            sel?.variationTypeId ??
-            opt.defaultSubOptionId ??
-            opt.subOptions?.[0]?.id;
-          const sub = opt.subOptions?.find((s) => s.id === subId);
-          let value = opt.label;
-          if (sub) value += ` — ${sub.label}`;
-          lines.push(
-            renderConfigLine(
-              c.label,
-              c.description,
-              value,
-              opt.description,
-              sub?.description,
-            ),
-          );
-        }
-      }
-      return lines.join("\n");
-    },
+    (sels: Selections) => buildRenderConfigText(steps, sels),
     [steps],
   );
 
@@ -481,6 +412,14 @@ export function MyodSheet({
     [],
   );
 
+  // ── Session draft: mirror selections + render into sessionStorage ───
+  // A refresh restores the in-progress design (see the tree-load effect);
+  // the draft is cleared when Complete Order turns it into a real order.
+  useEffect(() => {
+    if (!tree) return;
+    saveMyodDraft({ garmentId: tree.id, selections, renderViews });
+  }, [tree, selections, renderViews]);
+
   // ── Complete Order CTA — turn this run into a pending order ────────
   // Sends the wizard selections + rendered photos; the backend stores the
   // renders as the garment order's inspiration images (same field the admin
@@ -498,6 +437,7 @@ export function MyodSheet({
         assets: renderViews.map((v) => v.url),
       });
       track({ event: "myod_order_created", order_id: order.id });
+      clearMyodDraft();
       router.push(`/app/orders/${order.id}`);
     } catch (err) {
       setOrderError(
@@ -578,6 +518,7 @@ export function MyodSheet({
         assets: renderViews.map((v) => v.url),
       });
       track({ event: "myod_order_created", order_id: order.id });
+      clearMyodDraft();
       router.push(`/app/orders/${order.id}`);
     } catch (err) {
       setOrderNowError(
@@ -776,7 +717,7 @@ export function MyodSheet({
               type="button"
               onClick={handleOrderNow}
               disabled={ordering}
-              className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-pill text-body font-semibold text-chalk-white shadow-brand transition-all ease-brand active:scale-[0.98] disabled:opacity-60"
+              className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-pill text-caption font-semibold text-chalk-white shadow-brand transition-all ease-brand active:scale-[0.98] disabled:opacity-60"
               style={{ backgroundImage: "var(--tape-gradient)" }}
             >
               {ordering ? (
@@ -1058,6 +999,17 @@ function CompletionPage({
           style={{ background: "var(--tape-gradient)" }}
         />
         <div className="relative z-10 flex items-center gap-3 px-4 py-2.5">
+          {/* Keep editing — top-left circular arrow, same position/shape as
+              the back button on the other /app pages. Drops back into the
+              configurator with all state and scroll intact. */}
+          <button
+            type="button"
+            onClick={onKeepEditing}
+            aria-label="Keep editing"
+            className="flex h-11 w-11 flex-none items-center justify-center rounded-pill text-chalk-white transition-all ease-brand hover:bg-white/10 active:scale-95 active:bg-white/20"
+          >
+            <ArrowLeft size={18} />
+          </button>
           <span
             aria-hidden
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-chalk-white shadow-[0_1px_2px_rgba(208,96,16,0.3)]"
@@ -1201,13 +1153,6 @@ function CompletionPage({
               {orderBusy ? "Creating order…" : strings.myod.completeOrder}
             </button>
           </div>
-          <button
-            type="button"
-            onClick={onKeepEditing}
-            className="mx-auto text-caption font-semibold text-navy-interactive underline-offset-4 transition-opacity ease-brand active:opacity-60"
-          >
-            {strings.myod.finalKeepEditing}
-          </button>
         </div>
       </div>
 
