@@ -34,6 +34,11 @@ import {
 } from "@/components/ui/icons";
 import { getGarmentTree, listGarments } from "@/lib/api/catalog";
 import { ApiError } from "@/lib/api/client";
+import {
+  collectStepImageUrls,
+  prefetchImages,
+  scheduleIdle,
+} from "@/lib/image-prefetch";
 import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import {
   createMyodOrder,
@@ -217,7 +222,12 @@ export function MyodSheet({
         setTree(t);
         // Prefill the extras rows with what the CATALOG marks as default —
         // never an invented first option. See extrasDefaults().
-        setSelections(extrasDefaults(buildDesignSteps(t)));
+        const nextSteps = buildDesignSteps(t);
+        setSelections(extrasDefaults(nextSteps));
+        // Warm the browser cache with every step's images in the background
+        // (idle-started, 3 at a time) so later steps render fully populated
+        // instead of popping in thumbnail by thumbnail.
+        scheduleIdle(() => prefetchImages(collectStepImageUrls(nextSteps)));
         setPhase("ready");
         track({ event: "myod_opened", source: "library" });
       } catch (err) {
