@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   fetchTableRows,
+  createUserLoginLink,
   fetchUserById,
   fetchStyleCaptains,
   fetchGarmentOrdersForOrder,
@@ -311,6 +312,26 @@ function formatDate(v: string | null | undefined): string {
 
 function truncateId(id: string): string {
   return id.slice(0, 8);
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Non-secure context or permission denied — execCommand fallback.
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      return document.execCommand("copy");
+    } finally {
+      document.body.removeChild(ta);
+    }
+  }
 }
 
 // ─── Quote image — shareable PNG of the full price breakdown ─────────────────
@@ -912,9 +933,33 @@ export default function OrderDetailPage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentModalTab, setPaymentModalTab] = useState<"receive" | "refund">("receive");
 
+  // Copy-login-link busy flag (mirrors the admin user page CTA).
+  const [loginLinkBusy, setLoginLinkBusy] = useState(false);
+
   function flash(msg: string) {
     setSaveMsg(msg);
     setTimeout(() => setSaveMsg(null), 2000);
+  }
+
+  // ── Copy user URL (open this order in the customer's logged-in app) ───────
+  async function handleCopyUserLoginLink() {
+    if (!order || !customer || loginLinkBusy) return;
+    setLoginLinkBusy(true);
+    try {
+      const out = await createUserLoginLink(customer.id);
+      const url = `${window.location.origin}/app/orders/${order.id}?token=${encodeURIComponent(out.token)}`;
+      const copied = await copyToClipboard(url);
+      if (copied) {
+        flash("User URL copied — opens this order, valid for 30 days");
+      } else {
+        // Last resort: let the admin copy manually.
+        window.prompt("Copy this user URL (valid 30 days):", url);
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not create user URL");
+    } finally {
+      setLoginLinkBusy(false);
+    }
   }
 
   // ── Emit sidebar items ────────────────────────────────────────────────────
@@ -2114,6 +2159,18 @@ export default function OrderDetailPage() {
           <div className="flex flex-wrap gap-2">
             <StatusBadge value={order.fulfillment_status} />
             <StatusBadge value={order.payment_status} />
+            <button
+              onClick={handleCopyUserLoginLink}
+              disabled={!customer || loginLinkBusy}
+              className="rounded-lg border border-tape bg-tape/10 px-3 py-1.5 text-xs font-medium text-tape transition hover:bg-tape/20 disabled:opacity-50"
+              title={
+                customer
+                  ? "Copy a link that opens this order in the user's logged-in app (valid 30 days)"
+                  : "Customer not loaded yet"
+              }
+            >
+              {loginLinkBusy ? "Generating…" : "🔗 Copy User URL"}
+            </button>
             <button
               onClick={() => {
                 setPaymentModalTab("receive");
