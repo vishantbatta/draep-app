@@ -117,7 +117,7 @@ export function AppTabs() {
   );
 
   return (
-    <div className="flex h-dvh w-full flex-col">
+    <div className="flex h-full w-full flex-col">
       {/* Tab content — each tab owns its own scrolling. */}
       <div className="min-h-0 flex-1 overflow-hidden">
         {visited.includes("explore") && (

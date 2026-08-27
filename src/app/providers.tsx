@@ -37,7 +37,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
     }
   }, [authHydrated, bootstrap]);
 
-  // InstallPrompt wraps children so its banner renders in flow at the very
-  // top of the page — content shifts below it instead of being overlaid.
+  // InstallPrompt wraps children so its banner renders at the very top and
+  // the page contracts into the remaining viewport instead of being pushed
+  // below the fold.
   return <InstallPrompt>{children}</InstallPrompt>;
 }
