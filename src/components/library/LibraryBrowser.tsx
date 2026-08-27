@@ -362,8 +362,9 @@ export function LibraryBrowser() {
   );
 
   return (
-    <div className="column flex h-full flex-col bg-warm-sand">
-      {/* ───── Header (collapses smoothly with scroll, see effect above) ── */}
+    <div className="flex h-full flex-col bg-warm-sand">
+      {/* ───── Header (collapses smoothly with scroll, see effect above) ──
+          Full-bleed navy; its content row re-aligns to the 480px column. */}
       <header
         ref={headerRef}
         className="relative flex flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white"
@@ -378,7 +379,7 @@ export function LibraryBrowser() {
         {/* Stays mounted — the collapse effect fades/drifts it out by progress. */}
         <div
           ref={headerContentRef}
-          className="relative z-10 flex flex-col items-center gap-2 px-4 pb-6"
+          className="relative z-10 mx-auto flex w-full max-w-column flex-col items-center gap-2 px-4 pb-6"
         >
           <div className="text-center">
             <span className="inline-flex items-center gap-1.5 rounded-pill bg-chalk-white/15 px-3 py-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white backdrop-blur-sm">

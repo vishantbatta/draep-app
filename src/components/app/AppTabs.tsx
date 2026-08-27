@@ -254,14 +254,15 @@ function CreateTab() {
   }, []);
 
   return (
-    <div className="column flex h-full flex-col bg-warm-sand">
+    <div className="flex h-full flex-col bg-warm-sand">
       {/* Navy header that doubles as the step banner — the badge/back row
           sits above the component name + its catalogue description, so the
-          top nav IS the "choose your …" section (no separate body card). */}
+          top nav IS the "choose your …" section (no separate body card).
+          The banner is full-bleed; its rows re-align to the 480px column. */}
       <header className="relative flex flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white">
         <div
           className={
-            "relative z-10 flex flex-col gap-3 px-4 " +
+            "relative z-10 mx-auto flex w-full max-w-column flex-col gap-3 px-4 " +
             (headerStep?.description ? "py-6" : "py-3")
           }
         >
