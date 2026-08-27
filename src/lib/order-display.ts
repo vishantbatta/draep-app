@@ -4,9 +4,10 @@
  */
 
 /** Human order reference: order number when assigned, else a short id.
- *  Any stored "DRP-" prefix is stripped — customers see the bare number. */
+ *  Legacy "DRP-"/"WALKIN-" prefixes are stripped — customers see the bare
+ *  number (new orders are 11 bare digits already). */
 export function displayOrderNumber(orderNumber: string | null, id: string): string {
-  return (orderNumber ?? id.slice(0, 8)).replace(/^DRP-/i, "");
+  return (orderNumber ?? id.slice(0, 8)).replace(/^(?:DRP|WALKIN)-/i, "");
 }
 
 export function formatDate(iso: string | null): string {
