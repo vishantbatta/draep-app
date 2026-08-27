@@ -761,3 +761,107 @@ function priceLineLabel(
   const sub = subId ? opt.subOptions?.find((s) => s.id === subId) : undefined;
   return `${comp.label}: ${sub ? `${opt.label} · ${sub.label}` : opt.label}`;
 }
+
+/* ─── Render-config text (sent to the image model on Generate) ─────────── */
+
+/** One line of the render config, read as a sentence by the render model:
+ *  "- Component (component description) is Variation — Sub (variation +
+ *  sub-option descriptions)". Descriptions the catalog lacks are omitted. */
+function renderConfigLine(
+  label: string,
+  compDesc: string | undefined,
+  value: string,
+  ...descs: (string | undefined)[]
+): string {
+  let line = `- ${label}`;
+  if (compDesc) line += ` (${compDesc})`;
+  line += ` is ${value}`;
+  const d = descs.filter(Boolean).join(" ");
+  if (d) line += ` (${d})`;
+  return line;
+}
+
+/**
+ * Build the config text the final AI render is specified by — one sentence
+ * per selection, with DB descriptions at every level, because the render
+ * prompt carries no other visual vocabulary. Pure so non-component code
+ * (session-draft restore) can rebuild it for restored selections.
+ */
+export function buildRenderConfigText(
+  steps: DesignStep[],
+  sels: Selections,
+): string {
+  const lines: string[] = [];
+  for (const step of steps) {
+    for (const c of step.components) {
+      const sel = sels[c.id];
+      if (c.kind === "toggle" || c.options.length === 0) {
+        if (sel && sel.variationId !== "__off__") {
+          const opt = c.options.find((o) => o.id === sel.variationId);
+          const sub = sel.variationTypeId
+            ? opt?.subOptions?.find((s) => s.id === sel.variationTypeId)
+            : undefined;
+          let value = opt?.label ?? "on";
+          if (sub) value += ` — ${sub.label}`;
+          let line = renderConfigLine(
+            c.label,
+            c.description,
+            value,
+            opt?.description,
+            sub?.description,
+          );
+          if (sel.placement)
+            line += ` (placed on ${placementLabel(sel.placement)})`;
+          lines.push(line);
+        }
+        continue;
+      }
+      // Multi-spot add-on: one line per spot (the option label already
+      // names the spot).
+      if (c.section === "Add-ons" && sel?.picks && sel.picks.length > 0) {
+        for (const pick of sel.picks) {
+          const opt = c.options.find((o) => o.id === pick.variationId);
+          if (!opt) continue;
+          const sub = pick.variationTypeId
+            ? opt.subOptions?.find((s) => s.id === pick.variationTypeId)
+            : undefined;
+          let value = opt.label;
+          if (sub) value += ` — ${sub.label}`;
+          lines.push(
+            renderConfigLine(
+              c.label,
+              c.description,
+              value,
+              opt.description,
+              sub?.description,
+            ),
+          );
+        }
+        continue;
+      }
+      const chosenId =
+        c.section === "Add-ons"
+          ? sel?.variationId
+          : (sel?.variationId ?? c.defaultOptionId);
+      const opt = c.options.find((o) => o.id === chosenId);
+      if (!opt) continue;
+      const subId =
+        sel?.variationTypeId ??
+        opt.defaultSubOptionId ??
+        opt.subOptions?.[0]?.id;
+      const sub = opt.subOptions?.find((s) => s.id === subId);
+      let value = opt.label;
+      if (sub) value += ` — ${sub.label}`;
+      lines.push(
+        renderConfigLine(
+          c.label,
+          c.description,
+          value,
+          opt.description,
+          sub?.description,
+        ),
+      );
+    }
+  }
+  return lines.join("\n");
+}
