@@ -59,7 +59,7 @@
 }
 
 @layer utilities {
-  /* Mobile-first column. Centered max-w-480 (spec §1). */
+  /* Mobile-first column. Centered at --column-max 432px (spec §1). */
   .column {
     @apply mx-auto w-full max-w-column px-4;
   }
