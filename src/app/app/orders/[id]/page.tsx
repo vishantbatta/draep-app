@@ -1488,6 +1488,18 @@ function OrderDetailContent() {
             </div>
           </div>
 
+          {/* COD never forfeits the saving — paying online later still
+              waives the fee until delivery. Styled as a quiet tip card,
+              not another point row. */}
+          <div className="mt-3 flex items-start gap-2.5 rounded-card bg-warm-sand/70 p-3">
+            <span aria-hidden className="text-[18px] leading-none">
+              🙂
+            </span>
+            <p className="min-w-0 flex-1 text-caption font-medium text-ink/85">
+              {strings.payChoice.codSheetAnytimeTitle(formatPrice(COD_FEE_PREVIEW))}
+            </p>
+          </div>
+
           {choiceError && (
             <Banner variant="error" className="mt-3">
               <p className="text-caption">{choiceError}</p>
@@ -1504,7 +1516,13 @@ function OrderDetailContent() {
               void handlePay();
             }}
           >
-            {strings.payChoice.codSheetOnlineCta}
+            {strings.payChoice.codSheetOnlineCta}{" "}
+            {/* Same save slot as the COD-confirmed advance CTA — navy pill
+                reads on the tape fill too. The sheet always previews the
+                default fee (no COD row exists yet at this point). */}
+            <span className="ml-1 inline-block rounded-pill bg-ink-navy px-2 py-px text-[10px] font-semibold uppercase tracking-wider text-chalk-white">
+              {strings.orderDetail.saveTag(formatPrice(COD_FEE_PREVIEW))}
+            </span>
           </Button>
           <Button
             variant="secondary"
@@ -1514,7 +1532,9 @@ function OrderDetailContent() {
             disabled={choosingCod}
             onClick={() => void handleChooseCod()}
           >
-            {strings.payChoice.codSheetConfirmCta}
+            {strings.payChoice.codSheetConfirmCta(
+              formatPrice(payAmount + COD_FEE_PREVIEW),
+            )}
           </Button>
         </div>
       </BottomSheet>

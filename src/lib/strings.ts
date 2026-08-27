@@ -411,7 +411,7 @@ export const strings = {
     onlineCaption: "Pay the advance online now — no charges.",
     codLabel: "Cash on Delivery",
     codTag: (amount: string) => `+ ${amount}`,
-    codCaption: "COD fee — pay any time before your slot to avoid it.",
+    codCaption: "COD fee — pay any time before delivery to avoid it.",
     codError: "Could not switch to Cash on Delivery. Please try again.",
     // COD soft-confirm sheet — the save-money nudge before committing
     codSheetTitle: "Cash on Delivery",
@@ -423,8 +423,11 @@ export const strings = {
     codSheetRefundTitle: "Refundable, no questions asked",
     codSheetRefundBody:
       "If anything goes wrong, your advance comes straight back to you.",
+    codSheetAnytimeTitle: (amount: string) =>
+      `You can always save ${amount} by paying online any time before delivery`,
     codSheetOnlineCta: "Pay online instead",
-    codSheetConfirmCta: "Continue with Cash on Delivery",
+    codSheetConfirmCta: (amount: string) =>
+      `Continue ${amount} with Cash on Delivery`,
   },
 
   errors: {
