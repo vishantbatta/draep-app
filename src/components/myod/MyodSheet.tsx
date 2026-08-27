@@ -37,7 +37,7 @@ import { ApiError } from "@/lib/api/client";
 import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import {
   createMyodOrder,
-  renderBlouseViews,
+  renderBlouseSheet,
   type MyodRenderView,
 } from "@/lib/api/myod";
 import {
@@ -142,12 +142,13 @@ export function MyodSheet({
   const [finished, setFinished] = useState(false);
 
 
-  // AI product renders of the finished blouse (front/back/side), kicked off
-  // by the Generate CTA. renderCtx keeps the exact inputs so the user can
-  // retry a failed render without re-running the whole generate flow — and
-  // so a second Generate with an unchanged design reuses the existing
-  // renders instead of re-calling the model. Regeneration adds a customer
-  // comment + the previous renders as image references.
+  // AI product render of the finished blouse — ONE image, a 21:9 sheet with
+  // the front, back and side views side by side — kicked off by the Generate
+  // CTA. renderCtx keeps the exact inputs so the user can retry a failed
+  // render without re-running the whole generate flow — and so a second
+  // Generate with an unchanged design reuses the existing render instead of
+  // re-calling the model. Regeneration adds a customer comment + the
+  // previous sheet as an image reference.
   type RenderCtx = {
     configText: string;
     comment?: string;
@@ -429,55 +430,41 @@ export function MyodSheet({
     setPhase("ready");
   }, []);
 
-  // ── Final AI render (front / back / side product photos) ────────────
-  // opts.skipViews = targeted gap-fill: only the MISSING views are
-  // re-rendered (the backend skips the named ones), the good photos stay
-  // on screen while the gaps spin, and the response is merged in by view
-  // instead of replacing the set.
-  // The render streams: each view merges in the moment the backend finishes
-  // it, so the completion grid fills tile by tile while later views are
-  // still being drawn.
+  // ── Final AI render (one 3-view product sheet) ───────────────────────
+  // ONE Gemini call draws the whole sheet — the front, back and side panels
+  // in a single 21:9 image — and the stream delivers it as one "sheet"
+  // view. The state stays a list so a render already on screen survives a
+  // failed refinement.
   const startRender = useCallback(
-    (ctx: RenderCtx, opts?: { skipViews?: string[] }) => {
-      const targeted = !!opts?.skipViews?.length;
+    (ctx: RenderCtx) => {
       setRenderCtx(ctx);
-      if (!targeted) setRenderViews([]);
+      setRenderViews([]);
       setRenderError(null);
       setRenderPhase("rendering");
-      renderBlouseViews(
+      renderBlouseSheet(
         {
           configText: ctx.configText,
           comment: ctx.comment,
           referenceImages: ctx.referenceImages,
-          skipViews: opts?.skipViews,
         },
         (view) => setRenderViews((prev) => mergeRenderViews(prev, [view])),
       )
         .then((res) => {
-          // Merge (not replace) — the streamed views are already on screen;
-          // this folds in anything the stream missed (e.g. a race where the
-          // final `done` event carried a view the parser hadn't yielded).
+          // Merge (not replace) — the streamed sheet is already on screen;
+          // this folds in anything the stream missed.
           setRenderViews((prev) => mergeRenderViews(prev, res.views));
-          if (targeted) {
-            // Even with nothing new, keep the grid: the missing tiles show
-            // their own retry.
-            setRenderPhase("done");
-          } else {
-            setRenderPhase(res.views.length ? "done" : "error");
-          }
+          setRenderPhase(res.views.length ? "done" : "error");
           if (res.views.length)
             track({ event: "myod_render_succeeded", views: res.views.length });
           else track({ event: "myod_render_failed" });
         })
         .catch((err: unknown) => {
-          // A failed gap-fill keeps the good views on screen; a failed full
-          // render drops to the error card. Surface the server's reason when
-          // it sent one (quota 503 tells the user when to tap Retry).
-          if (!targeted)
-            setRenderError(
-              err instanceof ApiError && err.message ? err.message : null,
-            );
-          setRenderPhase(targeted ? "done" : "error");
+          // Surface the server's reason when it sent one (quota 503 tells
+          // the user when to tap Retry).
+          setRenderError(
+            err instanceof ApiError && err.message ? err.message : null,
+          );
+          setRenderPhase("error");
           track({ event: "myod_render_failed" });
         });
     },
@@ -527,9 +514,10 @@ export function MyodSheet({
       setPendingAfterLogin("preview");
       return;
     }
-    // Swap in the completion view and kick off the 3-view AI render. The
-    // render is specified by the config text built from the selections
-    // alone — no sketch is drawn at any point in the flow.
+    // Swap in the completion view and kick off the single-sheet AI render
+    // (one image, front + back + side panels). The render is specified by
+    // the config text built from the selections alone — no sketch is drawn
+    // at any point in the flow.
     setFinished(true);
     track({ event: "myod_generated" });
     const configText = buildRenderConfig(selections);
@@ -842,13 +830,6 @@ export function MyodSheet({
             orderError={orderError}
             onCompleteOrder={handleCompleteOrder}
             onRetry={() => renderCtx && startRender(renderCtx)}
-            onRetryMissing={() => {
-              if (!renderCtx || renderPhase === "rendering") return;
-              const have = renderViews.filter((v) => v.url).map((v) => v.view);
-              if (!have.length || have.length === RENDER_VIEW_ORDER.length)
-                return;
-              startRender(renderCtx, { skipViews: have });
-            }}
             onKeepEditing={() => setFinished(false)}
             onRegenerate={() => setShowRegenSheet(true)}
           />
@@ -993,38 +974,30 @@ function extrasDefaults(steps: DesignStep[]): Selections {
 }
 
 /* ============================================================ */
-/*  AI render gallery (front / back / side)                     */
+/*  AI render gallery (single 3-view sheet)                     */
 /* ============================================================ */
 
-const RENDER_VIEW_ORDER = ["front", "back", "side"] as const;
-
-// Merge a targeted gap-fill retry's fresh views into the existing set,
-// keeping the fixed front/back/side order.
+// Merge fresh streamed render(s) into the state. The single-sheet render
+// streams exactly one entry, but the shape stays a list so a sheet already
+// on screen survives a failed refinement.
 function mergeRenderViews(
   prev: MyodRenderView[],
   next: MyodRenderView[],
 ): MyodRenderView[] {
   const by = new Map(prev.map((v) => [v.view, v]));
   for (const v of next) by.set(v.view, v);
-  return RENDER_VIEW_ORDER.filter((view) => by.has(view)).map(
-    (view) => by.get(view) as MyodRenderView,
-  );
-}
-
-function viewLabel(v: string) {
-  return v.charAt(0).toUpperCase() + v.slice(1);
+  return [...by.values()].filter((v) => v.url);
 }
 
 /**
- * Full-page takeover shown once the user taps "Generate Blouse": the finished
- * blouse as a slideshow — a preview strip of the three AI renders (front /
- * back / side) steers one big photo below, with arrows, swipe, and ←/→ keys
- * to move between views; tapping the big photo opens it fullscreen. Covers
- * the whole viewport — the configurator stays mounted underneath so "Keep
- * editing" drops straight back into the flow with all state and scroll
- * position intact. While rendering: branded skeletons. On failure: an
- * inline error with Retry (re-runs the render from the stored inputs — no
- * need to redo the SVG generate pass).
+ * Full-page takeover shown once the user taps "Generate Blouse": the
+ * finished blouse as ONE wide render — a single 21:9 image showing the
+ * front, back and side views side by side; tapping it opens fullscreen.
+ * Covers the whole viewport — the configurator stays mounted underneath so
+ * "Keep editing" drops straight back into the flow with all state and
+ * scroll position intact. While rendering: a branded skeleton. On failure:
+ * an inline error with Retry (re-runs the render from the stored inputs —
+ * no need to redo the SVG generate pass).
  */
 function CompletionPage({
   views,
@@ -1035,7 +1008,6 @@ function CompletionPage({
   orderError,
   onCompleteOrder,
   onRetry,
-  onRetryMissing,
   onKeepEditing,
   onRegenerate,
 }: {
@@ -1050,76 +1022,21 @@ function CompletionPage({
   orderError?: string | null;
   onCompleteOrder: () => void;
   onRetry: () => void;
-  onRetryMissing: () => void;
   onKeepEditing: () => void;
   onRegenerate: () => void;
 }) {
-  // Which slide is shown big (front first, like the drawings).
-  const [active, setActive] =
-    useState<(typeof RENDER_VIEW_ORDER)[number]>("front");
-  // Fullscreen viewer for one render (view key; null = closed).
-  const [lightbox, setLightbox] = useState<string | null>(null);
-
-  const shown = views.filter((v) => v.url);
-  const current = shown.find((v) => v.view === lightbox);
-  const step = (dir: 1 | -1) => {
-    if (!current || shown.length < 2) return;
-    const idx = shown.indexOf(current);
-    setLightbox(shown[(idx + dir + shown.length) % shown.length].view);
-  };
-  const stepActive = (dir: 1 | -1) => {
-    setActive((cur) => {
-      const idx = RENDER_VIEW_ORDER.indexOf(cur);
-      return RENDER_VIEW_ORDER[
-        (idx + dir + RENDER_VIEW_ORDER.length) % RENDER_VIEW_ORDER.length
-      ];
-    });
-  };
-
-  // Horizontal swipe on the big photo (pointer events cover touch + mouse).
-  // A short tap is NOT a swipe — it falls through to open the lightbox.
-  const swipeX = useRef<number | null>(null);
-  const swiped = useRef(false);
-  const onSwipeStart = (e: React.PointerEvent) => {
-    swipeX.current = e.clientX;
-    swiped.current = false;
-  };
-  const onSwipeEnd = (e: React.PointerEvent) => {
-    if (swipeX.current == null) return;
-    const dx = e.clientX - swipeX.current;
-    swipeX.current = null;
-    if (Math.abs(dx) > 40) {
-      swiped.current = true;
-      stepActive(dx < 0 ? 1 : -1);
-    }
-  };
+  // Fullscreen viewer for the sheet.
+  const [lightbox, setLightbox] = useState(false);
+  const sheet = views.find((v) => v.url) ?? null;
+  const busy = phase === "rendering";
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setLightbox(null);
-        return;
-      }
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      const dir: 1 | -1 = e.key === "ArrowRight" ? 1 : -1;
-      // Arrows drive the open lightbox first; otherwise the carousel.
-      if (lightbox) step(dir);
-      else stepActive(dir);
+      if (e.key === "Escape") setLightbox(false);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  });
-
-  // All three slots always exist so the layout never jumps when images
-  // arrive — and a view the model dropped still holds its place with its
-  // own retry instead of leaving a silent gap.
-  const byView = new Map(views.map((v) => [v.view, v]));
-  const tiles = RENDER_VIEW_ORDER.map((v) => ({
-    view: v,
-    url: byView.get(v)?.url ?? "",
-  }));
-  const activeTile = tiles.find((t) => t.view === active) ?? tiles[0];
-  const busy = phase === "rendering";
+  }, []);
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-warm-sand">
@@ -1154,16 +1071,16 @@ function CompletionPage({
         />
       </header>
 
-      {/* Renders — slideshow: the preview strip steers, the big photo
-          follows; arrows / swipe / ←→ switch views, tap for full size.
-          The slide flexes to fill the space between strip and bottom bar so
-          the whole photo + arrows are on screen without scrolling. */}
+      {/* The render — one wide sheet with all three views, so the layout
+          never jumps: it flexes to fill the space between the header and
+          the bottom bar, tap opens it fullscreen. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="mx-auto flex min-h-0 w-full max-w-column flex-1 flex-col gap-3 px-4 pb-6 pt-4">
           <p className="text-center text-caption leading-snug text-muted">
-            Every choice you made, reflected in three views of your blouse.
+            Every choice you made, in one render showing your blouse from the
+            front, back and side.
           </p>
-          {/* The AI renders are a visual estimate — the stitched garment
+          {/* The AI render is a visual estimate — the stitched garment
               follows the recorded selections, not the image itself. */}
           <div className="flex w-full items-start gap-2 rounded-card border border-warning-border bg-warning-bg px-3 py-2 text-left">
             <Sparkles size={14} className="mt-0.5 flex-none text-warning" />
@@ -1185,132 +1102,59 @@ function CompletionPage({
               </button>
             </div>
           ) : (
-            <>
-              {/* Preview strip — a centered filmstrip of true 3:4 thumbs (the
-                  renders are 3:4) so nothing gets cropped; the selected view
-                  carries the tape-orange ring. */}
-              <div className="flex h-24 items-center justify-center gap-2">
-                {tiles.map((v) => (
+            <div className="flex min-h-[160px] flex-1 items-center justify-center">
+              <div
+                className="relative aspect-[21/9] w-full touch-pan-y select-none overflow-hidden rounded-card bg-mist-navy shadow-card"
+                role={sheet ? undefined : "status"}
+              >
+                {sheet ? (
                   <button
-                    key={v.view}
                     type="button"
-                    onClick={() => setActive(v.view)}
-                    aria-label={`Show ${viewLabel(v.view)} view`}
-                    aria-pressed={active === v.view}
-                    className={`relative aspect-[3/4] h-full touch-pan-y overflow-hidden rounded-card bg-mist-navy shadow-card transition-all ease-brand ${
-                      active === v.view
-                        ? "ring-2 ring-draep-orange ring-offset-2 ring-offset-warm-sand"
-                        : "opacity-60 active:opacity-100"
-                    }`}
+                    onClick={() => setLightbox(true)}
+                    aria-label="Open the render full size"
+                    className="absolute inset-0 h-full w-full"
                   >
-                    {v.url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={v.url}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
-                    ) : phase === "done" ? (
-                      <span className="absolute inset-0 flex items-center justify-center px-1 text-center text-[9px] font-medium leading-tight text-muted">
-                        {strings.myod.renderMissed}
-                      </span>
-                    ) : (
-                      <span className="absolute inset-0 flex items-center justify-center">
-                        <BrandSpinner size={14} />
-                      </span>
-                    )}
-                    <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-pill border border-white/10 bg-ink-navy px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-chalk-white">
-                      {viewLabel(v.view)}
-                    </span>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={sheet.url}
+                      alt="Front, back and side views of the blouse"
+                      className="h-full w-full object-contain"
+                      draggable={false}
+                    />
                   </button>
-                ))}
-              </div>
-
-              {/* Big slide — the card itself is 3:4 like the render, sized by
-                  the available height, so the photo fills it edge-to-edge
-                  (no crops, no grey bars). Arrows flank OUTSIDE the photo. */}
-              <div className="flex min-h-[220px] flex-1 items-center justify-center gap-2">
-                <button
-                  type="button"
-                  aria-label="Previous view"
-                  onClick={() => stepActive(-1)}
-                  className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-hairline bg-chalk-white text-ink-navy shadow-card transition-all ease-brand active:scale-95"
-                >
-                  <ArrowLeft size={18} />
-                </button>
-                <div
-                  className="relative aspect-[3/4] h-full max-w-full touch-pan-y select-none overflow-hidden rounded-card bg-mist-navy shadow-card"
-                  onPointerDown={onSwipeStart}
-                  onPointerUp={onSwipeEnd}
-                >
-                  {activeTile.url ? (
+                ) : phase === "done" ? (
+                  // The render finished but no sheet landed — offer a retry.
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4">
+                    <span className="text-center text-caption font-medium text-muted">
+                      {strings.myod.renderMissed}
+                    </span>
                     <button
                       type="button"
-                      onClick={() => {
-                        // A completed swipe shouldn't also open the lightbox.
-                        if (swiped.current) {
-                          swiped.current = false;
-                          return;
-                        }
-                        setLightbox(active);
-                      }}
-                      aria-label={`Open ${viewLabel(active)} view full size`}
-                      className="absolute inset-0 h-full w-full"
+                      onClick={onRetry}
+                      disabled={busy}
+                      className="rounded-pill border border-hairline-strong bg-chalk-white px-4 py-1.5 text-[12px] font-semibold text-ink-navy transition-all active:scale-[0.97] disabled:opacity-60"
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={activeTile.url}
-                        alt={`${viewLabel(active)} view of the blouse`}
-                        className="h-full w-full object-cover"
-                        draggable={false}
-                      />
+                      {strings.myod.renderRetry}
                     </button>
-                  ) : phase === "done" ? (
-                    // The render finished but this view never landed — offer
-                    // a targeted retry that fills only the gaps.
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4">
-                      <span className="text-center text-caption font-medium text-muted">
-                        {strings.myod.renderMissed}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={onRetryMissing}
-                        disabled={busy}
-                        className="rounded-pill border border-hairline-strong bg-chalk-white px-4 py-1.5 text-[12px] font-semibold text-ink-navy transition-all active:scale-[0.97] disabled:opacity-60"
-                      >
-                        {strings.myod.renderRetry}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center gap-2">
-                      <BrandSpinner size={22} />
-                      <span className="text-caption text-muted">
-                        {strings.myod.renderLoading}
-                      </span>
-                    </div>
-                  )}
-                  <div className="pointer-events-none absolute left-2 top-2 rounded-pill border border-white/10 bg-ink-navy px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-chalk-white shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                    {viewLabel(active)}
                   </div>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Next view"
-                  onClick={() => stepActive(1)}
-                  className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-hairline bg-chalk-white text-ink-navy shadow-card transition-all ease-brand active:scale-95"
-                >
-                  <ArrowRight size={18} />
-                </button>
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-2">
+                    <BrandSpinner size={22} />
+                    <span className="text-caption text-muted">
+                      {strings.myod.renderLoading}
+                    </span>
+                  </div>
+                )}
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>
 
       {/* Sticky order actions — Complete Order creates the pending order
-          (selections + renders as inspiration images) and hands off to the
+          (selections + render as inspiration images) and hands off to the
           /app order page for booking; Regenerate opens the refinement sheet
-          (comment + previous renders fed back to the model). */}
+          (comment + previous sheet fed back to the model). */}
       <div className="flex-none border-t border-hairline bg-chalk-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm">
         <div className="mx-auto flex w-full max-w-column flex-col gap-2 px-4 py-3">
           {orderError && (
@@ -1358,20 +1202,17 @@ function CompletionPage({
       </div>
 
       {/* Fullscreen render viewer */}
-      {current && (
+      {lightbox && sheet && (
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`${viewLabel(current.view)} view, full size`}
+          aria-label="Render, full size"
           className="fixed inset-0 z-50 flex flex-col bg-ink-navy"
         >
-          <div className="flex flex-none items-center justify-between px-4 py-3">
-            <span className="rounded-pill border border-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-chalk-white">
-              {viewLabel(current.view)}
-            </span>
+          <div className="flex flex-none items-center justify-end px-4 py-3">
             <button
               type="button"
-              onClick={() => setLightbox(null)}
+              onClick={() => setLightbox(false)}
               aria-label="Close full size view"
               className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/10 text-chalk-white transition-all ease-brand active:scale-95 active:bg-white/20"
             >
@@ -1379,32 +1220,12 @@ function CompletionPage({
             </button>
           </div>
           <div className="relative flex min-h-0 flex-1 items-center justify-center px-2 pb-4">
-            {shown.length > 1 && (
-              <button
-                type="button"
-                onClick={() => step(-1)}
-                aria-label="Previous view"
-                className="absolute left-1 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-chalk-white transition-all ease-brand active:scale-95 active:bg-white/20"
-              >
-                <ArrowLeft size={18} />
-              </button>
-            )}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={current.url}
-              alt={`${viewLabel(current.view)} view of the blouse, full size`}
+              src={sheet.url}
+              alt="Front, back and side views of the blouse, full size"
               className="max-h-full max-w-full rounded-card object-contain"
             />
-            {shown.length > 1 && (
-              <button
-                type="button"
-                onClick={() => step(1)}
-                aria-label="Next view"
-                className="absolute right-1 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-chalk-white transition-all ease-brand active:scale-95 active:bg-white/20"
-              >
-                <ArrowRight size={18} />
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -1456,11 +1277,11 @@ function RegenerateSheet({
     >
       <div className="flex flex-col gap-3 pb-4">
         {previews.length > 0 && (
-          <div className="grid grid-cols-3 gap-2">
+          <div className="flex flex-col gap-2">
             {previews.map((v) => (
               <div
                 key={v.view}
-                className="relative aspect-[3/4] overflow-hidden rounded-card bg-mist-navy"
+                className="relative aspect-[21/9] overflow-hidden rounded-card bg-mist-navy"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -1468,9 +1289,6 @@ function RegenerateSheet({
                   alt=""
                   className="h-full w-full object-cover"
                 />
-                <div className="pointer-events-none absolute left-1.5 top-1.5 rounded-pill border border-white/10 bg-ink-navy px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-chalk-white">
-                  {viewLabel(v.view)}
-                </div>
               </div>
             ))}
           </div>

@@ -5,9 +5,10 @@
  * returns updated front/back SVGs.
  *
  * POST /myod/render-stream — sends the final config summary (the render is
- * specified by config text alone, no line drawings); the backend renders
- * front/back/side as one chained conversation and streams each finished
- * photo as an SSE event (renderBlouseViews fires onView per view).
+ * specified by config text alone, no line drawings); the backend draws ONE
+ * image — a 21:9 sheet with the front, back and side views side by side —
+ * in a single call and streams it as an SSE event (renderBlouseSheet fires
+ * onSheet when the sheet lands).
  * POST /myod/render is the non-streaming equivalent.
  *
  * POST /myod/order — turns a finished run into a pending order (selections
@@ -47,6 +48,7 @@ export async function editBlouseSvg(
   });
 }
 
+/** One streamed render — the single 3-view product sheet. */
 export interface MyodRenderView {
   view: string;
   url: string;
@@ -62,24 +64,23 @@ export interface MyodRenderParams {
   comment?: string;
   /** Previous render URLs (/designs/ai/…) fed back as image references. */
   referenceImages?: string[];
-  /** Targeted gap-fill retry: view names to skip (already have good renders). */
-  skipViews?: string[];
 }
 
-export async function renderBlouseViews(
+/**
+ * Render the finished garment as ONE image — a 21:9 sheet with the front,
+ * back and side views side by side, drawn in a single Gemini call.
+ *
+ * The backend streams the sheet as an SSE `view` event the moment it lands
+ * (onSheet fires then), so the UI can paint it straight away.
+ */
+export async function renderBlouseSheet(
   params: MyodRenderParams,
-  /**
-   * Fired once per finished view — the backend renders the views as one
-   * chained conversation and streams each image as an SSE `view` event, so
-   * the UI can paint it while the remaining views are still rendering.
-   */
-  onView?: (view: MyodRenderView) => void,
+  onSheet?: (view: MyodRenderView) => void,
 ): Promise<MyodRenderResult> {
   const res = await apiPostStream("/myod/render-stream", {
     config_text: params.configText,
     ...(params.comment ? { comment: params.comment } : {}),
     ...(params.referenceImages?.length ? { reference_images: params.referenceImages } : {}),
-    ...(params.skipViews?.length ? { skip_views: params.skipViews } : {}),
   });
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
@@ -100,7 +101,7 @@ export async function renderBlouseViews(
           const view = JSON.parse(event.data) as MyodRenderView;
           if (view.view && view.url) {
             views.push(view);
-            onView?.(view);
+            onSheet?.(view);
           }
         } else if (event.name === "error") {
           const err = JSON.parse(event.data) as {
@@ -111,20 +112,17 @@ export async function renderBlouseViews(
           };
           throw new ApiError(
             err.code ?? "myod_render_failed",
-            err.message ?? "We couldn't render the final images. Please try again.",
+            err.message ?? "We couldn't render the final image. Please try again.",
             err.status ?? 502,
             err.details ?? {},
           );
         }
         // `done` needs no handling — the views above are the result.
-        // `view_failed` is also skipped: missing views surface as gaps the
-        // completion screen already knows how to render + gap-fill.
       }
     }
   } catch (err) {
-    // The stream died mid-set (e.g. the dev proxy's ~60s ceiling landing
-    // while the last view is still rendering). Views that already landed
-    // are good — keep them and let the completion screen gap-fill the rest.
+    // The stream died before the sheet landed (e.g. the dev proxy's ~60s
+    // ceiling). Nothing to show — surface the failure.
     if (!views.length || (err instanceof DOMException && err.name === "AbortError"))
       throw err;
   }
