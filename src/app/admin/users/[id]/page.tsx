@@ -316,13 +316,13 @@ export default function UserDetailPage() {
     setLoginLinkBusy(true);
     try {
       const out = await createUserLoginLink(user.id);
-      const url = `${window.location.origin}/app/orders/?token=${encodeURIComponent(out.token)}`;
+      const url = `${window.location.origin}/app/profile?token=${encodeURIComponent(out.token)}`;
       const copied = await copyToClipboard(url);
       if (copied) {
-        setFlash("Login link copied — valid for 15 minutes");
+        setFlash("Login link copied — valid for 30 days");
       } else {
         // Last resort: let the admin copy manually.
-        window.prompt("Copy this login link (valid 15 minutes):", url);
+        window.prompt("Copy this login link (valid 30 days):", url);
       }
     } catch (e) {
       alert(e instanceof Error ? e.message : "Could not create login link");
@@ -443,7 +443,7 @@ export default function UserDetailPage() {
             <button
               onClick={handleCopyLoginLink}
               disabled={loginLinkBusy}
-              title="Copy a link that opens this user's logged-in dashboard (valid 15 minutes)"
+              title="Copy a link that opens this user's logged-in dashboard (valid 30 days)"
               className="rounded-lg bg-ink-navy px-3 py-1.5 text-xs font-semibold text-chalk-white hover:bg-tape disabled:opacity-50"
             >
               {loginLinkBusy ? "Generating…" : "🔗 Copy Login Link"}
