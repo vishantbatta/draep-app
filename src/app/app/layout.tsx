@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import { ProfileCompletionGate } from "@/components/auth/ProfileCompletionGate";
+
 export const metadata: Metadata = {
   title: {
     default: "Your account",
@@ -11,5 +13,12 @@ export const metadata: Metadata = {
 };
 
 export default function AccountDashboardLayout({ children }: { children: ReactNode }) {
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {/* Blocking profile step — a signed-in user missing name/gender can't
+          use any /app surface until they fill it. */}
+      <ProfileCompletionGate />
+    </>
+  );
 }
