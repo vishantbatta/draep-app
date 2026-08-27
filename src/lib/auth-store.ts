@@ -26,6 +26,10 @@ interface AuthStoreState {
   activeOrderId: string | null;
   expiresAt: number | null; // epoch ms
   hydrated: boolean;
+  /** True once bootstrap() has settled — login-link exchanged, session
+      validated or re-minted. Data loads must wait on this so an
+      ?token= deep link can't race its own exchange. */
+  bootstrapped: boolean;
 
   // Bootstrap
   bootstrap: () => Promise<void>;
@@ -69,6 +73,7 @@ export const useAuthStore = create<AuthStoreState>()(
       activeOrderId: null,
       expiresAt: null,
       hydrated: false,
+      bootstrapped: false,
 
       setHydrated: () => set({ hydrated: true }),
 
@@ -80,24 +85,30 @@ export const useAuthStore = create<AuthStoreState>()(
        * over any persisted session and is exchanged first.
        */
       bootstrap: async () => {
-        await get().consumeLoginLinkFromUrl();
+        try {
+          await get().consumeLoginLinkFromUrl();
 
-        const state = get();
-        const now = Date.now();
+          const state = get();
+          const now = Date.now();
 
-        // Valid token exists — just validate with the server
-        if (state.token && state.expiresAt && state.expiresAt > now) {
-          setToken(state.token);
-          try {
-            await get().refreshSession();
-            return;
-          } catch {
-            // Token is invalid/expired server-side → fall through to re-mint
+          // Valid token exists — just validate with the server
+          if (state.token && state.expiresAt && state.expiresAt > now) {
+            setToken(state.token);
+            try {
+              await get().refreshSession();
+              return;
+            } catch {
+              // Token is invalid/expired server-side → fall through to re-mint
+            }
           }
-        }
 
-        // No valid token → mint anonymous
-        await get().initAnonymous();
+          // No valid token → mint anonymous
+          await get().initAnonymous();
+        } finally {
+          // Set on every exit (including failures) so consumers gated on this
+          // flag always proceed, even if bootstrap itself errors.
+          set({ bootstrapped: true });
+        }
       },
 
       initAnonymous: async () => {
@@ -273,4 +284,11 @@ export const useAuthStore = create<AuthStoreState>()(
 /** Convenience hook for components that just need the hydrated flag. */
 export function useAuthHydrated(): boolean {
   return useAuthStore((s) => s.hydrated);
+}
+
+/** Convenience hook: true once bootstrap() has settled (see state docs).
+ *  Gate authed data loads on this — not on `hydrated`, which flips before
+ *  a ?token= login-link deep link finishes exchanging for its session. */
+export function useAuthBootstrapped(): boolean {
+  return useAuthStore((s) => s.bootstrapped);
 }

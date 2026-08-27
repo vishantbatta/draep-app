@@ -11,15 +11,17 @@
  * endpoint.
  *
  * Every order ends in a pinned bottom bar whose state follows concrete facts
- * (attached address → drafted slot → how the booking is confirmed), never the
- * order status, in priority order:
+ * (attached address → visit held or measured → how the booking is confirmed),
+ * never the order status, in priority order:
  *   1. nothing attached            → "Select Address" (picker sheet, or the
  *                                     full-page address form when none saved)
- *   2. no slot drafted             → "Select Slot" — Select books the
+ *   2. no slot drafted AND
+ *      measurements not completed  → "Select Slot" — Select books the
  *                                     measurement visit (POST /orders/{id}/
- *                                     booking; reschedules via PATCH)
- *   3. slot held, nothing paid and
- *      no COD choice               → "Confirm Booking" opens the method sheet
+ *                                     booking; reschedules via PATCH). A
+ *                                     completed visit never re-books — its
+ *                                     order goes straight to Confirm.
+ *   3. slot held (or measured),   → "Confirm Booking" opens the method sheet
  *                                     (online or Cash on Delivery). Until one
  *                                     lands, the slot is only a draft hold —
  *                                     the card above shows the time and
@@ -67,6 +69,7 @@ import {
   Thread,
 } from "@/components/ui/icons";
 import { ApiError, addressesApi, checkoutApi, ordersApi } from "@/lib/api";
+import { useAuthBootstrapped } from "@/lib/auth-store";
 import type { GarmentOrderItemRow } from "@/lib/admin-api";
 import { loadCashfree } from "@/lib/cashfree";
 import {
@@ -493,9 +496,16 @@ function OrderDetailContent() {
     }
   }, [id]);
 
+  // Wait for auth bootstrap to settle before the first fetch. Admin-issued
+  // login links land here as ?token=… and Providers exchanges that for a
+  // session in parallel with this page mounting — fetching earlier fires
+  // without (or with an anonymous) Authorization header and fails.
+  const bootstrapped = useAuthBootstrapped();
+
   useEffect(() => {
+    if (!bootstrapped) return;
     void load();
-  }, [load]);
+  }, [bootstrapped, load]);
 
   /* ── Loading / error states ──────────────────────────────────────────── */
   if (loading) {
@@ -602,7 +612,13 @@ function OrderDetailContent() {
         j.status === "in_progress" ||
         j.status === "needs_reassignment",
     ) ?? null;
-  const hasActiveVisit = activeJob !== null;
+  // A COMPLETED measurement means the visit happened — the order moves on
+  // to confirming/paying and never asks for another slot (paidUp keeps
+  // working because the lock below reads activeJob?.status as not-draft).
+  const measuredDone = detail.measurement_jobs.some(
+    (j) => j.status === "completed",
+  );
+  const hasActiveVisit = activeJob !== null || measuredDone;
   // The sheet only needs the scheduled instant to preselect the day and to
   // know it must PATCH (reschedule) instead of POST.
   const currentBooking: Booking | null =
@@ -633,13 +649,14 @@ function OrderDetailContent() {
   const advanceAmount = Math.max(payAmount - codFee, 0);
 
   /* ── Bottom-bar state machine, priority order ────────────────────────────
-     Driven by concrete facts (attached address → drafted slot → how the
-     booking is confirmed), never the order status:
+     Driven by concrete facts (attached address → visit held or measured →
+     how the booking is confirmed), never the order status:
        1 "address"  nothing attached             → Select Address
-       2 "slot"     attached, no slot drafted    → Select Slot
-       3 "confirm"  slot held, nothing paid and
-                    no COD choice yet            → Confirm Booking (the slot
-                                                    is still a draft hold)
+       2 "slot"     attached, no slot held AND
+                    measurements not completed  → Select Slot (a completed
+                                                    measurement never re-books)
+       3 "confirm"  visit held or measured,
+                    nothing paid, no COD choice → Confirm Booking
        4 "cod"      COD confirmed, advance due  → secondary Pay-advance (save pill)
        5 "paid"     advance paid, balance left  → secondary Explore More Designs
      A delivered order with a balance falls through to a plain pay-balance
@@ -651,7 +668,7 @@ function OrderDetailContent() {
       ? "address"
       : isDelivered
         ? "balance"
-        : currentBooking == null
+        : currentBooking == null && !measuredDone
           ? "slot"
           : advancePaid
             ? "paid"
