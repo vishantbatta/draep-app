@@ -1195,7 +1195,12 @@ function OrderDetailContent() {
             disabled={paying}
             onClick={() => void handlePay()}
           >
-            {strings.orderDetail.payInAdvance(formatPrice(advanceAmount))}{" "}
+            {strings.orderDetail.payAdvancePrefix}{" "}
+            <span aria-hidden className="line-through opacity-50">
+              {formatPrice(payAmount)}
+            </span>{" "}
+            <span className="font-semibold">{formatPrice(advanceAmount)}</span>{" "}
+            {strings.orderDetail.payAdvanceSuffix}{" "}
             <span className="ml-1 inline-block rounded-pill bg-ink-navy px-2 py-px text-[10px] font-semibold uppercase tracking-wider text-chalk-white">
               {strings.orderDetail.saveTag(formatPrice(codFee))}
             </span>

@@ -1329,7 +1329,10 @@ export default function OrderDetailPage() {
         garment_order_id: input.garment_order_id,
         type: input.type,
         amount: signed,
-        label: JSON.stringify({ en: input.label || "Adjustment" }),
+        // Object, not JSON.stringify: the generic table API serializes JSON
+        // columns itself, so a pre-stringified value lands double-encoded
+        // (a JSON string) and the label readers can't unwrap it.
+        label: { en: input.label || "Adjustment" },
         target_type: input.garment_order_id ? "garment_order" : "order",
         source: "manual",
       });

@@ -391,8 +391,11 @@ export const strings = {
     // Bottom-card slot row once the hold is a real booking (COD confirmed / paid)
     visitConfirmed: (time: string | null, captain: string | null) =>
       captain ? `Visit confirmed · ${time} · ${captain}` : `Visit confirmed · ${time}`,
-    // COD orders: the CTA pays the advance (total minus the ₹50 COD fee)
-    payInAdvance: (amount: string) => `Pay ${amount} in Advance`,
+    // COD orders: the CTA pays the advance (total minus the ₹50 COD fee),
+    // composed around a struck-through fee-inclusive total, so the copy
+    // lives here while the strike renders as markup on the order page.
+    payAdvancePrefix: "Pay",
+    payAdvanceSuffix: "in Advance",
     saveTag: (amount: string) => `Save ${amount}`,
     payInitError: "Could not start the payment. Please try again.",
     loadError: "Could not load this order.",
