@@ -18,8 +18,9 @@ interface Props {
   open: boolean;
   onClose: () => void;
   orders: OpenOrder[];
-  /** True while the append request is in flight — pins the CTAs. */
-  busy: boolean;
+  /** Which CTA is in flight — pins both buttons, spins + relabels the busy
+      one until navigation lands. null = idle. */
+  busy: "add" | "create" | null;
   onAdd: (orderId: string) => void;
   onCreateNew: () => void;
 }
@@ -46,19 +47,33 @@ export function ExistingOrderChoiceSheet({
         <div className="flex flex-col gap-2">
           <button
             type="button"
-            disabled={!effective || busy}
+            disabled={busy !== null || !effective}
             onClick={() => effective && onAdd(effective)}
-            className="rounded-pill bg-ink-navy px-5 py-3 text-body font-semibold text-chalk-white transition-all ease-brand disabled:opacity-40 active:scale-[0.98]"
+            className="flex items-center justify-center gap-2 rounded-pill bg-ink-navy px-5 py-3 text-body font-semibold text-chalk-white transition-all ease-brand disabled:opacity-40 active:scale-[0.98]"
           >
-            {strings.existingOrders.addCta}
+            {busy === "add" && (
+              <span
+                aria-hidden
+                className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-draep-orange"
+              />
+            )}
+            {busy === "add" ? strings.existingOrders.addBusy : strings.existingOrders.addCta}
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy !== null}
             onClick={onCreateNew}
-            className="rounded-pill border border-hairline-strong bg-chalk-white px-5 py-3 text-body font-semibold text-ink-navy transition-all ease-brand disabled:opacity-40 active:scale-[0.98]"
+            className="flex items-center justify-center gap-2 rounded-pill border border-hairline-strong bg-chalk-white px-5 py-3 text-body font-semibold text-ink-navy transition-all ease-brand disabled:opacity-40 active:scale-[0.98]"
           >
-            {strings.existingOrders.createNewCta}
+            {busy === "create" && (
+              <span
+                aria-hidden
+                className="h-4 w-4 animate-spin rounded-full border-2 border-ink-navy border-t-transparent"
+              />
+            )}
+            {busy === "create"
+              ? strings.existingOrders.createNewBusy
+              : strings.existingOrders.createNewCta}
           </button>
         </div>
       }

@@ -446,7 +446,7 @@ export function LibraryOrderPreviewSheet({
         open={choiceOpen}
         onClose={() => setChoiceOpen(false)}
         orders={openOrders}
-        busy={adding}
+        busy={adding ? "add" : creating ? "create" : null}
         onAdd={(id) => void handleAddToOrder(id)}
         onCreateNew={handleCreateNew}
       />

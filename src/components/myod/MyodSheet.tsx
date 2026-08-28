@@ -964,7 +964,7 @@ export function MyodSheet({
         open={choiceOpen}
         onClose={() => setChoiceOpen(false)}
         orders={openOrders}
-        busy={adding}
+        busy={adding ? "add" : ordering ? "create" : null}
         onAdd={(id) => void handleAddToOrder(id)}
         onCreateNew={() => void handleCreateNewOrder()}
       />
