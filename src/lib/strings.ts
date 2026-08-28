@@ -209,7 +209,7 @@ export const strings = {
   /** Add-to-existing choice sheet (shown on order confirm when open orders exist). */
   existingOrders: {
     sheetTitle: "You have open orders",
-    sheetCaption: "Add this design to an open order — the tailor visits once for everything.",
+    sheetCaption: "Add this design to an open order — the measurement captain visits once for everything.",
     addCta: "Add to this order",
     createNewCta: "Create new order",
     visitBooked: "Visit booked",
