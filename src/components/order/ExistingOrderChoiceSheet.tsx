@@ -9,6 +9,7 @@
 import { useState } from "react";
 
 import { BottomSheet } from "@/components/ui/BottomSheet";
+import { slotVisitLabel } from "@/lib/order-display";
 import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
 import type { OpenOrder } from "@/types/api";
@@ -71,6 +72,8 @@ export function ExistingOrderChoiceSheet({
             order.total_price != null
               ? formatPrice(order.total_price)
               : null;
+          const booked = order.fulfillment_status === "awaiting_visit";
+          const visit = slotVisitLabel(order.slot);
           return (
             <li key={order.id}>
               <button
@@ -88,18 +91,36 @@ export function ExistingOrderChoiceSheet({
                     {order.order_number ?? "Order"}
                   </span>
                   <span className="flex-none text-caption text-muted">
-                    {[
-                      order.fulfillment_status === "awaiting_visit"
-                        ? strings.existingOrders.visitBooked
-                        : null,
-                      price,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    {price}
                   </span>
                 </span>
                 <span className="mt-1 block truncate text-caption text-muted">
                   {order.garments.join(" · ") || "—"}
+                </span>
+                {/* Visit status — the appointment this order rides on; the
+                    booked date+time shows so the customer knows what the new
+                    garment is joining. */}
+                <span className="mt-1.5 flex items-center gap-1.5 text-caption">
+                  <span
+                    aria-hidden
+                    className={
+                      "h-1.5 w-1.5 flex-none rounded-full " +
+                      (booked ? "bg-draep-orange" : "bg-tape-silver")
+                    }
+                  />
+                  <span
+                    className={
+                      booked
+                        ? "font-medium text-accent-text"
+                        : "text-muted"
+                    }
+                  >
+                    {booked
+                      ? visit
+                        ? strings.existingOrders.visitBookedAt(visit)
+                        : strings.existingOrders.visitBooked
+                      : strings.existingOrders.visitNotBooked}
+                  </span>
                 </span>
               </button>
             </li>

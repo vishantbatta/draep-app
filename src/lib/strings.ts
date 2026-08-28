@@ -213,6 +213,8 @@ export const strings = {
     addCta: "Add to this order",
     createNewCta: "Create new order",
     visitBooked: "Visit booked",
+    visitBookedAt: (when: string) => `Visit booked · ${when}`,
+    visitNotBooked: "Visit not booked yet",
     addError: "Couldn't add to that order — please try again.",
   },
 
