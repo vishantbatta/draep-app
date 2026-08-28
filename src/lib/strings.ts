@@ -206,6 +206,16 @@ export const strings = {
     previewRetry: "Retry",
   },
 
+  /** Add-to-existing choice sheet (shown on order confirm when open orders exist). */
+  existingOrders: {
+    sheetTitle: "You have open orders",
+    sheetCaption: "Add this design to an open order — the tailor visits once for everything.",
+    addCta: "Add to this order",
+    createNewCta: "Create new order",
+    visitBooked: "Visit booked",
+    addError: "Couldn't add to that order — please try again.",
+  },
+
   /** Browse filters on the library page (upfront chips + All-filters sheet). */
   libraryFilters: {
     occasions: "Occasions",
