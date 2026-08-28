@@ -247,6 +247,46 @@ export interface OrderListOut {
   total_pages: number;
 }
 
+/** One open order — a merge target in the add-to-existing choice sheet. */
+export interface OpenOrder {
+  id: string;
+  order_number: string | null;
+  garments: string[];
+  payment_status: string | null;
+  fulfillment_status: string | null;
+  total_price: number | null;
+  slot: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
+export interface OpenOrderListOut {
+  items: OpenOrder[];
+}
+
+/** Append-one-garment payloads — mirror of the two creation paths. */
+export type AddGarmentPayload =
+  | { source: "library"; library_id: string }
+  | {
+      source: "myod";
+      garment_id?: string | null;
+      selections: Record<
+        string,
+        {
+          variation_id: string;
+          variation_type_id?: string;
+          placement?: string;
+          picks?: { variation_id: string; variation_type_id?: string; placement?: string }[];
+        }
+      >;
+      assets: string[];
+    };
+
+export interface AddGarmentResult {
+  order_id: string;
+  garment_order_id: string;
+  total_price: number | null;
+}
+
 /** One resolved selection/add-on row on the order detail page. */
 export interface OrderDetailItem {
   type: "selection" | "add_on" | null;

@@ -5,11 +5,29 @@
 
 import { apiDelete, apiGet, apiPost, apiPut, apiPatch, apiUpload } from "./client";
 import type {
+  AddGarmentPayload,
+  AddGarmentResult,
   CustomerOrderDetail,
   OrderListOut,
   OrderOut,
+  OpenOrderListOut,
   ValidateOut,
 } from "@/types/api";
+
+// GET /orders/open — the customer's open (pending / awaiting_visit) orders,
+// the merge-target list for the add-to-existing choice sheet.
+export function listOpenOrders(signal?: AbortSignal): Promise<OpenOrderListOut> {
+  return apiGet<OpenOrderListOut>("/orders/open", { signal });
+}
+
+// POST /orders/{order_id}/garments — append this garment to an open order;
+// it joins that order's booked visit.
+export function addGarmentToOrder(
+  orderId: string,
+  payload: AddGarmentPayload,
+): Promise<AddGarmentResult> {
+  return apiPost<AddGarmentResult>(`/orders/${orderId}/garments`, payload);
+}
 
 // GET /orders — signed-in customer's own orders, newest first
 export function listOrders(
