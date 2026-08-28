@@ -25,11 +25,14 @@ import {
   type DraftItem,
   type SelectionSeedItem,
 } from "@/components/admin/GarmentSelectionSheet";
+import { ExistingOrderChoiceSheet } from "@/components/order/ExistingOrderChoiceSheet";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { orderFromLibrary, getLibraryDetail } from "@/lib/api/library";
 import { ordersApi } from "@/lib/api";
+import { addGarmentToOrder, listOpenOrders } from "@/lib/api/orders";
+import { useAuthStore } from "@/lib/auth-store";
 import { strings } from "@/lib/strings";
-import type { LibraryDetailOut } from "@/types/api";
+import type { LibraryDetailOut, OpenOrder } from "@/types/api";
 
 interface Props {
   open: boolean;
@@ -53,6 +56,9 @@ export function LibraryOrderPreviewSheet({
   onCreated,
 }: Props) {
   const router = useRouter();
+  const sessionType = useAuthStore((s) => s.sessionType);
+  const authHydrated = useAuthStore((s) => s.hydrated);
+  const isLoggedIn = sessionType === "user";
 
   const [detail, setDetail] = useState<LibraryDetailOut | null>(
     initialDetail ?? null,
@@ -63,12 +69,21 @@ export function LibraryOrderPreviewSheet({
 
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // Add-to-existing choice sheet state — populated when the confirm-time
+  // open-orders check finds merge targets.
+  const [choiceOpen, setChoiceOpen] = useState(false);
+  const [openOrders, setOpenOrders] = useState<OpenOrder[]>([]);
+  const [adding, setAdding] = useState(false);
   // applyDraft() calls onDraftChange then onClose() in the same tick — a ref
   // (not state) is the only way onClose sees "busy" and swallows the close,
   // keeping the sheet (and the user's tweaks) on screen while the order is
   // created. It also single-flights re-taps of the apply CTA.
   const creatingRef = useRef(false);
+  const addingRef = useRef(false);
   const lastDesiredRef = useRef<DraftItem[] | null>(null);
+  // The order the last append targeted — routes the error toast's Retry back
+  // to the add (not to a fresh create) when an append fails.
+  const lastAddTargetRef = useRef<string | null>(null);
 
   // Load the design on open. The library path hands us its loaded detail;
   // the try-on path has none, so the sheet fetches it (garment id + seeds
@@ -241,8 +256,10 @@ export function LibraryOrderPreviewSheet({
     [seeds],
   );
 
-  /** Apply → create the PENDING order, write the tweaks, walk to booking. */
-  const createOrder = useCallback(
+  /** Create a fresh PENDING order from the design — no open-orders check.
+      The choice sheet's "Create new order" calls this directly, so it can
+      never re-open the choice sheet (infinite loop). */
+  const createNewOrder = useCallback(
     async (desired: DraftItem[]) => {
       if (!libraryId || creatingRef.current) return;
       creatingRef.current = true;
@@ -279,6 +296,80 @@ export function LibraryOrderPreviewSheet({
     },
     [libraryId, onCreated, applyTweaks, router],
   );
+
+  /** Confirm entry point: logged-in users with open orders get the choice
+      sheet; everyone else goes straight to creation. */
+  const createOrder = useCallback(
+    async (desired: DraftItem[]) => {
+      if (!libraryId || creatingRef.current) return;
+      lastAddTargetRef.current = null;
+      // Add-to-existing check: fetch failure or empty list falls through to
+      // the normal create — ordering is never blocked by this feature.
+      if (authHydrated && isLoggedIn) {
+        creatingRef.current = true;
+        setCreating(true);
+        try {
+          const res = await listOpenOrders();
+          if (res.items.length) {
+            setOpenOrders(res.items);
+            setChoiceOpen(true);
+            return;
+          }
+        } catch {
+          // fail open — create a new order as before
+        } finally {
+          creatingRef.current = false;
+          setCreating(false);
+        }
+      }
+      await createNewOrder(desired);
+    },
+    [libraryId, authHydrated, isLoggedIn, createNewOrder],
+  );
+
+  /** Append the reviewed design to the chosen open order, then walk there.
+      The user's in-sheet tweaks ride along — applyTweaks targets the new
+      garment_order_id with the same customer selection endpoints. */
+  const handleAddToOrder = useCallback(
+    async (targetOrderId: string) => {
+      if (!libraryId || addingRef.current) return;
+      addingRef.current = true;
+      lastAddTargetRef.current = targetOrderId;
+      setAdding(true);
+      setCreateError(null);
+      const desired = lastDesiredRef.current ?? [];
+      try {
+        const res = await addGarmentToOrder(targetOrderId, {
+          source: "library",
+          library_id: libraryId,
+        });
+        try {
+          onCreated?.(res.order_id, res.garment_order_id);
+        } catch {
+          // caller extras (try-on photo attach) are best-effort
+        }
+        await applyTweaks(res.order_id, res.garment_order_id, desired);
+        router.push(`/app/orders/${res.order_id}`);
+      } catch (err) {
+        setChoiceOpen(false);
+        setCreateError(
+          err instanceof Error && err.message
+            ? err.message
+            : strings.existingOrders.addError,
+        );
+        addingRef.current = false;
+        setAdding(false);
+      }
+    },
+    [libraryId, onCreated, applyTweaks, router],
+  );
+
+  const handleCreateNew = useCallback(() => {
+    setChoiceOpen(false);
+    lastAddTargetRef.current = null;
+    const desired = lastDesiredRef.current;
+    if (desired) void createNewOrder(desired);
+  }, [createNewOrder]);
 
   /** Close only when idle — during creation the sheet stays put. */
   const handleSheetClose = useCallback(() => {
@@ -349,6 +440,17 @@ export function LibraryOrderPreviewSheet({
         />
       )}
 
+      {/* Add-to-existing choice — over the editor; picking an order appends
+          the reviewed design to it (inheriting its visit). */}
+      <ExistingOrderChoiceSheet
+        open={choiceOpen}
+        onClose={() => setChoiceOpen(false)}
+        orders={openOrders}
+        busy={adding}
+        onAdd={(id) => void handleAddToOrder(id)}
+        onCreateNew={handleCreateNew}
+      />
+
       {/* Creation error — pinned above the sheet; the user's tweaks are
           still in the editor underneath, so retry resubmits them as-is. */}
       {createError && (
@@ -357,6 +459,11 @@ export function LibraryOrderPreviewSheet({
           <button
             type="button"
             onClick={() => {
+              const target = lastAddTargetRef.current;
+              if (target) {
+                void handleAddToOrder(target);
+                return;
+              }
               const desired = lastDesiredRef.current;
               if (desired) void createOrder(desired);
             }}
