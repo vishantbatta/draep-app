@@ -13,8 +13,9 @@
  *   - Add-ons (Piping, Lining, Key Hole, …) render as cards with a
  *     "+ Add / ✓ Added" toggle. Matrix add-ons (2+ option axes) show one
  *     chip row per axis (Where · Style · Shape · Size · Type · Color) and
- *     resolve the picks to a priced combination; others show flat option
- *     pills. Placement-based add-ons add placement chips, one slot each.
+ *     resolve the picks to one combination — unpriced rows sell free;
+ *     others show flat option pills. Placement-based add-ons add
+ *     placement chips, one slot each.
  *
  * Two modes, mirroring the old inline GarmentOrderEditor:
  *  - persist (order detail page): on Save, diff the desired items against
@@ -264,7 +265,8 @@ function toSeedRows(
 // A matrix add-on prices combinations of option axes (shape × size × …),
 // one variation row per combination. When an add-on uses 2+ axes we render
 // one chip row per axis instead of a flat variation list and resolve the
-// picks to the single matching priced variation row.
+// picks to the single matching variation row — a row with no price sells
+// as a free option.
 
 const ADDON_AXES = ["style", "shape", "size", "type", "color"] as const;
 
@@ -275,7 +277,7 @@ interface AddonAxisInfo {
   axes: string[];
   /** Distinct values per axis, in variation order. */
   values: Record<string, string[]>;
-  /** Fully-specified priced rows, keyed by axis-value tuple. */
+  /** Fully-specified rows, keyed by axis-value tuple. */
   byKey: Map<string, CatalogAddonVariation>;
 }
 
@@ -346,7 +348,6 @@ function deriveAddonAxes(
   }
   const byKey = new Map<string, CatalogAddonVariation>();
   for (const v of pool) {
-    if (v.price == null) continue; // unpriced combination = not sellable
     const tuple = axisTuple(axes, v);
     if (!tuple) continue;
     const key = tuple.join("\u0000");
@@ -713,13 +714,13 @@ export function GarmentSelectionSheet({
   }
 
   /** Default variation for a new slot: the add-on default when it is valid
-   * at this placement (agnostic or matching), else the first priced row that
-   * is valid there. */
+   * at this placement (agnostic or matching), else the first row that is
+   * valid there (an unpriced row is a free option, so it qualifies). */
   function defaultVariationFor(addonId: string, placement: string | null): string | null {
     const addon = tree?.addons.find((a) => a.id === addonId);
     if (!addon) return null;
     const valid = (v: CatalogAddonVariation) =>
-      v.price != null && (v.placement == null || v.placement === placement);
+      v.placement == null || v.placement === placement;
     if (addon.default_variation_id) {
       const def = addon.variations.find((v) => v.id === addon.default_variation_id);
       if (def && valid(def)) return def.id;
@@ -1272,12 +1273,15 @@ function AddonVariationPicker({
 
   // Current per-axis picks: explicit local picks win; else infer from the
   // selected variation row (covers defaults and re-loaded existing items).
+  // Must NOT be gated on selectedAv — a partial (unresolved) pick clears the
+  // selection to null, and the axes already picked still have to stick so
+  // the next chip click can complete the combination.
   const currentPicks: Record<string, string> = {};
-  if (isMatrix && selectedAv) {
-    for (const ax of matrix.axes) {
-      const val = axisPicks[ax] ?? (selectedAv[ax as keyof CatalogAddonVariation] as string | null);
-      if (val && matrix.values[ax].includes(val)) currentPicks[ax] = val;
-    }
+  for (const ax of matrix.axes) {
+    const val =
+      axisPicks[ax] ??
+      (selectedAv ? (selectedAv[ax as keyof CatalogAddonVariation] as string | null) : null);
+    if (val && matrix.values[ax].includes(val)) currentPicks[ax] = val;
   }
 
   function pickAxisValue(ax: string, value: string | null) {
@@ -1293,12 +1297,13 @@ function AddonVariationPicker({
     }
   }
 
-  // A value is choosable if some priced variation in this slot's pool
-  // matches it and the picks already made on every other axis. Values that
-  // can't complete a real combination are hidden (conditional showing).
+  // A value is choosable if some variation in this slot's pool matches it
+  // and the picks already made on every other axis (an unpriced variation
+  // is a free option, so it qualifies). Values that can't complete a real
+  // combination are hidden (conditional showing).
   function valueAvailable(ax: string, v: string): boolean {
     return matrix.pool.some((w) => {
-      if (w.price == null || w[ax as keyof CatalogAddonVariation] !== v) return false;
+      if (w[ax as keyof CatalogAddonVariation] !== v) return false;
       return matrix.axes.every((a) => a === ax || !currentPicks[a] || w[a as keyof CatalogAddonVariation] === currentPicks[a]);
     });
   }
@@ -1333,10 +1338,12 @@ function AddonVariationPicker({
           </div>
         ))}
         <div className="text-[11px] text-muted">
-          {selectedAv && selectedAv.price != null ? (
+          {selectedAv ? (
             <>
               {matrix.axes.map((a) => cap(currentPicks[a] ?? "")).join(" · ")} —{" "}
-              <span className="font-medium text-ink-navy">+{formatPrice(selectedAv.price)}</span>
+              <span className="font-medium text-ink-navy">
+                {selectedAv.price != null ? `+${formatPrice(selectedAv.price)}` : "Free"}
+              </span>
             </>
           ) : (
             "Pick an option in each row."
