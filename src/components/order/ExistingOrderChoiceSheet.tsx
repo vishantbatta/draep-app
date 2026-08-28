@@ -9,6 +9,7 @@
 import { useState } from "react";
 
 import { BottomSheet } from "@/components/ui/BottomSheet";
+import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
 import type { OpenOrder } from "@/types/api";
 
@@ -20,11 +21,6 @@ interface Props {
   busy: boolean;
   onAdd: (orderId: string) => void;
   onCreateNew: () => void;
-}
-
-function rupees(paise: number | null): string | null {
-  if (paise == null) return null;
-  return `₹${(paise / 100).toLocaleString("en-IN")}`;
 }
 
 export function ExistingOrderChoiceSheet({
@@ -71,7 +67,10 @@ export function ExistingOrderChoiceSheet({
       </p>
       <ul className="flex flex-col gap-2">
         {orders.map((order) => {
-          const price = rupees(order.total_price);
+          const price =
+            order.total_price != null
+              ? formatPrice(order.total_price)
+              : null;
           return (
             <li key={order.id}>
               <button
