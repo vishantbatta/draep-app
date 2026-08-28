@@ -53,14 +53,19 @@ const PIN_GEO: Record<string, [number, number, string]> = {
   "560070": [12.9181, 77.55766, "Padmanabhanagar"],
   "560076": [12.87735, 77.6028, "Hulimavu"],
   "560077": [13.075, 77.635, "Kothanur (Thanisandra)"],
+  "560093": [12.98555, 77.66807, "CV Raman Nagar"],
   "560078": [12.90969, 77.58661, "JP Nagar"],
+  "560083": [12.94304, 77.6029, "Bannerghatta"],
   "560087": [12.92098, 77.7361, "Gunjur"],
   "560091": [12.99123, 77.48701, "Herohalli"],
   "560099": [12.81602, 77.68922, "Bommasandra"],
   "560100": [12.88718, 77.61127, "Electronics City"],
   "560102": [12.91162, 77.63886, "HSR Layout"],
   "560103": [12.93205, 77.68429, "Bellandur"],
+  "561203": [13.2068, 77.55796, "Dodballapur"],
   "562107": [12.77512, 77.77092, "Attibele"],
+  "562110": [13.24835, 77.71344, "Devanahalli"],
+  "562125": [12.86009, 77.78614, "Sarjapura"],
 };
 
 /** Raw lead dump: one entry per lead. */
@@ -73,11 +78,13 @@ const LEAD_PINS = [
   "560064","560078","560002","560076","560036","560102","560068","560099","560067",
   "560023","560076","560076","560078","560100","560064","560102","560064","560037",
   "560013","562107","560066","560046","560076",
+  "560066","560008","560048","560043","562110","560035","560045","560036","560099","560045",
+  "562125","560083","561203","560066","560066","560077","560100","560093",
 ];
 
-// Centered south of the city so the Attibele outlier (562107) stays in view.
-const CENTER: LType.LatLngTuple = [12.945, 77.665];
-const ZOOM = 11;
+// Zoomed out to fit outliers: Attibele (12.78) south, Devanahalli (13.25) north.
+const CENTER: LType.LatLngTuple = [13.01, 77.67];
+const ZOOM = 10;
 
 /** Blue → cyan → green → amber → red, matched to the legend gradient. */
 function intensityColor(t: number): string {
