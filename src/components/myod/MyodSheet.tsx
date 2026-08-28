@@ -20,6 +20,7 @@ import {
 } from "react";
 
 import { LoginGateSheet } from "@/components/auth/LoginGateSheet";
+import { ExistingOrderChoiceSheet } from "@/components/order/ExistingOrderChoiceSheet";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import {
   ArrowLeft,
@@ -34,6 +35,7 @@ import {
 } from "@/components/ui/icons";
 import { getGarmentTree, listGarments } from "@/lib/api/catalog";
 import { ApiError } from "@/lib/api/client";
+import { addGarmentToOrder, listOpenOrders } from "@/lib/api/orders";
 import {
   collectStepImageUrls,
   prefetchImages,
@@ -71,7 +73,7 @@ import {
 import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
-import type { GarmentTreeOut } from "@/types/api";
+import type { GarmentTreeOut, OpenOrder } from "@/types/api";
 
 type Phase = "loading-tree" | "ready" | "error";
 
@@ -163,6 +165,14 @@ export function MyodSheet({
   // Complete Order CTA: creation in flight / failure reason.
   const [ordering, setOrdering] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
+  // Order Now CTA failure reason (the extras bar's own error line).
+  const [orderNowError, setOrderNowError] = useState<string | null>(null);
+  // Add-to-existing choice sheet — opened by the order CTAs when the
+  // confirm-time open-orders check finds merge targets.
+  const [choiceOpen, setChoiceOpen] = useState(false);
+  const [openOrders, setOpenOrders] = useState<OpenOrder[]>([]);
+  const [adding, setAdding] = useState(false);
+  const addingRef = useRef(false);
 
   // ── Login gate on Generate Blouse ──────────────────────────────────
   // Anonymous visitors verify their phone before the AI render fires.
@@ -420,6 +430,136 @@ export function MyodSheet({
     saveMyodDraft({ garmentId: tree.id, selections, renderViews });
   }, [tree, selections, renderViews]);
 
+  // ── Order creation helpers ─────────────────────────────────────────
+  // Both order CTAs ("Order Now" on the extras bar, "Complete Order" on
+  // the completion page) share one submit path and one confirm-time check:
+  // a logged-in user with open orders is first offered to ADD this design
+  // to one of them (one tailor visit for everything) instead of creating
+  // yet another order.
+
+  /** Fresh-create path: pending order → track → clear draft → order page. */
+  const submitMyodOrder = useCallback(async () => {
+    if (!tree) return;
+    const order = await createMyodOrder({
+      garmentId: tree.id,
+      selections,
+      assets: renderViews.map((v) => v.url),
+    });
+    track({ event: "myod_order_created", order_id: order.id });
+    clearMyodDraft();
+    router.push(`/app/orders/${order.id}`);
+  }, [tree, selections, renderViews, router]);
+
+  /** Confirm-time open-orders check: opens the choice sheet and returns
+      true when the user has merge targets. Fail-open by design — anonymous,
+      fetch error, or an empty list all return false → straight to a fresh
+      create, so this feature can never block ordering. */
+  const offerExistingOrders = useCallback(async (): Promise<boolean> => {
+    if (!authHydrated || !isLoggedIn) return false;
+    try {
+      const res = await listOpenOrders();
+      if (!res.items.length) return false;
+      setOpenOrders(res.items);
+      setChoiceOpen(true);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [authHydrated, isLoggedIn]);
+
+  /** Append this design to the chosen open order, then walk to it — a
+      booked visit on that order covers everything in it. The selections
+      serialize exactly like createMyodOrder's payload. */
+  const handleAddToOrder = useCallback(
+    async (orderId: string) => {
+      if (addingRef.current || !tree) return;
+      addingRef.current = true;
+      setAdding(true);
+      setOrderError(null);
+      setOrderNowError(null);
+      const serialized: Record<
+        string,
+        {
+          variation_id: string;
+          variation_type_id?: string;
+          placement?: string;
+          picks?: {
+            variation_id: string;
+            variation_type_id?: string;
+            placement?: string;
+          }[];
+        }
+      > = {};
+      for (const [key, sel] of Object.entries(selections)) {
+        serialized[key] = {
+          variation_id: sel.variationId,
+          ...(sel.variationTypeId
+            ? { variation_type_id: sel.variationTypeId }
+            : {}),
+          ...(sel.placement ? { placement: sel.placement } : {}),
+          ...(sel.picks?.length
+            ? {
+                picks: sel.picks.map((p) => ({
+                  variation_id: p.variationId,
+                  ...(p.variationTypeId
+                    ? { variation_type_id: p.variationTypeId }
+                    : {}),
+                  ...(p.placement ? { placement: p.placement } : {}),
+                })),
+              }
+            : {}),
+        };
+      }
+      try {
+        const res = await addGarmentToOrder(orderId, {
+          source: "myod",
+          garment_id: tree.id,
+          selections: serialized,
+          assets: renderViews.map((v) => v.url),
+        });
+        track({ event: "myod_order_appended", order_id: res.order_id });
+        clearMyodDraft();
+        router.push(`/app/orders/${res.order_id}`);
+      } catch (err) {
+        // Close the choice sheet and surface the failure on whichever
+        // order-CTA surface is on screen (completion page or extras bar).
+        setChoiceOpen(false);
+        const msg =
+          err instanceof Error && err.message
+            ? err.message
+            : strings.existingOrders.addError;
+        setOrderError(msg);
+        setOrderNowError(msg);
+      } finally {
+        addingRef.current = false;
+        setAdding(false);
+      }
+    },
+    [tree, selections, renderViews, router],
+  );
+
+  /** The choice sheet's "Create new order" — deliberately skips the
+      open-orders check (the user just declined the merge) so it can never
+      re-open the sheet (infinite loop). */
+  const handleCreateNewOrder = useCallback(async () => {
+    if (!tree) return;
+    setChoiceOpen(false);
+    setOrdering(true);
+    setOrderError(null);
+    setOrderNowError(null);
+    try {
+      await submitMyodOrder();
+    } catch (err) {
+      const msg =
+        err instanceof ApiError && err.message
+          ? err.message
+          : "We couldn't create your order. Please try again.";
+      setOrderError(msg);
+      setOrderNowError(msg);
+      setOrdering(false);
+    }
+  }, [tree, submitMyodOrder]);
+
   // ── Complete Order CTA — turn this run into a pending order ────────
   // Sends the wizard selections + rendered photos; the backend stores the
   // renders as the garment order's inspiration images (same field the admin
@@ -430,15 +570,12 @@ export function MyodSheet({
     setOrdering(true);
     setOrderError(null);
     track({ event: "myod_order_cta", cta: "complete_order" });
+    if (await offerExistingOrders()) {
+      setOrdering(false);
+      return;
+    }
     try {
-      const order = await createMyodOrder({
-        garmentId: tree.id,
-        selections,
-        assets: renderViews.map((v) => v.url),
-      });
-      track({ event: "myod_order_created", order_id: order.id });
-      clearMyodDraft();
-      router.push(`/app/orders/${order.id}`);
+      await submitMyodOrder();
     } catch (err) {
       setOrderError(
         err instanceof ApiError && err.message
@@ -447,7 +584,14 @@ export function MyodSheet({
       );
       setOrdering(false);
     }
-  }, [ordering, tree, renderCtx, renderViews, selections, router]);
+  }, [
+    ordering,
+    tree,
+    renderCtx,
+    renderViews,
+    offerExistingOrders,
+    submitMyodOrder,
+  ]);
 
   // ── Final "Generate Blouse" CTA (extras step) ────────────────────────
   const onExtrasStep = !!steps[activeStepIdx]?.isExtras;
@@ -500,7 +644,6 @@ export function MyodSheet({
   // Same order call as the completion page's Complete Order, but reachable
   // without rendering first: whatever AI previews exist attach as inspiration
   // images, and none is fine.
-  const [orderNowError, setOrderNowError] = useState<string | null>(null);
   const handleOrderNow = useCallback(async () => {
     if (ordering || !tree) return;
     setOrderNowError(null);
@@ -511,15 +654,12 @@ export function MyodSheet({
     }
     setOrdering(true);
     track({ event: "myod_order_cta", cta: "order_now" });
+    if (await offerExistingOrders()) {
+      setOrdering(false);
+      return;
+    }
     try {
-      const order = await createMyodOrder({
-        garmentId: tree.id,
-        selections,
-        assets: renderViews.map((v) => v.url),
-      });
-      track({ event: "myod_order_created", order_id: order.id });
-      clearMyodDraft();
-      router.push(`/app/orders/${order.id}`);
+      await submitMyodOrder();
     } catch (err) {
       setOrderNowError(
         err instanceof ApiError && err.message
@@ -531,9 +671,8 @@ export function MyodSheet({
   }, [
     ordering,
     tree,
-    renderViews,
-    selections,
-    router,
+    offerExistingOrders,
+    submitMyodOrder,
     authHydrated,
     isLoggedIn,
     profileIncomplete,
@@ -816,6 +955,18 @@ export function MyodSheet({
           // pendingAfterLogin was tagged by whichever CTA opened the gate.
           setShowLoginGate(false);
         }}
+      />
+
+      {/* Add-to-existing choice — opened by either order CTA when the user
+          has open orders; picking one appends this design to it (inheriting
+          its booked visit), "Create new order" runs the fresh create. */}
+      <ExistingOrderChoiceSheet
+        open={choiceOpen}
+        onClose={() => setChoiceOpen(false)}
+        orders={openOrders}
+        busy={adding}
+        onAdd={(id) => void handleAddToOrder(id)}
+        onCreateNew={() => void handleCreateNewOrder()}
       />
     </div>
   );
