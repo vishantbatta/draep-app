@@ -337,9 +337,11 @@ const AI_ENTITY_KINDS: Record<EditKind, AiEntityType> = {
 // ─── Slug auto-generation ────────────────────────────────────────────────────
 // Child entities (variation, variation-type, add-on variation) follow the
 // {parent_slug}__{key} convention (border__lace, front_neck__round, …) that
-// generate_catalog_images.py relies on to link generated images back to rows.
-// Top-level entities (garment, component, add-on) slugify their label
-// ("Blouse" → "blouse"). Random suffix only when there is no label to use.
+// generate_catalog_images.py relies on to link generated images back to rows —
+// kept exact, no suffix. Top-level entities (garment, component, add-on)
+// slugify their label plus a short random suffix: duplicate titles ("Elastic"
+// twice) must not collide on the auto slug, which the server 409s. Random
+// suffix only when there is no label to use.
 
 function slugifyLabel(text: string): string {
   return text
@@ -355,7 +357,7 @@ function autoSlug(kind: EditKind, parentSlug: string | null, label: string): str
   const key = slugifyLabel(label);
   const isChild = kind === "variation" || kind === "variationType" || kind === "addonVariation";
   if (isChild && parentSlug && key) return `${parentSlug}__${key}`;
-  if (key) return key;
+  if (key) return `${key}_${crypto.randomUUID().replace(/-/g, "").slice(-5)}`;
   const prefix = kind === "addonVariation" ? "addonvar" : kind;
   return `${prefix}_${crypto.randomUUID().split("-")[0]}`;
 }
