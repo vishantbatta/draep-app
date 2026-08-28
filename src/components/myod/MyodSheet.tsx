@@ -677,12 +677,12 @@ export function MyodSheet({
       {showFinalCta && (
         <div
           className={
-            "fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-chalk-white/95 backdrop-blur-sm " +
+            "fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-column border-t border-hairline bg-chalk-white/95 backdrop-blur-sm " +
             (footerInset ? "pb-0" : "pb-[env(safe-area-inset-bottom)]")
           }
           style={footerInset ? { bottom: footerInset } : undefined}
         >
-          <div className="mx-auto w-full max-w-column px-4">
+          <div className="w-full px-4">
             {orderNowError && (
               <p
                 role="alert"
@@ -739,7 +739,7 @@ export function MyodSheet({
       {showPriceBar && (
         <div
           className={
-            "fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-chalk-white/95 backdrop-blur-sm " +
+            "fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-column border-t border-hairline bg-chalk-white/95 backdrop-blur-sm " +
             (footerInset ? "pb-0" : "pb-[env(safe-area-inset-bottom)]")
           }
           style={footerInset ? { bottom: footerInset } : undefined}
@@ -747,7 +747,7 @@ export function MyodSheet({
           <button
             type="button"
             onClick={() => setPriceSheetOpen(true)}
-            className="mx-auto flex w-full max-w-column items-center justify-between gap-3 px-4 py-2.5 text-left"
+            className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left"
           >
             <span className="flex min-w-0 flex-col gap-0.5">
               <span className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted">
@@ -990,7 +990,7 @@ function CompletionPage({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-warm-sand">
+    <div className="fixed inset-x-0 inset-y-0 z-40 mx-auto w-full max-w-column flex flex-col bg-warm-sand">
       {/* Slim navy header, same shape as the /myod page header */}
       <header className="relative flex flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white">
         <div
@@ -1037,7 +1037,7 @@ function CompletionPage({
           never jumps: it flexes to fill the space between the header and
           the bottom bar, tap opens it fullscreen. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <div className="mx-auto flex min-h-0 w-full max-w-column flex-1 flex-col gap-3 px-4 pb-6 pt-4">
+        <div className="flex min-h-0 w-full flex-1 flex-col gap-3 px-4 pb-6 pt-4">
           <p className="text-center text-caption leading-snug text-muted">
             Every choice you made, in one render showing your blouse from the
             front, back and side.
@@ -1118,7 +1118,7 @@ function CompletionPage({
           /app order page for booking; Regenerate opens the refinement sheet
           (comment + previous sheet fed back to the model). */}
       <div className="flex-none border-t border-hairline bg-chalk-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm">
-        <div className="mx-auto flex w-full max-w-column flex-col gap-2 px-4 py-3">
+        <div className="flex w-full flex-col gap-2 px-4 py-3">
           {orderError && (
             <p className="rounded-card border border-error-border bg-error-bg px-3 py-2 text-caption text-error-text">
               {orderError}

@@ -102,5 +102,8 @@
   --radius-pill: 9999px;
 
   /* Container */
+  /* THE app max-width — the only place a column cap is configured.
+     tailwind's max-w-column + the .column utility read this; fixed bars,
+     sheets and page shells all cap through it. */
   --column-max: 432px;
 }

@@ -115,7 +115,9 @@ const config: Config = {
         "logo-float": "logoFloat 3.5s ease-in-out infinite",
       },
       maxWidth: {
-        column: "480px",
+        // THE single app max-width — always var(--column-max) (tokens.css).
+        // Never hardcode a px here; bars, sheets and shells all read this.
+        column: "var(--column-max)",
       },
     },
   },

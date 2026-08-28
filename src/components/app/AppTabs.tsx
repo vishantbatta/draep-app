@@ -44,7 +44,6 @@ import {
   ChevronRight,
   Scissors,
   ShieldCheck,
-  Sparkle,
   Sparkles,
   Thread,
   User,
@@ -259,10 +258,10 @@ function CreateTab() {
           sits above the component name + its catalogue description, so the
           top nav IS the "choose your …" section (no separate body card).
           The banner is full-bleed; its rows re-align to the 480px column. */}
-      <header className="relative flex flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white">
+      <header className="relative mx-auto flex w-full max-w-column flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white">
         <div
           className={
-            "relative z-10 mx-auto flex w-full max-w-column flex-col gap-3 px-4 " +
+            "relative z-10 flex w-full flex-col gap-3 px-4 " +
             (headerStep?.description ? "py-6" : "py-3")
           }
         >
@@ -884,7 +883,13 @@ function ProfileTab() {
           </section>
 
           <p className="mt-8 flex items-center justify-center gap-1.5 text-center text-caption text-muted">
-            <Sparkle size={14} />
+            {/* The Draep alpha mark instead of a generic sparkle. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo_alpha_icon.png"
+              alt=""
+              className="h-[14px] w-[14px] object-contain"
+            />
             Welcome to the Stitch Club
           </p>
         </>

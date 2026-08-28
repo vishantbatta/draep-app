@@ -101,7 +101,7 @@ export function EditMetricSheet({
       />
 
       {/* Sheet */}
-      <div className="relative z-10 max-h-[85vh] w-full max-w-[480px] overflow-y-auto rounded-t-[1.5rem] border border-hairline bg-chalk-white shadow-2xl animate-slide-up">
+      <div className="relative z-10 max-h-[85vh] w-full max-w-column overflow-y-auto rounded-t-[1.5rem] border border-hairline bg-chalk-white shadow-2xl animate-slide-up">
         {/* Drag handle */}
         <div className="flex justify-center pt-2">
           <span className="h-1 w-10 rounded-full bg-hairline-strong" />

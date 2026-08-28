@@ -75,7 +75,7 @@ export function StyleCaptainShell({
     <div className="min-h-dvh bg-warm-sand">
       {/* ─── Sticky mweb header ─────────────────────────────────────────── */}
       <header className="sticky top-0 z-30 border-b border-hairline bg-ink-navy text-chalk-white">
-        <div className="mx-auto flex max-w-[480px] items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-column items-center justify-between px-4 py-3">
           <button
             onClick={() => router.push("/style_captain_dashboard")}
             className="tap flex items-center gap-2"
@@ -120,7 +120,7 @@ export function StyleCaptainShell({
       </header>
 
       {/* ─── Main content (mweb column) ─────────────────────────────────── */}
-      <main className="mx-auto max-w-[480px] px-4 pb-24 pt-4">{children}</main>
+      <main className="mx-auto max-w-column px-4 pb-24 pt-4">{children}</main>
     </div>
   );
 }

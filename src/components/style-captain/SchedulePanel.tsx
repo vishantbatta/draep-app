@@ -152,7 +152,7 @@ export function SchedulePanel({ onClose }: { onClose: () => void }) {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="mx-auto max-w-[480px] space-y-4">
+        <div className="w-full space-y-4">
           {/* Error */}
           {error && (
             <div className="rounded-card border border-error-border bg-error-bg px-4 py-3 text-caption text-error-text">

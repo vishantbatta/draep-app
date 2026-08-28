@@ -1770,7 +1770,7 @@ function GarmentMetricsReview({
 
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
       <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
-        <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
+        <div className="mx-auto flex max-w-column items-center justify-between gap-3">
           <button
             onClick={onBack}
             disabled={checking}
@@ -1973,7 +1973,7 @@ function JobStartScreen({
 
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
       <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
-        <div className="mx-auto max-w-[480px]">
+        <div className="mx-auto max-w-column">
           <button
             onClick={onStart}
             className="tap w-full rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary"
@@ -2173,7 +2173,7 @@ function GarmentStartScreen({
 
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
       <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
-        <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
+        <div className="mx-auto flex max-w-column items-center justify-between gap-3">
           <button
             onClick={onBack}
             className="tap flex-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy"
@@ -2449,7 +2449,7 @@ function OverallReviewScreen({
 
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
       <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
-        <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
+        <div className="mx-auto flex max-w-column items-center justify-between gap-3">
           <button
             onClick={onBack}
             disabled={validating}
@@ -2659,7 +2659,7 @@ function CheckpointScreen({
 
       {/* ─── Nav ───────────────────────────────────────────────────────── */}
       <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
-        <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
+        <div className="mx-auto flex max-w-column items-center justify-between gap-3">
           <button
             onClick={onBack}
             disabled={saving}
@@ -3289,7 +3289,7 @@ function FinalNotesPhase({
       )}
 
       <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
-        <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
+        <div className="mx-auto flex max-w-column items-center justify-between gap-3">
           <button
             onClick={onBack}
             disabled={saving}
@@ -3808,7 +3808,7 @@ function GarmentMaterialsPhase({
 
       <div className="sticky bottom-0 -mx-4 border-t border-hairline bg-chalk-white/95 px-4 py-3 pb-safe backdrop-blur">
         {hasCloth ? (
-          <div className="mx-auto flex max-w-[480px] items-center justify-between gap-3">
+          <div className="mx-auto flex max-w-column items-center justify-between gap-3">
             <button
               onClick={onBack}
               className="tap flex-1 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy"
@@ -3823,7 +3823,7 @@ function GarmentMaterialsPhase({
             </button>
           </div>
         ) : (
-          <div className="mx-auto max-w-[480px] space-y-2">
+          <div className="mx-auto max-w-column space-y-2">
             <p className="text-center text-caption text-muted">
               Add at least one cloth piece for this garment to continue.
             </p>
