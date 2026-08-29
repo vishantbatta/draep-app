@@ -405,6 +405,15 @@ export function GarmentSelectionSheet({
   const [saving, setSaving] = useState(false);
   const [savedCount, setSavedCount] = useState<number | null>(null);
 
+  // Whether the user has touched any selection since the sheet (re)seeded.
+  // A fresh garment order seeds catalog defaults (default variation per
+  // component + is_default_on add-ons), which all count as pending writes
+  // against its empty saved set — but they are not changes the user made,
+  // so the CTA must not claim "Save N changes" until they interact (and on
+  // a garment order with no saved rows, never — that save applies initial
+  // selections rather than changing saved state).
+  const [touched, setTouched] = useState(false);
+
   // Manual selections vs AI reference (only when aiPanel is provided).
   const [tab, setTab] = useState<"selections" | "reference">("selections");
   // A sessionId bump means the parent reseeded (an AI iteration applied) —
@@ -424,6 +433,7 @@ export function GarmentSelectionSheet({
     setLoading(true);
     setError(null);
     setSavedCount(null);
+    setTouched(false);
     // Every open lands on the manual tab (the AI tab is one tap away).
     setTab("selections");
     const seedRows = toSeedRows(initialItems, garmentOrderId);
@@ -682,6 +692,7 @@ export function GarmentSelectionSheet({
   // ── Handlers ───────────────────────────────────────────────────────────
 
   function selectVariation(componentId: string, variationId: string) {
+    setTouched(true);
     setComponentSelections((prev) => {
       const next = { ...prev };
       const comp = tree?.components.find((c) => c.id === componentId);
@@ -703,6 +714,7 @@ export function GarmentSelectionSheet({
     variationId: string,
     variationTypeId: string,
   ) {
+    setTouched(true);
     setComponentSelections((prev) => ({
       ...prev,
       [componentId]: {
@@ -729,6 +741,7 @@ export function GarmentSelectionSheet({
   }
 
   function toggleAddon(addonId: string, enabled: boolean) {
+    setTouched(true);
     setAddonSelections((prev) => {
       const sel = prev[addonId];
       if (!sel) return prev;
@@ -746,6 +759,7 @@ export function GarmentSelectionSheet({
 
   /** Enable/disable a placement slot (no-op for placement-less add-ons). */
   function togglePlacement(addonId: string, placement: string, on: boolean) {
+    setTouched(true);
     setAddonSelections((prev) => {
       const sel = prev[addonId];
       if (!sel) return prev;
@@ -771,6 +785,7 @@ export function GarmentSelectionSheet({
     placement: string | null,
     variationId: string | null,
   ) {
+    setTouched(true);
     setAddonSelections((prev) => {
       const sel = prev[addonId];
       if (!sel) return prev;
@@ -1218,6 +1233,13 @@ export function GarmentSelectionSheet({
                     "Choose an option"
                   ) : changeCount === 0 ? (
                     "No changes"
+                  ) : !touched || existingItems.length === 0 ? (
+                    // Either the sheet is pristine (a fresh garment order
+                    // seeds catalog defaults that count as pending writes —
+                    // not edits the user made), or the garment order has no
+                    // saved rows yet, so the save is the initial application
+                    // of selections rather than a "change" to saved state.
+                    "Save selections"
                   ) : (
                     `Save ${changeCount} change${changeCount === 1 ? "" : "s"}`
                   )}
