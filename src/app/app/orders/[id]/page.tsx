@@ -69,6 +69,7 @@ import {
   Thread,
 } from "@/components/ui/icons";
 import { ApiError, addressesApi, checkoutApi, ordersApi } from "@/lib/api";
+import { Loader } from "@/components/ui/Loader";
 import { useAuthBootstrapped } from "@/lib/auth-store";
 import type { GarmentOrderItemRow } from "@/lib/admin-api";
 import { loadCashfree } from "@/lib/cashfree";
@@ -426,6 +427,10 @@ function OrderDetailContent() {
   const [addOpen, setAddOpen] = useState(false);
   const [pickingId, setPickingId] = useState<string | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
+  // True while a just-attached address is waiting for the (slow) order
+  // detail refetch — the deliver-to card shows a skeleton instead of
+  // silently keeping the stale "no address" view for seconds.
+  const [addressRefreshing, setAddressRefreshing] = useState(false);
 
   /* ── Garment note editor — the customer's message for the style captain.
      MYOD orders start empty (the design lives in the selection items), so
@@ -784,11 +789,13 @@ function OrderDetailContent() {
     try {
       await ordersApi.attachOrderAddress(id, addrId);
       setPickerOpen(false);
+      setAddressRefreshing(true);
       await refreshDetail();
     } catch (err) {
       setPickError(err instanceof Error ? err.message : strings.orderDetail.attachError);
     } finally {
       setPickingId(null);
+      setAddressRefreshing(false);
     }
   };
 
@@ -1109,7 +1116,7 @@ function OrderDetailContent() {
             advance is paid the slot is only a draft hold: no check, no
             "confirmed" language, just the time and the address. With no slot
             yet it degrades to the address alone. */}
-        {attached && !bookingConfirmed && (
+        {(attached || addressRefreshing) && !bookingConfirmed && (
           <div className="rounded-card border border-hairline bg-chalk-white p-4">
             <div className="flex items-start gap-3">
               <span
@@ -1119,24 +1126,37 @@ function OrderDetailContent() {
                 <MapPin size={16} />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-body font-medium text-ink-navy">
-                  {deliverTo?.line1}
-                </p>
-                {(deliverTo?.line2 || deliverTo?.cityLine) && (
-                  <p className="text-caption text-muted">
-                    {[deliverTo?.line2, deliverTo?.cityLine].filter(Boolean).join(", ")}
-                  </p>
-                )}
-                {currentBooking && (
-                  <div className="mt-3 flex items-center gap-2 border-t border-hairline pt-3">
-                    <Clock size={14} className="flex-none text-muted" />
-                    <p className="text-caption font-medium text-ink-navy">
-                      {visitDateTimeLabel(currentBooking.scheduled_at)}
-                    </p>
-                  </div>
+                {/* stale content stays visible (dimmed) so the card doesn't jump */}
+                <div className={addressRefreshing ? "pointer-events-none opacity-40" : ""}>
+                  {attached && (
+                    <>
+                      <p className="text-body font-medium text-ink-navy">
+                        {deliverTo?.line1}
+                      </p>
+                      {(deliverTo?.line2 || deliverTo?.cityLine) && (
+                        <p className="text-caption text-muted">
+                          {[deliverTo?.line2, deliverTo?.cityLine].filter(Boolean).join(", ")}
+                        </p>
+                      )}
+                      {currentBooking && (
+                        <div className="mt-3 flex items-center gap-2 border-t border-hairline pt-3">
+                          <Clock size={14} className="flex-none text-muted" />
+                          <p className="text-caption font-medium text-ink-navy">
+                            {visitDateTimeLabel(currentBooking.scheduled_at)}
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+                {addressRefreshing && (
+                  <Loader
+                    label={strings.orderDetail.updatingAddress}
+                    className={attached ? "mt-2" : ""}
+                  />
                 )}
               </div>
-              {!bookingLocked && (
+              {!bookingLocked && !addressRefreshing && (
                 <button
                   type="button"
                   onClick={() => setPickerOpen(true)}
@@ -1189,7 +1209,13 @@ function OrderDetailContent() {
 
         {/* CTA ladder — one control per state, priority order. */}
         {barState === "address" && (
-          <Button fullWidth className="mt-3" onClick={handleSelectAddress}>
+          <Button
+            fullWidth
+            className="mt-3"
+            onClick={handleSelectAddress}
+            loading={addressRefreshing}
+            disabled={addressRefreshing}
+          >
             {strings.orderDetail.selectAddressCta}
           </Button>
         )}

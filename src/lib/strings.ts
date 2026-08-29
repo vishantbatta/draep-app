@@ -378,6 +378,9 @@ export const strings = {
     viewInvoice: "View invoice",
     continueDraft: "Continue designing",
     changeAddress: "Change",
+    // Shown on the deliver-to card while the order detail refetches after
+    // an address pick (attach succeeds fast; the detail is the slow part).
+    updatingAddress: "Updating your address…",
     addNewAddress: "Add new address",
     selecting: "Saving…",
     continueCta: "Continue",
