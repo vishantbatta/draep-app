@@ -34,6 +34,14 @@ import { useAuthStore } from "@/lib/auth-store";
 import { strings } from "@/lib/strings";
 import type { LibraryDetailOut, OpenOrder } from "@/types/api";
 
+/**
+ * Ceiling (ms) on how long "Add to this order" waits for the tweak calls
+ * before redirecting anyway. The append is the step that counts — a flaky
+ * dev-proxy hop mid-tweak-chain must not strand the user on a spinner when
+ * the backend already added the garment.
+ */
+const TWEAK_APPLY_BUDGET_MS = 6_000;
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -327,9 +335,10 @@ export function LibraryOrderPreviewSheet({
     [libraryId, authHydrated, isLoggedIn, createNewOrder],
   );
 
-  /** Append the reviewed design to the chosen open order, then walk there.
-      The user's in-sheet tweaks ride along — applyTweaks targets the new
-      garment_order_id with the same customer selection endpoints. */
+  /** Append the reviewed design to the chosen open order, then walk there
+      no matter how the tweak calls fare — the append is the step that
+      counts. applyTweaks targets the new garment_order_id with the same
+      customer selection endpoints the order page's editor uses. */
   const handleAddToOrder = useCallback(
     async (targetOrderId: string) => {
       if (!libraryId || addingRef.current) return;
@@ -348,7 +357,23 @@ export function LibraryOrderPreviewSheet({
         } catch {
           // caller extras (try-on photo attach) are best-effort
         }
-        await applyTweaks(res.order_id, res.garment_order_id, desired);
+        // The garment is already in the order — the redirect happens from
+        // here regardless. Tweaks ride along best-effort behind a bounded
+        // wait; anything unapplied is re-editable on the order page.
+        try {
+          await Promise.race([
+            applyTweaks(res.order_id, res.garment_order_id, desired),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error("tweak apply exceeded budget")),
+                TWEAK_APPLY_BUDGET_MS,
+              ),
+            ),
+          ]);
+        } catch {
+          // partial/no tweaks — still land the user on the order page
+        }
+        setChoiceOpen(false);
         router.push(`/app/orders/${res.order_id}`);
       } catch (err) {
         setChoiceOpen(false);
