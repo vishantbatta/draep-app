@@ -5,6 +5,7 @@
 
 import { apiGet, apiPost } from "./client";
 import type {
+  AppendDesiredItem,
   DraftFromLibraryOut,
   LibraryDetailOut,
   LibraryFacetsOut,
@@ -65,6 +66,15 @@ export function draftFromLibrary(libraryId: string): Promise<DraftFromLibraryOut
 // order_number) straight away; the customer books the visit afterwards at
 // /app/orders/{order_id}. NOT idempotent — repeat purchases of the same
 // design are legitimate separate orders (the CTA single-flights client-side).
-export function orderFromLibrary(libraryId: string): Promise<DraftFromLibraryOut> {
-  return apiPost<DraftFromLibraryOut>(`/library/${libraryId}/order`);
+//
+// `items` is the review sheet's desired selection set, applied in-request —
+// omitted/empty seeds the design's defaults unchanged.
+export function orderFromLibrary(
+  libraryId: string,
+  items?: AppendDesiredItem[],
+): Promise<DraftFromLibraryOut> {
+  return apiPost<DraftFromLibraryOut>(
+    `/library/${libraryId}/order`,
+    items && items.length > 0 ? { items } : undefined,
+  );
 }

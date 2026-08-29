@@ -263,9 +263,25 @@ export interface OpenOrderListOut {
   items: OpenOrder[];
 }
 
+/**
+ * One row of the review sheet's final selection set, sent WITH a library
+ * append/order so the backend folds the seeded garment to exactly this set
+ * in-request — one round trip instead of N sequential selection calls.
+ * Structurally satisfied by the review sheet's DraftItem.
+ */
+export interface AppendDesiredItem {
+  type: "variation" | "add_on";
+  garment_style_component_id?: string | null;
+  variation_id?: string | null;
+  variation_type_id?: string | null;
+  addon_id?: string | null;
+  addon_variation_id?: string | null;
+  placement?: string[] | null;
+}
+
 /** Append-one-garment payloads — mirror of the two creation paths. */
 export type AddGarmentPayload =
-  | { source: "library"; library_id: string }
+  | { source: "library"; library_id: string; items?: AppendDesiredItem[] }
   | {
       source: "myod";
       garment_id?: string | null;

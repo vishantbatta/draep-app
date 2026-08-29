@@ -9,12 +9,11 @@
  * in draft mode: the customer can tweak any selection or add-on against the
  * live catalog, then the apply CTA (labelled "Order now") creates the order.
  *
- * Creation sequence on apply: POST /library/{id}/order seeds the order with
- * the design's defaults, then the desired-vs-seed diff is written through
- * the same customer selection endpoints the order page's editor uses
- * (updateSelection / upsertAddon / resetSelection / removeAddon), then the
- * customer is routed into visit booking. The order page's own editor stays
- * available for later changes.
+ * The final selection set rides WITH the create/append request — the backend
+ * seeds the design's defaults and reconciles to exactly this set in the same
+ * round trip — so the redirect fires after ONE call (no follow-up selection
+ * writes; each backend call costs ~600ms against the remote DB). The order
+ * page's own editor stays available for later changes.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,19 +27,28 @@ import {
 import { ExistingOrderChoiceSheet } from "@/components/order/ExistingOrderChoiceSheet";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { orderFromLibrary, getLibraryDetail } from "@/lib/api/library";
-import { ordersApi } from "@/lib/api";
 import { addGarmentToOrder, listOpenOrders } from "@/lib/api/orders";
 import { useAuthStore } from "@/lib/auth-store";
 import { strings } from "@/lib/strings";
-import type { LibraryDetailOut, OpenOrder } from "@/types/api";
+import type {
+  AppendDesiredItem,
+  LibraryDetailOut,
+  OpenOrder,
+} from "@/types/api";
 
-/**
- * Ceiling (ms) on how long "Add to this order" waits for the tweak calls
- * before redirecting anyway. The append is the step that counts — a flaky
- * dev-proxy hop mid-tweak-chain must not strand the user on a spinner when
- * the backend already added the garment.
- */
-const TWEAK_APPLY_BUDGET_MS = 6_000;
+/** The sheet's final selection set as the create/append payload — only the
+    fields the backend's in-request reconcile needs (price and label
+    snapshots stay FE-side; the backend re-prices from the catalog). */
+const toPayloadItems = (items: DraftItem[]): AppendDesiredItem[] =>
+  items.map((d) => ({
+    type: d.type,
+    garment_style_component_id: d.garment_style_component_id,
+    variation_id: d.variation_id,
+    variation_type_id: d.variation_type_id,
+    addon_id: d.addon_id,
+    addon_variation_id: d.addon_variation_id,
+    placement: d.placement,
+  }));
 
 interface Props {
   open: boolean;
@@ -157,113 +165,6 @@ export function LibraryOrderPreviewSheet({
     );
   }, [detail]);
 
-  /** Apply the customer's tweaks to the just-created order. */
-  const applyTweaks = useCallback(
-    async (
-      orderId: string,
-      garmentOrderId: string | null,
-      desired: DraftItem[],
-    ) => {
-      const goId = garmentOrderId ?? undefined;
-      const key = (
-        type: "variation" | "add_on",
-        componentId: string | null | undefined,
-        addonId: string | null | undefined,
-        placement: string[] | null | undefined,
-      ) =>
-        type === "variation"
-          ? `variation:${componentId}`
-          : `add_on:${addonId}:${placement?.[0] ?? ""}`;
-
-      const seedByKey = new Map(
-        seeds.map((s) => [
-          key(
-            s.type === "add_on" ? "add_on" : "variation",
-            s.garment_style_component_id,
-            s.addon_id,
-            Array.isArray(s.placement) ? s.placement : null,
-          ),
-          s,
-        ]),
-      );
-      const desiredKeys = new Set(
-        desired.map((d) =>
-          key(
-            d.type,
-            d.garment_style_component_id,
-            d.addon_id,
-            Array.isArray(d.placement) ? d.placement : null,
-          ),
-        ),
-      );
-
-      // Removed rows first (mirror of the editor's save diff).
-      for (const s of seeds) {
-        if (
-          desiredKeys.has(
-            key(
-              s.type === "add_on" ? "add_on" : "variation",
-              s.garment_style_component_id,
-              s.addon_id,
-              Array.isArray(s.placement) ? s.placement : null,
-            ),
-          )
-        ) {
-          continue;
-        }
-        if (s.type === "add_on") {
-          const placement = Array.isArray(s.placement) ? s.placement : null;
-          await ordersApi.removeAddon(
-            orderId,
-            s.addon_id ?? "",
-            placement?.[0] ?? null,
-            goId,
-          );
-        } else {
-          // The customer API has no component removal — DELETE resets the
-          // component to its catalog default (same semantics as the order
-          // page's editor).
-          await ordersApi.resetSelection(
-            orderId,
-            s.garment_style_component_id ?? "",
-            goId,
-          );
-        }
-      }
-
-      // Added / changed rows.
-      for (const d of desired) {
-        const s = seedByKey.get(
-          key(d.type, d.garment_style_component_id, d.addon_id, d.placement),
-        );
-        const changed =
-          !s ||
-          s.variation_id !== d.variation_id ||
-          s.variation_type_id !== d.variation_type_id ||
-          s.addon_variation_id !== d.addon_variation_id;
-        if (!changed) continue;
-        if (d.type === "add_on") {
-          await ordersApi.upsertAddon(
-            orderId,
-            d.addon_id ?? "",
-            d.addon_variation_id ?? null,
-            d.placement?.[0] ?? null,
-            goId,
-          );
-        } else {
-          await ordersApi.updateSelection(
-            orderId,
-            d.garment_style_component_id ?? "",
-            d.variation_id ?? "",
-            d.variation_type_id ?? null,
-            goId,
-          );
-        }
-      }
-    },
-    [seeds],
-  );
-
   /** Create a fresh PENDING order from the design — no open-orders check.
       The choice sheet's "Create new order" calls this directly, so it can
       never re-open the choice sheet (infinite loop). */
@@ -275,22 +176,14 @@ export function LibraryOrderPreviewSheet({
       setCreating(true);
       setCreateError(null);
       try {
-        const out = await orderFromLibrary(libraryId);
-        // Garment-order scoping for the selection writes (single garment
-        // order, but pass the id when we can). Non-fatal on failure.
-        let garmentOrderId: string | null = null;
+        // Desired selections ride with the create — one request; the backend
+        // seeds the design's defaults and reconciles in-transaction.
+        const out = await orderFromLibrary(libraryId, toPayloadItems(desired));
         try {
-          const od = await ordersApi.getOrderDetail(out.order_id);
-          garmentOrderId = od.garment_orders[0]?.id ?? null;
-        } catch {
-          // writes fall back to the unscoped endpoints
-        }
-        try {
-          onCreated?.(out.order_id, garmentOrderId);
+          onCreated?.(out.order_id, null);
         } catch {
           // caller extras (track, photo attach) are best-effort
         }
-        await applyTweaks(out.order_id, garmentOrderId, desired);
         router.push(`/app/orders/${out.order_id}`);
         // No creatingRef reset on success — the route change unmounts this
         // sheet; until then the apply CTA stays pinned on "Saving order…".
@@ -302,7 +195,7 @@ export function LibraryOrderPreviewSheet({
         setCreating(false);
       }
     },
-    [libraryId, onCreated, applyTweaks, router],
+    [libraryId, onCreated, router],
   );
 
   /** Confirm entry point: logged-in users with open orders get the choice
@@ -335,10 +228,10 @@ export function LibraryOrderPreviewSheet({
     [libraryId, authHydrated, isLoggedIn, createNewOrder],
   );
 
-  /** Append the reviewed design to the chosen open order, then walk there
-      no matter how the tweak calls fare — the append is the step that
-      counts. applyTweaks targets the new garment_order_id with the same
-      customer selection endpoints the order page's editor uses. */
+  /** Append the reviewed design to the chosen open order, then walk there —
+      one request: the desired selections ride with the append and the
+      backend reconciles in-transaction, so the redirect follows the append
+      itself (the step that counts). */
   const handleAddToOrder = useCallback(
     async (targetOrderId: string) => {
       if (!libraryId || addingRef.current) return;
@@ -351,27 +244,12 @@ export function LibraryOrderPreviewSheet({
         const res = await addGarmentToOrder(targetOrderId, {
           source: "library",
           library_id: libraryId,
+          items: toPayloadItems(desired),
         });
         try {
           onCreated?.(res.order_id, res.garment_order_id);
         } catch {
           // caller extras (try-on photo attach) are best-effort
-        }
-        // The garment is already in the order — the redirect happens from
-        // here regardless. Tweaks ride along best-effort behind a bounded
-        // wait; anything unapplied is re-editable on the order page.
-        try {
-          await Promise.race([
-            applyTweaks(res.order_id, res.garment_order_id, desired),
-            new Promise<never>((_, reject) =>
-              setTimeout(
-                () => reject(new Error("tweak apply exceeded budget")),
-                TWEAK_APPLY_BUDGET_MS,
-              ),
-            ),
-          ]);
-        } catch {
-          // partial/no tweaks — still land the user on the order page
         }
         setChoiceOpen(false);
         router.push(`/app/orders/${res.order_id}`);
@@ -386,7 +264,7 @@ export function LibraryOrderPreviewSheet({
         setAdding(false);
       }
     },
-    [libraryId, onCreated, applyTweaks, router],
+    [libraryId, onCreated, router],
   );
 
   const handleCreateNew = useCallback(() => {
