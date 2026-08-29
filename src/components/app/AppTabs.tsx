@@ -774,7 +774,7 @@ function ProfileTab() {
             ) : orders.length === 0 ? (
               <div className="mt-3 rounded-card border border-hairline bg-chalk-white p-6 text-center shadow-card">
                 <p className="text-body text-ink/85">{strings.dashboard.empty}</p>
-                <Button className="mt-4" onClick={() => router.push("/style")}>
+                <Button className="mt-4" onClick={() => router.push("/app/create")}>
                   {strings.dashboard.startDesign}
                 </Button>
               </div>
