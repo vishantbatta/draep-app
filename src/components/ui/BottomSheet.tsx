@@ -4,7 +4,8 @@
  * BottomSheet — slides up from the bottom of the viewport.
  * Used by the PriceBar breakdown (spec §5.3).
  *
- * Closes on backdrop tap and Escape. Locks body scroll while open.
+ * Closes on backdrop tap, Escape, or the floating close button above the
+ * sheet's top-right corner. Locks body scroll while open.
  * Respects prefers-reduced-motion — Framer Motion handles this for us.
  */
 
@@ -12,6 +13,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, type ReactNode } from "react";
 
 import { clsx } from "clsx";
+
+import { Close } from "@/components/ui/icons";
 
 interface BottomSheetProps {
   open: boolean;
@@ -73,13 +76,22 @@ export function BottomSheet({
             exit={{ y: "100%" }}
             transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div className="flex items-center justify-between px-4 pt-3 pb-2">
-              <div
-                className="mx-auto h-1 w-10 rounded-pill bg-tape-silver"
-                aria-hidden
-              />
-            </div>
-            <div className="px-4 pb-2">
+            {/* Floating close — outside the sheet, above its top-right
+                corner. Paints above the backdrop (sheet follows it in DOM
+                order) and rides the slide-up animation. */}
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={onClose}
+              className={clsx(
+                "absolute -top-12 right-4 flex h-9 w-9 items-center justify-center rounded-full",
+                "border border-hairline bg-chalk-white text-ink-navy shadow-card",
+                "transition-all ease-brand active:scale-95 active:bg-mist-navy",
+              )}
+            >
+              <Close size={18} />
+            </button>
+            <div className="px-4 pt-4 pb-2">
               <h2 className="font-heading text-h2 text-ink-navy">{title}</h2>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-1">
