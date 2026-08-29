@@ -507,9 +507,7 @@ export const strings = {
     // Chat / refine
     chatPlaceholder: "Describe a change…",
     chatSend: "Apply",
-    chatMic: "Speak",
     chatRefining: "Refining…",
-    chatListening: "Listening…",
     chatError: "Couldn't apply that. Try again.",
     suggestionsLabel: "Quick tweaks",
     // Errors

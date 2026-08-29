@@ -15,8 +15,7 @@
  * The result stage is a vertical "conversation": each generated image appears
  * as a card in a scrollable feed. The initial try-on is the first card; every
  * refinement appends a new card below. Users can scroll through the history
- * of iterations. Suggestion tags and a chat input (text + mic) sit at the
- * bottom, pinned.
+ * of iterations. Suggestion tags and a chat input sit at the bottom, pinned.
  */
 
 import { AnimatePresence, motion } from "framer-motion";
@@ -731,10 +730,6 @@ function ResultStage({
   // Fullscreen viewer
   const [fullscreenUrl, setFullscreenUrl] = useState<string | null>(null);
 
-  // Speech recognition
-  const [listening, setListening] = useState(false);
-  const recognitionRef = useRef<unknown>(null);
-
   // Auto-scroll to bottom when feed grows
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -860,65 +855,6 @@ function ResultStage({
     [chatInput, handleRefine],
   );
 
-  // ── Speech recognition (mic) ────────────────────────────────────────
-
-  const handleMicToggle = useCallback(() => {
-    if (listening) {
-      (recognitionRef.current as { stop: () => void } | null)?.stop();
-      return;
-    }
-
-    const SR =
-      (typeof window !== "undefined" &&
-        ((window as unknown as Record<string, unknown>).SpeechRecognition ||
-          (window as unknown as Record<string, unknown>).webkitSpeechRecognition)) ||
-      null;
-
-    if (!SR) {
-      showToast("Voice input isn't supported on this browser.");
-      return;
-    }
-
-    const recognition = new (SR as new () => {
-      lang: string;
-      interimResults: boolean;
-      maxAlternatives: number;
-      onresult: (event: { results: { 0?: { 0?: { transcript?: string } } } }) => void;
-      onerror: () => void;
-      onend: () => void;
-      start: () => void;
-      stop: () => void;
-    })();
-
-    recognition.lang = "en-IN";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? "";
-      if (transcript) {
-        setChatInput(transcript);
-      }
-    };
-    recognition.onerror = () => {
-      setListening(false);
-    };
-    recognition.onend = () => {
-      setListening(false);
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-    setListening(true);
-  }, [listening, showToast]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      (recognitionRef.current as { stop: () => void } | null)?.stop();
-    };
-  }, []);
-
   return (
     <>
       <motion.div
@@ -995,21 +931,6 @@ function ResultStage({
         {/* ─── Chat input (pinned at bottom) ───────────────────────────── */}
         <form onSubmit={handleSubmitChat} className="relative shrink-0">
           <div className="flex items-center gap-1.5 rounded-card border border-hairline-strong bg-chalk-white p-1.5">
-            {/* Mic button */}
-            <button
-              type="button"
-              onClick={handleMicToggle}
-              aria-label={strings.tryOn.chatMic}
-              className={
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors " +
-                (listening
-                  ? "bg-error-bg text-error-text"
-                  : "text-muted hover:bg-mist-navy")
-              }
-            >
-              <MicGlyph active={listening} />
-            </button>
-
             {/* Text input */}
             <input
               type="text"
@@ -1018,9 +939,7 @@ function ResultStage({
                 setChatInput(e.target.value);
                 setRefineError(false);
               }}
-              placeholder={
-                listening ? strings.tryOn.chatListening : strings.tryOn.chatPlaceholder
-              }
+              placeholder={strings.tryOn.chatPlaceholder}
               disabled={refining}
               className="min-w-0 flex-1 border-none bg-transparent text-body text-ink-navy placeholder:text-muted focus:outline-none disabled:opacity-50"
             />
@@ -1295,34 +1214,6 @@ function ExpandGlyph() {
   return (
     <svg width={10} height={10} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M1 4V1h3M11 4V1H8M1 8v3h3M11 8v3H8" />
-    </svg>
-  );
-}
-
-function MicGlyph({ active }: { active: boolean }) {
-  return (
-    <svg
-      width={18}
-      height={18}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      {active ? (
-        <>
-          <rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor" />
-          <path d="M5 11a7 7 0 0 0 14 0M12 18v4" />
-        </>
-      ) : (
-        <>
-          <rect x="9" y="2" width="6" height="12" rx="3" />
-          <path d="M5 11a7 7 0 0 0 14 0M12 18v4" />
-        </>
-      )}
     </svg>
   );
 }
