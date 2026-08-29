@@ -16,7 +16,7 @@
  *  - onSaved         called with a summary string after a successful save
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import {
@@ -81,7 +81,10 @@ export function MeasurementsSheet({
   const [drafts, setDrafts] = useState<Map<string, DraftRow>>(new Map());
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Auto-dismiss timer armed after a successful save.
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Add-metric picker per scope: "base" or the garment_order_id.
   const [addPick, setAddPick] = useState<Record<string, string>>({});
 
@@ -113,7 +116,15 @@ export function MeasurementsSheet({
       setDrafts(new Map());
       setAddPick({});
       setError(null);
+      setSaved(false);
+      if (closeTimer.current) {
+        clearTimeout(closeTimer.current);
+        closeTimer.current = null;
+      }
     }
+    return () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    };
   }, [open, jobId, load]);
 
   const garments = useMemo(
@@ -252,9 +263,13 @@ export function MeasurementsSheet({
         .join(", ");
       onSaved?.(summary ? `Measurements saved (${summary})` : "No changes");
 
-      const fresh = await fetchAdminJobChecklist(jobId);
-      setChecklist(fresh);
-      setDrafts(seedDrafts(fresh));
+      // Success state on the button, then dismiss the sheet. Reopening
+      // reloads the checklist fresh, so no refetch is needed here.
+      setSaved(true);
+      closeTimer.current = setTimeout(() => {
+        closeTimer.current = null;
+        onClose();
+      }, 1200);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save measurements");
     } finally {
@@ -448,13 +463,26 @@ export function MeasurementsSheet({
           </div>
           <button
             onClick={() => void save()}
-            disabled={saving || loading}
+            disabled={saving || saved || loading}
             className="tap w-full rounded-pill bg-tape px-4 py-3 text-body font-semibold text-chalk-white shadow-primary transition hover:bg-tape/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-chalk-white border-t-transparent" />
                 Saving…
+              </span>
+            ) : saved ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M2.5 8.5 6 12l7.5-8"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                Saved!
               </span>
             ) : (
               "Save measurements"
