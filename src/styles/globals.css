@@ -264,6 +264,64 @@
     }
   }
 
+  /* ─── MYOD step rail (Create tab header) ───────────────────────────────
+     One slim segment per design step. A fill sweeps in with the tape
+     gradient as each step completes (and sweeps back out via Back); the
+     current segment glows ember and runs a sheen so it reads "in progress";
+     pending ones stay a faint chalk track. Same sheen pattern as .od-block. */
+  .myod-rail {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+  }
+  .myod-rail-seg {
+    position: relative;
+    flex: 1 1 0;
+    height: 4px;
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.18);
+    transition: box-shadow 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .myod-rail-seg[data-state="current"] {
+    box-shadow: 0 0 12px rgba(208, 96, 16, 0.45);
+  }
+  .myod-rail-fill {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-image: var(--tape-gradient);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .myod-rail-seg[data-state="done"] .myod-rail-fill,
+  .myod-rail-seg[data-state="current"] .myod-rail-fill {
+    transform: scaleX(1);
+  }
+  .myod-rail-seg[data-state="current"] .myod-rail-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      100deg,
+      transparent 25%,
+      rgba(255, 255, 255, 0.65) 50%,
+      transparent 75%
+    );
+    animation: myod-rail-sheen 1.6s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+  }
+  @keyframes myod-rail-sheen {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+
   /* Reduced motion: disable all landing-page animations. */
   @media (prefers-reduced-motion: reduce) {
     .lp-reveal {

@@ -245,7 +245,7 @@ function CreateTab() {
   }, []);
 
   // Active step reported by the configurator — the header mirrors it
-  // ("STEP n / m" eyebrow + step title) instead of static branding. Null
+  // (segmented step rail + step title) instead of static branding. Null
   // (tree loading / after completion) falls back to the MYOD title.
   const [headerStep, setHeaderStep] = useState<HostedStep | null>(null);
   const handleStepChange = useCallback((step: HostedStep | null) => {
@@ -259,10 +259,23 @@ function CreateTab() {
           top nav IS the "choose your …" section (no separate body card).
           The banner is full-bleed; its rows re-align to the 480px column. */}
       <header className="relative mx-auto flex w-full max-w-column flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white">
+        {/* The step rail IS the counter — done steps carry the tape gradient,
+            the current one glows while in progress, the rest stay faint. No
+            visible "Step n / m" text. Sits flush with the very top edge,
+            full-bleed across the whole column (outside the px-4 rows). */}
+        {headerStep && (
+          <div className="relative z-10 w-full pb-3">
+            <StepRail index={headerStep.index} total={headerStep.total} />
+          </div>
+        )}
         <div
           className={
             "relative z-10 flex w-full flex-col gap-3 px-4 " +
-            (headerStep?.description ? "py-6" : "py-3")
+            (headerStep
+              ? headerStep.description
+                ? "pb-6"
+                : "pb-3"
+              : "py-3")
           }
         >
           <div className="flex items-center justify-between gap-3">
@@ -284,9 +297,11 @@ function CreateTab() {
                 <Scissors size={18} />
               </span>
             )}
-            <span className="font-mono text-caption font-medium uppercase tracking-[0.18em] text-chalk-white/80">
-              {headerStep ? `Step ${headerStep.index + 1} / ${headerStep.total}` : "MYOD"}
-            </span>
+            {!headerStep && (
+              <span className="font-mono text-caption font-medium uppercase tracking-[0.18em] text-chalk-white/80">
+                MYOD
+              </span>
+            )}
           </div>
           {/* Component photo left, name + description right — the banner
               mirrors the catalogue card for the step's component. */}
@@ -321,6 +336,38 @@ function CreateTab() {
           onStepChange={handleStepChange}
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Segmented step rail for the Create header — one slim segment per design
+ * step. Completed steps fill with the tape gradient; the current one glows
+ * ember and sweeps a sheen ("in progress"); pending ones stay a faint chalk
+ * track. Replaces the old "Step n / m" eyebrow — the rail IS the counter,
+ * with an aria valuetext kept for screen readers. Styling lives in
+ * globals.css (.myod-rail-*).
+ */
+function StepRail({ index, total }: { index: number; total: number }) {
+  return (
+    <div
+      role="progressbar"
+      aria-valuemin={1}
+      aria-valuemax={total}
+      aria-valuenow={index + 1}
+      aria-valuetext={`Step ${index + 1} of ${total}`}
+      className="myod-rail"
+    >
+      {Array.from({ length: total }, (_, i) => (
+        <span
+          key={i}
+          aria-hidden
+          data-state={i < index ? "done" : i === index ? "current" : "todo"}
+          className="myod-rail-seg"
+        >
+          <span className="myod-rail-fill" />
+        </span>
+      ))}
     </div>
   );
 }
