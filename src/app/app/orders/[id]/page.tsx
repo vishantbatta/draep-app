@@ -1267,16 +1267,22 @@ function OrderDetailContent() {
           {savedAddresses.map((addr) => {
             const selected = addr.id === attachedAddressId;
             const picking = pickingId === addr.id;
+            // Outside the fence: shown but not pickable — the verdict is
+            // visible up front instead of after a failed attach.
+            const unserviceable = addr.serviceable === false;
             return (
               <button
                 key={addr.id}
                 type="button"
-                disabled={pickingId !== null}
+                disabled={pickingId !== null || unserviceable}
+                aria-disabled={pickingId !== null || unserviceable}
                 onClick={() => void handlePick(addr.id)}
                 className={`mt-3 flex w-full items-start gap-3 rounded-card border-[1.5px] p-4 text-left transition ${
-                  selected
-                    ? "border-navy-interactive bg-mist-navy/50"
-                    : "border-hairline bg-chalk-white active:bg-mist-navy/30"
+                  unserviceable
+                    ? "cursor-not-allowed border-hairline bg-mist-navy/20 opacity-55"
+                    : selected
+                      ? "border-navy-interactive bg-mist-navy/50"
+                      : "border-hairline bg-chalk-white active:bg-mist-navy/30"
                 }`}
               >
                 <span
@@ -1299,6 +1305,11 @@ function OrderDetailContent() {
                   <p className="mt-0.5 text-caption text-muted">
                     {[addr.city, addr.state, addr.pincode].filter(Boolean).join(", ")}
                   </p>
+                  {unserviceable && (
+                    <p className="mt-1 text-caption font-medium text-accent-text">
+                      {strings.serviceability.notServiceableYet}
+                    </p>
+                  )}
                 </div>
                 {picking && (
                   <span className="flex-none text-caption text-muted">

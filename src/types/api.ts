@@ -69,6 +69,9 @@ export interface Address {
   pincode: string | null;
   coordinates: AddressCoordinates | null;
   created_at?: string | null;
+  /** Layer-1 fence verdict, computed fresh by the BE. null = no map pin on
+   *  the address, so serviceability is unknown (FE shows nothing). */
+  serviceable?: boolean | null;
 }
 
 // ─── Catalog (be/app/schemas/catalog.py) ──────────────────────────────────────

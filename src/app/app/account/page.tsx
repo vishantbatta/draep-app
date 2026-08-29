@@ -389,6 +389,11 @@ export default function AccountPage() {
                         </>
                       ) : null}
                     </p>
+                    {addr.serviceable === false && (
+                      <p className="mt-1 text-caption font-medium text-accent-text">
+                        {strings.serviceability.notServiceableYet}
+                      </p>
+                    )}
                   </div>
                   {removingId !== addr.id && (
                     <button

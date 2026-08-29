@@ -17,11 +17,12 @@
  * round-trip bugs.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
 import { MonoNumber } from "@/components/ui/MonoNumber";
-import { bookingApi, ApiError } from "@/lib/api";
+import { bookingApi, serviceAreaApi, ApiError } from "@/lib/api";
+import { strings } from "@/lib/strings";
 import type { DaySlots, SlotOption, Booking } from "@/types/booking";
 
 interface SlotPickerProps {
@@ -37,14 +38,23 @@ export function SlotPicker({ orderId, onBooked }: SlotPickerProps) {
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
   const [selectedSlot, setSelectedSlot] = useState<SlotOption | undefined>();
   const [booking, setBooking] = useState(false);
+  // Capture demand once per empty state ("…we will notify you when they
+  // open up") — one fire-and-forget POST per empty slots response.
+  const notifySentRef = useRef(false);
 
   // Fetch available slots on mount
   const loadSlots = useCallback(async () => {
     setLoading(true);
     setError(null);
+    notifySentRef.current = false;
     try {
       const res = await bookingApi.getSlots(orderId);
       setDays(res.days);
+      if (res.days.length === 0 && !notifySentRef.current) {
+        notifySentRef.current = true;
+        // Pure demand capture — outcome is irrelevant to the UI.
+        void serviceAreaApi.notifyMe({ order_id: orderId }).catch(() => {});
+      }
       if (res.days.length > 0 && !selectedDate) {
         setSelectedDate(res.days[0].date);
       }
@@ -111,8 +121,7 @@ export function SlotPicker({ orderId, onBooked }: SlotPickerProps) {
   if (days.length === 0) {
     return (
       <p className="rounded-card border border-hairline bg-warm-sand px-4 py-6 text-center text-body text-muted">
-        No home-visit slots available in the next two weeks.
-        Please check back soon.
+        {strings.schedule.noSlotsAvailable}
       </p>
     );
   }

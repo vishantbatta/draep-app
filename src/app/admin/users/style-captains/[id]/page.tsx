@@ -31,6 +31,7 @@ import {
   type MeasurementJobRow,
 } from "@/lib/admin-api";
 import { CaptainScheduleManager } from "@/components/admin/CaptainScheduleManager";
+import { CoverageMapEditor, type Ring } from "@/components/admin/CoverageMapEditor";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -124,6 +125,11 @@ export default function StyleCaptainDetailPage() {
   // Assignment status lives on the 1:1 profile row (NULL row = active).
   const [status, setStatus] = useState<StaffStatus>("active");
   const [savingStatus, setSavingStatus] = useState(false);
+  // Serviceable areas live on the same profile row (JSONB ring list).
+  const [profileRowId, setProfileRowId] = useState<string | null>(null);
+  const [coverage, setCoverage] = useState<Ring[]>([]);
+  const [coverageOpen, setCoverageOpen] = useState(false);
+  const [savingCoverage, setSavingCoverage] = useState(false);
 
   // Local draft for profile fields — committed on Save click
   const [draftName, setDraftName] = useState("");
@@ -180,13 +186,27 @@ export default function StyleCaptainDetailPage() {
       setDraftEmail(capRows[0].email ?? "");
       setDraftCountryCode(capRows[0].country_code ?? "");
 
-      const { rows: profRows } = await fetchTableRows<{
+      let profRows: {
+        id: string;
         status: string | null;
-      }>("style_captain_profiles", {
-        filters: { user_id: captainId },
-        perPage: 1,
-      }).catch(() => ({ rows: [] as { status: string | null }[] }));
+        coverage: Ring[] | null;
+      }[] = [];
+      try {
+        const res = await fetchTableRows<{
+          id: string;
+          status: string | null;
+          coverage: Ring[] | null;
+        }>("style_captain_profiles", {
+          filters: { user_id: captainId },
+          perPage: 1,
+        });
+        profRows = res.rows;
+      } catch {
+        profRows = [];
+      }
       setStatus((profRows[0]?.status as StaffStatus) ?? "active");
+      setProfileRowId(profRows[0]?.id ?? null);
+      setCoverage(Array.isArray(profRows[0]?.coverage) ? profRows[0].coverage : []);
 
       const { rows: jobRows } = await fetchTableRows<MeasurementJobRow>(
         "measurement_jobs",
@@ -381,6 +401,74 @@ export default function StyleCaptainDetailPage() {
         saving={savingStatus}
         onChange={handleStatusChange}
       />
+
+      {/* Serviceable areas — where this captain can be booked */}
+      <section className="mb-6 rounded-xl border border-hairline bg-chalk-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-heading text-lg font-semibold text-ink-navy">
+              Serviceable Areas
+            </h2>
+            <p className="mt-0.5 text-xs text-muted">
+              Draw the shapes this captain operates in. They are only bookable
+              inside them — {coverage.length === 0
+                ? "no areas drawn yet, so currently not bookable anywhere."
+                : `${coverage.length} area${coverage.length > 1 ? "s" : ""} drawn.`}
+            </p>
+          </div>
+          <button
+            onClick={() => setCoverageOpen(true)}
+            disabled={!captain}
+            className="rounded-lg bg-ink-navy px-4 py-2 text-xs font-semibold text-chalk-white transition hover:bg-tape disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Manage serviceable areas
+          </button>
+        </div>
+        {coverage.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {coverage.map((ring, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-mist-navy/40 px-3 py-1 text-[11px] font-medium text-ink-navy"
+              >
+                Area {i + 1} · {ring.length} points
+              </span>
+            ))}
+          </div>
+        )}
+        {coverageOpen && captain && (
+          <CoverageMapEditor
+            coverage={coverage}
+            saving={savingCoverage}
+            captainName={captain.name ?? "Style Captain"}
+            onClose={() => setCoverageOpen(false)}
+            onSave={async (next) => {
+              setSavingCoverage(true);
+              try {
+                if (profileRowId) {
+                  await updateTableRow("style_captain_profiles", profileRowId, {
+                    coverage: next,
+                  });
+                } else {
+                  await createTableRow("style_captain_profiles", {
+                    user_id: captain.id,
+                    status: "active",
+                    coverage: next,
+                  });
+                  await loadAll();
+                }
+                setCoverage(next);
+                setCoverageOpen(false);
+                setFlash("Serviceable areas saved");
+              } catch (e) {
+                alert(e instanceof Error ? e.message : "Failed to save areas");
+              } finally {
+                setSavingCoverage(false);
+              }
+            }}
+          />
+        )}
+      </section>
 
       {/* Set Password */}
       <SetPasswordSection captainId={captain.id} onSaved={setFlash} />

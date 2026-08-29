@@ -3,7 +3,7 @@
  * Mirrors be/app/api/service_area.py
  */
 
-import { apiGet, apiPut } from "./client";
+import { apiGet, apiPost, apiPut } from "./client";
 import type {
   ContactUpdateIn,
   OrderOut,
@@ -29,4 +29,15 @@ export function updateOrderContact(
   body: ContactUpdateIn,
 ): Promise<OrderOut> {
   return apiPut<OrderOut>(`/orders/${orderId}/contact`, body);
+}
+
+/** POST /service-area/notify-me — capture demand from the "No slots
+ *  available, we will notify you" state. Fire-and-forget from the FE. */
+export function notifyMe(body: {
+  order_id?: string;
+  lat?: number;
+  lng?: number;
+  note?: string;
+}): Promise<{ id: string }> {
+  return apiPost<{ id: string }>("/service-area/notify-me", body);
 }

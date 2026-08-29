@@ -24,7 +24,7 @@ import { BottomSheet } from "@/components/ui/BottomSheet";
 import { Button } from "@/components/ui/Button";
 import { MonoNumber } from "@/components/ui/MonoNumber";
 import { Clock } from "@/components/ui/icons";
-import { ApiError, bookingApi } from "@/lib/api";
+import { ApiError, bookingApi, serviceAreaApi } from "@/lib/api";
 import { strings } from "@/lib/strings";
 import { visitDateTimeLabel } from "@/lib/order-display";
 import type { Booking, DaySlots, SlotOption } from "@/types/booking";
@@ -76,6 +76,9 @@ export function SlotSheet({
   const [selectedSlot, setSelectedSlot] = useState<SlotOption | null>(null);
   const [booking, setBooking] = useState(false);
   const [bookError, setBookError] = useState<string | null>(null);
+  // Whole-window empty (BE returned no days at all): no captain covers the
+  // order's address or nothing is open — capture demand for the notify list.
+  const [windowEmpty, setWindowEmpty] = useState(false);
 
   // The strip is generated client-side so all 7 days always render; the BE
   // only returns days that still have open slots.
@@ -99,6 +102,11 @@ export function SlotSheet({
       );
       setDays(res.days);
       setSelectedSlot(null);
+      setWindowEmpty(res.days.length === 0);
+      if (res.days.length === 0) {
+        // Fire-and-forget demand capture — one POST per empty fetch.
+        void serviceAreaApi.notifyMe({ order_id: orderId }).catch(() => {});
+      }
       // Default to the current booking's day when rescheduling, else the
       // first day that still has slots (today may be sold out).
       const preferred =
@@ -281,6 +289,10 @@ export function SlotSheet({
             {strings.orderDetail.slotRetry}
           </Button>
         </div>
+      ) : windowEmpty ? (
+        <p className="rounded-card border border-hairline bg-warm-sand/60 px-4 py-6 text-center text-body text-muted">
+          {strings.schedule.noSlotsAvailable}
+        </p>
       ) : slots.length === 0 ? (
         <p className="rounded-card border border-hairline bg-warm-sand/60 px-4 py-6 text-center text-body text-muted">
           {strings.orderDetail.slotNoneDay}

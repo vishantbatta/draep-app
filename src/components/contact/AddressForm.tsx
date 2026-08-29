@@ -69,6 +69,9 @@ export function AddressForm({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Layer-1 verdict from the save response: the address IS saved, but sits
+  // outside the serviceable area — shown here and/or by the host on the row.
+  const [savedOut, setSavedOut] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -96,6 +99,7 @@ export function AddressForm({
     });
     setSaving(false);
     setError(null);
+    setSavedOut(false);
     setLocating(false);
     userPicked.current = false;
 
@@ -182,6 +186,7 @@ export function AddressForm({
     if (!requiredFilled || saving) return;
     setSaving(true);
     setError(null);
+    setSavedOut(false);
     try {
       const created = await saveAddress(
         {
@@ -193,6 +198,9 @@ export function AddressForm({
         },
         pin,
       );
+      // Saving never blocks — surface the area verdict, then hand the saved
+      // row to the host (sheet closes / page navigates as it pleases).
+      if (created && created.serviceable === false) setSavedOut(true);
       onSaved(created);
     } catch (err) {
       setError(err instanceof Error ? err.message : strings.account.saveError);
@@ -352,6 +360,11 @@ export function AddressForm({
 
       {/* ── Sticky save bar — stays pinned at the bottom while the form scrolls */}
       <div className="sticky bottom-0 mt-4 border-t border-hairline bg-chalk-white pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-3">
+        {savedOut && (
+          <Banner variant="error" className="mb-3">
+            <p className="text-caption">{strings.serviceability.notServiceableYet}</p>
+          </Banner>
+        )}
         {error && (
           <Banner variant="error" className="mb-3">
             <p className="text-caption">{error}</p>

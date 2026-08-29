@@ -5,14 +5,17 @@
  *
  * Flow:
  *   1. User fills name, address, pincode, map pin
- *   2. Service area checked via GET /service-area/check (server-side polygon)
- *   3. On submit:
+ *   2. On submit:
  *      a. If not authenticated (anonymous session) → redirect to /otp?phone=XX
  *      b. If authenticated → PUT /orders/{orderId}/contact (saves to backend)
- *   4. On success → navigate to /pay
+ *   3. On success → navigate to /schedule
+ *
+ * Serviceability is enforced by the BE on the contact save (409 when the
+ * pin is outside the fence) — the error banner surfaces its message. There
+ * is deliberately NO client-side pre-gating: saving is the check.
  */
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -29,8 +32,6 @@ import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
 import { serviceAreaApi } from "@/lib/api";
 import { geocodePincode } from "@/lib/api/geocode";
-import { BANGALORE_PINCODE_PREFIXES } from "@/lib/service-area";
-import type { ServiceAreaCheckOut } from "@/types/api";
 
 const schema = z.object({
   phone: z.string().regex(/^[6-9]\d{9}$/, strings.contact.validation.phone),
@@ -54,9 +55,6 @@ export default function ContactPage() {
   const [pinTouched, setPinTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [serverAreaCheck, setServerAreaCheck] = useState<ServiceAreaCheckOut | null>(null);
-  const [areaChecking, setAreaChecking] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Pincode → map geocode. `flyToNonce` bumps each time we resolve a new
   // pincode so the map picker knows to fly there even if the lat/lng is the
@@ -90,32 +88,12 @@ export default function ContactPage() {
     }
   }, [existingContact?.lat, existingContact?.lng]);
 
-  // Debounced server-side service area check
-  const checkArea = useCallback((lat: number, lng: number) => {
-    setAreaChecking(true);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const result = await serviceAreaApi.checkServiceability(lat, lng);
-        setServerAreaCheck(result);
-      } catch {
-        setServerAreaCheck(null);
-      } finally {
-        setAreaChecking(false);
-      }
-    }, 500);
-  }, []);
-
   const handlePinChange = (lat: number, lng: number) => {
     setPin({ lat, lng });
     setPinTouched(true);
-    checkArea(lat, lng);
   };
 
   const pincodeValue = form.watch("pincode");
-  const pincodeInBangalore = BANGALORE_PINCODE_PREFIXES.some((p) =>
-    pincodeValue?.startsWith(p),
-  );
 
   // Pincode → map fly-to (debounced geocode via OSM Nominatim).
   // Fires when the user enters a complete 6-digit pincode. On success, hands
@@ -144,17 +122,9 @@ export default function ContactPage() {
     };
   }, [pincodeValue]);
 
-  const outOfArea =
-    (serverAreaCheck && !serverAreaCheck.serviceable) ||
-    (pincodeValue?.length === 6 && !pincodeInBangalore);
-
   const onSubmit = async (values: FormValues) => {
     setSubmitError(null);
 
-    if (outOfArea) {
-      track({ event: "serviceability_failed", areaResult: serverAreaCheck?.reason ?? "pincode" });
-      return;
-    }
     if (!pin) {
       setPinTouched(true);
       return;
@@ -324,21 +294,12 @@ export default function ContactPage() {
             {pinTouched && !pin && (
               <p className="mt-1 text-caption text-error-text">{strings.contact.validation.pin}</p>
             )}
-            {areaChecking && (
-              <p className="mt-1 text-caption text-muted">Checking service area…</p>
-            )}
           </Field>
-
-          {outOfArea && (
-            <Banner variant="error" title={strings.contact.outOfAreaTitle}>
-              <p>{strings.contact.outOfAreaBody}</p>
-            </Banner>
-          )}
 
           <Button
             type="submit"
             fullWidth
-            disabled={Boolean(outOfArea) || submitting || areaChecking}
+            disabled={submitting}
             loading={submitting}
           >
             {sessionType === "user"

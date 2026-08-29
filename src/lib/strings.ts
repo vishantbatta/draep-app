@@ -149,6 +149,14 @@ export const strings = {
     heldHeading: "Your visit time is held",
     heldCaption: "We'll match you with a style captain when you complete payment.",
     continueCta: "Continue to payment",
+    // No bookable slot for the order's address/window (captain coverage).
+    noSlotsAvailable: "No slots available, we will notify you when they open up.",
+  },
+
+  serviceability: {
+    // Saved address sits outside the current service area — shown after the
+    // save succeeds (saving is never blocked).
+    notServiceableYet: "Not serviceable here yet",
   },
 
   pay: {

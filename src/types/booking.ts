@@ -100,6 +100,9 @@ export interface DaySlots {
 /** GET /orders/{id}/slots response. */
 export interface SlotsResponse {
   days: DaySlots[];
+  /** Why the list is empty: no_captain_coverage (address pin not inside any
+   *  captain's coverage) or no_slots_in_window (covered, nothing open). */
+  reason?: string | null;
 }
 
 /** POST/PATCH /orders/{id}/booking response. */
