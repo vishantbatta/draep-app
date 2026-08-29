@@ -54,7 +54,7 @@ export default function StyleCaptainLoginPage() {
             inputMode="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="e.g. 9876543210"
+            placeholder="Enter phone number"
             required
             className="mb-4 w-full rounded-card border border-hairline-strong bg-chalk-white px-4 py-3 text-body text-ink outline-none focus:border-accent-text focus:ring-2 focus:ring-accent-text/30"
           />

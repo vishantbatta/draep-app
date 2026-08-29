@@ -601,7 +601,7 @@ function ProfileTab() {
                     autoComplete="tel"
                     value={phone}
                     onChange={(e) => setPhone(normalizePhoneInput(e.target.value))}
-                    placeholder="98765 43210"
+                    placeholder="Enter phone number"
                     className="min-h-[44px] w-full rounded-card border-[1.5px] border-hairline bg-chalk-white px-3 py-2.5 font-heading text-body text-ink-navy placeholder:text-muted focus:border-navy-interactive focus:outline-none"
                   />
                 </div>
