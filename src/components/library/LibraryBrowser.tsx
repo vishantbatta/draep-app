@@ -8,23 +8,19 @@
  * the height).
  *
  * Mirrors /style exactly minus:
- *   • No Upload / Build-from-scratch / Draft-this-design CTAs — the detail
- *     sheet footer carries its own instead: "Order now" (primary — creates a
- *     PENDING order and routes to /app/orders/{id}) with "Try it on" demoted
- *     to the secondary pill. Both are login-gated when logged out.
- *   • No prices on cards or in the detail sheet
- *   • No back button (relies on browser history)
+ *   • Card tap navigates to the full-page detail view
+ *     (/app/explore/[libraryId] — like the create flow) instead of opening
+ *     a sheet; order / try-on flows live on that page.
+ *   • No prices on cards
  *
- * Layout: collapsed header → infinite-scroll grid → detail sheet.
+ * Layout: collapsed header → infinite-scroll grid.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
-import { LoginGateSheet } from "@/components/auth/LoginGateSheet";
 import { Sparkle, Sparkles, Close, ChevronRight, Tune } from "@/components/ui/icons";
-import { BottomSheet } from "@/components/ui/BottomSheet";
-import { TryOnSheet } from "@/components/tryon/TryOnSheet";
 import {
   EMPTY_FILTERS,
   FilterSheet,
@@ -33,16 +29,13 @@ import {
   type LibraryFilters,
   type QuickFilterSection,
 } from "@/components/library/FilterSheet";
-import { LibraryOrderPreviewSheet } from "@/components/library/LibraryOrderPreviewSheet";
 import { libraryApi } from "@/lib/api";
-import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import { strings } from "@/lib/strings";
 import { track } from "@/lib/analytics";
+import { ListError } from "@/components/library/LibraryDetailParts";
 import type {
-  LibraryDetailOut,
   LibraryFacetsOut,
   LibraryListItemOut,
-  ResolvedItemOut,
 } from "@/types/api";
 
 /* ============================================================ */
@@ -55,17 +48,11 @@ const HEADER_COLLAPSED_PX = 36;
 const HEADER_EXPANDED_H = "30dvh";
 
 export function LibraryBrowser() {
+  const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   const loaderRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const headerContentRef = useRef<HTMLDivElement>(null);
-  const sessionType = useAuthStore((s) => s.sessionType);
-  const user = useAuthStore((s) => s.user);
-  const authHydrated = useAuthHydrated();
-  const isLoggedIn = sessionType === "user";
-  // Logged in but still owing name/gender — the gate collects these too.
-  const profileIncomplete = isLoggedIn && (!user?.name || !user?.gender);
-
   /* ── Library list state ─────────────────────────────────────────────── */
   const [items, setItems] = useState<LibraryListItemOut[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -81,28 +68,6 @@ export function LibraryBrowser() {
   // Upfront pills open a quick sheet scoped to ONE facet; All filters opens
   // the full sheet above.
   const [quickFilter, setQuickFilter] = useState<QuickFilterSection | null>(null);
-
-  /* ── Detail sheet state ─────────────────────────────────────────────── */
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailId, setDetailId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<LibraryDetailOut | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-
-  /* ── Try-on sheet state ─────────────────────────────────────────────── */
-  const [tryOnOpen, setTryOnOpen] = useState(false);
-  const [tryOnDesignUrl, setTryOnDesignUrl] = useState<string | null>(null);
-  const [tryOnDesignTitle, setTryOnDesignTitle] = useState<string | undefined>(
-    undefined,
-  );
-
-  /* ── Order + login-gate state ──────────────────────────────────────── */
-  const [orderPreviewOpen, setOrderPreviewOpen] = useState(false);
-  const [showLoginGate, setShowLoginGate] = useState(false);
-  // The CTA that hit the login gate — re-run by the effect below on verify.
-  const [actionAfterLogin, setActionAfterLogin] = useState<"order" | "tryon" | null>(
-    null,
-  );
 
   /* ── Scroll-linked header collapse ────────────────────────────────────
    * The header shrinks continuously with scroll (not a threshold snap):
@@ -218,125 +183,11 @@ export function LibraryBrowser() {
     return () => obs.disconnect();
   }, [fetchNextPage]);
 
-  /* ── Open detail sheet on card tap ─────────────────────────────────── */
+  /* ── Card tap → full-page detail (like the create flow) ───────────── */
   const openDetail = useCallback((id: string) => {
-    setDetailId(id);
-    setDetailOpen(true);
-    setDetail(null);
-    setDetailError(null);
-    setDetailLoading(true);
     track({ event: "library_card_tapped", library_id: id });
-  }, []);
-
-  /* ── Fetch detail whenever the sheet opens for a new id ────────────── */
-  useEffect(() => {
-    if (!detailOpen || !detailId) return;
-    let cancelled = false;
-    (async () => {
-      setDetailLoading(true);
-      setDetailError(null);
-      try {
-        const d = await libraryApi.getLibraryDetail(detailId);
-        if (!cancelled) setDetail(d);
-      } catch (err) {
-        if (!cancelled) {
-          setDetailError(
-            err instanceof Error ? err.message : strings.style.detailError,
-          );
-        }
-      } finally {
-        if (!cancelled) setDetailLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [detailOpen, detailId]);
-
-  const closeDetail = useCallback(() => {
-    setDetailOpen(false);
-    setTimeout(() => {
-      setDetailId(null);
-      setDetail(null);
-      setDetailError(null);
-    }, 250);
-  }, []);
-
-  /* ── Login gate: both footer CTAs need a user session ──────────────── */
-  // Mirrors MyodSheet's Generate gate: while hydrated and logged out — or
-  // logged in with the name/gender profile still incomplete — the CTA opens
-  // the login sheet instead (it lands on the profile form for the latter);
-  // the continuation effect below re-runs the blocked action once the store
-  // holds a complete user session.
-  const gate = useCallback(
-    (action: "order" | "tryon") => {
-      if (authHydrated && (!isLoggedIn || profileIncomplete)) {
-        setActionAfterLogin(action);
-        setShowLoginGate(true);
-        return true;
-      }
-      return false;
-    },
-    [authHydrated, isLoggedIn, profileIncomplete],
-  );
-
-  /* ── Open the try-on sheet using the current detail's hero image ──── */
-  // We close the detail sheet visually but KEEP `detailId` / `detail` so that
-  // when the user taps Done on the try-on result we can reopen the exact same
-  // design sheet without a refetch.
-  const openTryOn = useCallback(() => {
-    if (gate("tryon")) return;
-    if (!detail?.hero_image_url) return;
-    setTryOnDesignUrl(detail.hero_image_url);
-    setTryOnDesignTitle(detail.labels?.en ?? undefined);
-    setDetailOpen(false);
-    setTimeout(() => setTryOnOpen(true), 220);
-  }, [detail, gate]);
-
-  /* ── Order Now: review (and tweak) the design's selections, then
-     create — the CTA opens the "Review your selection" editor; its apply
-     creates the PENDING order (LibraryOrderPreviewSheet owns that flow). */
-  const startOrderPreview = useCallback(() => {
-    if (gate("order")) return;
-    setOrderPreviewOpen(true);
-  }, [gate]);
-
-  // Fires the moment the order exists — the analytics event only; creation,
-  // tweak application and routing live in the preview sheet.
-  const handleOrderCreated = useCallback(
-    (orderId: string) => {
-      if (!detail) return;
-      track({
-        event: "library_ordered",
-        library_id: detail.id,
-        order_id: orderId,
-      });
-    },
-    [detail],
-  );
-
-  // Gate continuation: the sheet's verify flips sessionType in the store;
-  // this effect re-runs the blocked CTA on the next render with a logged-in
-  // closure (fresh detail) instead of the stale one from before it opened.
-  // Dismissing the gate without verifying clears the pending action. The
-  // profileIncomplete guard holds the CTA back until the sheet's profile
-  // form saves — without it the effect would fire the instant the gate
-  // opens for an already-logged-in incomplete user.
-  useEffect(() => {
-    if (!actionAfterLogin || !isLoggedIn || profileIncomplete) return;
-    const action = actionAfterLogin;
-    setActionAfterLogin(null);
-    if (action === "order") startOrderPreview();
-    else openTryOn();
-  }, [actionAfterLogin, isLoggedIn, profileIncomplete, startOrderPreview, openTryOn]);
-
-  const closeTryOn = useCallback(() => {
-    setTryOnOpen(false);
-    setTimeout(() => {
-      setTryOnDesignUrl(null);
-      setTryOnDesignTitle(undefined);
-    }, 250);
-  }, []);
+    router.push(`/app/explore/${id}`);
+  }, [router]);
 
   /* ── Filters: open sheets / apply / remove-one ─────────────────────── */
   // A section opens that pill's quick sheet; null opens the full sheet.
@@ -481,52 +332,6 @@ export function LibraryBrowser() {
 
 
 
-      {/* ───── Detail BottomSheet — sticky "Try it on" footer ───── */}
-      <BottomSheet
-        open={detailOpen}
-        onClose={closeDetail}
-        title={detail?.labels?.en ?? strings.style.detailLoading}
-        footer={
-          detail?.hero_image_url ? (
-            <DetailFooter onTryOn={openTryOn} onOrder={startOrderPreview} />
-          ) : undefined
-        }
-      >
-        {detailLoading ? (
-          <DetailSkeleton />
-        ) : detailError ? (
-          <ListError
-            message={detailError}
-            onRetry={() => detailId && openDetail(detailId)}
-          />
-        ) : detail ? (
-          <DetailBody detail={detail} />
-        ) : null}
-      </BottomSheet>
-
-      {/* ───── Order preview — the "Review your selection" editor; apply
-             creates the PENDING order with the (possibly tweaked)
-             selections and routes into visit booking. ───── */}
-      <LibraryOrderPreviewSheet
-        open={orderPreviewOpen}
-        onClose={() => setOrderPreviewOpen(false)}
-        libraryId={detail?.id ?? null}
-        initialDetail={detail}
-        onCreated={handleOrderCreated}
-      />
-
-      {/* ───── Virtual Try-On sheet ───── */}
-      {tryOnDesignUrl && (
-        <TryOnSheet
-          open={tryOnOpen}
-          onClose={closeTryOn}
-          designImageUrl={tryOnDesignUrl}
-          designTitle={tryOnDesignTitle}
-          garmentId={detail?.garment_id ?? undefined}
-          libraryId={detail?.id ?? undefined}
-        />
-      )}
-
       {/* ───── All-filters bottom sheet (every section) ───── */}
       <FilterSheet
         open={filterSheetOpen}
@@ -546,21 +351,6 @@ export function LibraryBrowser() {
         onApply={applyFilters}
       />
 
-      {/* Login gate — both detail-sheet CTAs open this when logged out;
-          verify success re-runs the blocked CTA via the effect above. */}
-      <LoginGateSheet
-        open={showLoginGate}
-        onClose={() => {
-          setShowLoginGate(false);
-          setActionAfterLogin(null);
-        }}
-        onSuccess={() => setShowLoginGate(false)}
-        title={
-          actionAfterLogin === "order"
-            ? strings.libraryOrder.orderGateTitle
-            : strings.libraryOrder.tryOnGateTitle
-        }
-      />
     </div>
   );
 }
@@ -579,44 +369,6 @@ function RivetDot({ className = "" }: { className?: string }) {
       aria-hidden
       className={`inline-block rounded-full bg-draep-orange shadow-[0_0_0_3px_rgba(248,144,16,0.22)] ${className}`}
     />
-  );
-}
-
-/**
- * Sticky footer CTAs for the design detail sheet. "Order now" is the primary
- * (tape-gradient pill — the only gradient CTA per Brand Book §8) and opens
- * the "Review your selection" editor (creation happens there); "Try it on"
- * is the secondary outline pill. Both are login-gated by the caller
- * (LoginGateSheet) before firing.
- */
-function DetailFooter({
-  onTryOn,
-  onOrder,
-}: {
-  onTryOn: () => void;
-  onOrder: () => void;
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-2.5">
-      {/* Secondary — virtual try-on (outline pill) */}
-      <button
-        type="button"
-        onClick={onTryOn}
-        className="flex items-center justify-center gap-2 rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-semibold text-ink-navy transition-all ease-brand active:scale-[0.98] active:border-navy-interactive disabled:opacity-50"
-      >
-        <Sparkles size={16} className="text-draep-orange" />
-        {strings.tryOn.cta}
-      </button>
-      {/* Primary — order now (the tape gradient) */}
-      <button
-        type="button"
-        onClick={onOrder}
-        className="flex items-center justify-center gap-2 rounded-pill px-4 py-3 text-body font-semibold text-chalk-white shadow-primary transition-all ease-brand active:scale-[0.98] disabled:opacity-60"
-        style={{ backgroundImage: "var(--tape-gradient)" }}
-      >
-        {strings.libraryOrder.cta}
-      </button>
-    </div>
   );
 }
 
@@ -719,154 +471,6 @@ function LibraryCard({
 }
 
 /** Detail sheet body — hero, celebrity note, grouped design items, styling notes. NO prices. */
-function DetailBody({ detail }: { detail: LibraryDetailOut }) {
-  const groups = groupItems(detail.items);
-  const [zoomed, setZoomed] = useState(false);
-
-  return (
-    <div className="pb-4">
-      {/* Hero image — full-bleed inside the sheet, click to zoom */}
-      {detail.hero_image_url && (
-        <div className="relative -mx-4 mb-3 aspect-[16/9] overflow-hidden bg-mist-navy">
-          <button
-            type="button"
-            onClick={() => setZoomed(true)}
-            className="absolute inset-0 h-full w-full"
-            aria-label="Zoom image"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={detail.hero_image_url}
-              alt={detail.labels?.en ?? "Design"}
-              className="h-full w-full object-contain"
-            />
-          </button>
-          <span className="pointer-events-none absolute bottom-2 left-2 rounded-pill bg-ink-navy/55 px-2 py-0.5 text-[10px] font-medium text-chalk-white backdrop-blur-sm">
-            Tap to zoom
-          </span>
-          {detail.reference_url && (
-            <a
-              href={detail.reference_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="absolute bottom-2 right-2 rounded-pill bg-ink-navy/70 px-2.5 py-1 text-[11px] font-medium text-chalk-white backdrop-blur-sm"
-            >
-              Source
-            </a>
-          )}
-        </div>
-      )}
-
-      {/* Fullscreen zoom overlay */}
-      {zoomed && detail.hero_image_url && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-ink-navy/90 backdrop-blur-sm"
-          onClick={() => setZoomed(false)}
-        >
-          <button
-            type="button"
-            className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-chalk-white/20 text-chalk-white"
-            onClick={() => setZoomed(false)}
-            aria-label="Close"
-          >
-            ✕
-          </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={detail.hero_image_url}
-            alt={detail.labels?.en ?? "Design"}
-            className="max-h-[90vh] max-w-[95vw] object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
-
-      {/* Celebrity + famous-for */}
-      {detail.celebrity_name && (
-        <div className="mb-3 rounded-card border border-hairline bg-warm-sand/60 p-3">
-          <div className="flex items-center gap-1.5 text-eyebrow font-mono uppercase tracking-wider text-muted">
-            <Sparkle size={12} />
-            {strings.style.designBy}
-          </div>
-          <p className="mt-1 font-heading text-h3 font-semibold text-ink-navy">
-            {detail.celebrity_name}
-          </p>
-          {detail.famous_for?.en && (
-            <p className="mt-0.5 text-caption text-muted">
-              {strings.style.alsoKnownFor}: {detail.famous_for.en}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Occasions */}
-      {detail.occasions && detail.occasions.length > 0 && (
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          {detail.occasions.map((o) => (
-            <span
-              key={o}
-              className="rounded-pill bg-warm-sand px-2.5 py-1 text-caption text-ink"
-            >
-              {o}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Design items — grouped, NO prices */}
-      <h3 className="mb-2 font-heading text-h3 font-semibold text-ink-navy">
-        {strings.style.designIncludes}
-      </h3>
-      <div className="flex flex-col gap-2">
-        {groups.map((g) => (
-          <ItemGroup key={g.label} label={g.label} items={g.items} />
-        ))}
-      </div>
-
-      {/* Styling notes */}
-      {detail.styling_notes?.en && (
-        <div className="mt-4 rounded-card border border-hairline bg-chalk-white p-3">
-          <p className="text-eyebrow font-mono uppercase tracking-wider text-muted">
-            Styling notes
-          </p>
-          <p className="mt-1 text-body text-ink">
-            {detail.styling_notes.en}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** A single group of items inside the design detail. */
-function ItemGroup({
-  label,
-  items,
-}: {
-  label: string;
-  items: ResolvedItemOut[];
-}) {
-  return (
-    <div className="rounded-card border border-hairline bg-chalk-white p-3">
-      <p className="text-eyebrow font-mono uppercase tracking-wider text-muted">
-        {label}
-      </p>
-      <ul className="mt-1.5 flex flex-col gap-1.5">
-        {items.map((it) => (
-          <ItemRow key={it.item_id} item={it} />
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/** One line inside an item group — label only (no price). */
-function ItemRow({ item }: { item: ResolvedItemOut }) {
-  return (
-    <li className="text-body text-ink">{composeItemLabel(item)}</li>
-  );
-}
-
 /* ============================================================ */
 /*  MYOD banner                                                  */
 /* ============================================================ */
@@ -1137,45 +741,6 @@ function GridSkeleton() {
   );
 }
 
-function DetailSkeleton() {
-  return (
-    <div className="pb-4">
-      <div className="-mx-4 mb-3 aspect-[4/5] w-[calc(100%+2rem)] animate-pulse bg-mist-navy" />
-      <div className="mb-3 h-16 animate-pulse rounded-card bg-mist-navy" />
-      <div className="mb-3 h-5 w-1/2 animate-pulse rounded-pill bg-mist-navy" />
-      <div className="space-y-2">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-16 animate-pulse rounded-card bg-mist-navy"
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ListError({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
-      <p className="text-body text-ink">{message}</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="rounded-pill border border-hairline-strong bg-chalk-white px-4 py-2 text-caption font-medium text-ink-navy transition-all ease-brand active:scale-[0.97] active:border-navy-interactive"
-      >
-        Try again
-      </button>
-    </div>
-  );
-}
-
 function EmptyState({ text }: { text: string }) {
   return (
     <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
@@ -1188,32 +753,3 @@ function EmptyState({ text }: { text: string }) {
 /* ============================================================ */
 /*  Helpers                                                      */
 /* ============================================================ */
-
-function composeItemLabel(item: ResolvedItemOut): string {
-  const en = (s: { label: Record<string, string> | null } | null) =>
-    s?.label?.en ?? "";
-
-  if (item.type === "variation") {
-    const parts = [en(item.component), en(item.variation)].filter(Boolean);
-    const sub = en(item.variation_type);
-    if (sub) parts.push(sub);
-    return parts.join(" · ") || "—";
-  }
-
-  const parts = [en(item.add_on), en(item.add_on_variation)].filter(Boolean);
-  if (item.placement.length > 0) {
-    parts.push(item.placement.join(", "));
-  }
-  return parts.join(" · ") || "—";
-}
-
-function groupItems(
-  items: ResolvedItemOut[],
-): { label: string; items: ResolvedItemOut[] }[] {
-  const variations = items.filter((i) => i.type === "variation");
-  const addons = items.filter((i) => i.type === "add_on");
-  const groups: { label: string; items: ResolvedItemOut[] }[] = [];
-  if (variations.length) groups.push({ label: "Structure", items: variations });
-  if (addons.length) groups.push({ label: "Add-ons", items: addons });
-  return groups;
-}
