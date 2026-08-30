@@ -11,7 +11,7 @@ import {
   type SCSelection,
 } from "@/lib/style-captain-api";
 import { formatPrice } from "@/lib/pricing";
-import { BottomSheet } from "./BottomSheet";
+import { BottomSheet } from "@/components/ui/BottomSheet";
 import { briefLabel } from "./GarmentSummaryCard";
 
 /**
@@ -837,7 +837,7 @@ export function SelectionSheet({
   }
 
   return (
-    <BottomSheet title="Edit selections" onClose={delta ? onDone : onClose}>
+    <BottomSheet open={true} title="Edit selections" onClose={delta ? onDone : onClose}>
       <div className="space-y-4">
         {variationSels.map((sel) => {
           const p = pending[sel.item_id];

@@ -43,7 +43,7 @@ import {
 } from "@/components/style-captain/MetricCard";
 import { EditMetricSheet } from "@/components/style-captain/EditMetricSheet";
 import { ColorPickerCamera } from "@/components/style-captain/ColorPickerCamera";
-import { BottomSheet } from "@/components/style-captain/BottomSheet";
+import { BottomSheet } from "@/components/ui/BottomSheet";
 import { VoiceNoteRecorder } from "@/components/style-captain/VoiceNoteRecorder";
 import { GarmentSummaryCard } from "@/components/style-captain/GarmentSummaryCard";
 import { SelectionSheet } from "@/components/style-captain/SelectionSheet";
@@ -1077,7 +1077,7 @@ export default function MeasureJobPage() {
 
       {/* ─── Material edit bottom sheet (notes phase) ───────────────────── */}
       {editingMaterial && (
-        <BottomSheet
+        <BottomSheet open={true}
           title={`Edit · ${editingMaterial.name ?? "Material"}`}
           onClose={() => setEditingMaterial(null)}
         >
@@ -2018,7 +2018,7 @@ function AddGarmentSheet({
   }, []);
 
   return (
-    <BottomSheet title="Add garment" onClose={onClose}>
+    <BottomSheet open={true} title="Add garment" onClose={onClose}>
       <div className="space-y-2">
         {error && (
           <div className="rounded-card border border-error-border bg-error-bg px-4 py-3 text-caption text-error-text">
@@ -3966,7 +3966,7 @@ function GarmentOrderCard({
       )}
 
       {sheetOpen && (
-        <BottomSheet
+        <BottomSheet open={true}
           title={`Add material · ${label}`}
           onClose={() => setSheetOpen(false)}
         >
@@ -4030,7 +4030,7 @@ function MaterialRow({
       />
 
       {editing && (
-        <BottomSheet
+        <BottomSheet open={true}
           title={`Edit · ${material.name ?? garmentLabel}`}
           onClose={() => setEditing(false)}
         >

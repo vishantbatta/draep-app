@@ -67,7 +67,6 @@ import {
 } from "@/lib/job-pdf";
 import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
 import { GarmentSelectionSheet } from "@/components/admin/GarmentSelectionSheet";
-import { BottomSheet as ScSheet } from "@/components/style-captain/BottomSheet";
 import { GarmentOrderAssets } from "./GarmentOrderAssets";
 import { MeasurementsSheet } from "./MeasurementsSheet";
 import {
@@ -2647,7 +2646,7 @@ export default function OrderDetailPage() {
 
         {/* ── New Garment Order sheet (garment picker + note) ──────────── */}
         {showNewGOForm && (
-          <ScSheet title="New garment order" onClose={() => setShowNewGOForm(false)}>
+          <BottomSheet open={true} title="New garment order" onClose={() => setShowNewGOForm(false)}>
             <div className="space-y-4">
               <div className="space-y-2">
                 <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
@@ -2705,7 +2704,7 @@ export default function OrderDetailPage() {
                 {creatingGO ? "Creating…" : "Create garment order"}
               </button>
             </div>
-          </ScSheet>
+          </BottomSheet>
         )}
 
         {garmentOrders.length === 0 && !showNewGOForm ? (

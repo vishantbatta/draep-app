@@ -50,7 +50,7 @@ import {
   type CatalogAddonVariation,
   type GarmentOrderItemRow,
 } from "@/lib/admin-api";
-import { BottomSheet } from "@/components/style-captain/BottomSheet";
+import { BottomSheet } from "@/components/ui/BottomSheet";
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -895,8 +895,8 @@ export function GarmentSelectionSheet({
 
   return (
     <BottomSheet
+      open={true}
       title={title ?? (draftMode ? "Select style" : "Edit selections")}
-      titleClassName={titleClassName}
       onClose={onClose}
     >
       {loading ? (
@@ -911,7 +911,9 @@ export function GarmentSelectionSheet({
       ) : tree ? (
         <>
         <div className="space-y-4">
-          {/* Header: garment + live computed total */}
+          {/* Header: garment + live computed total — sticks below the sheet
+              header while the selections list scrolls */}
+          <div className="sticky -top-1 z-10 -mx-1 bg-chalk-white px-1 pb-2 pt-1">
           <div className="flex items-center justify-between gap-3 rounded-card border border-hairline bg-mist-navy/20 px-3 py-2">
             <div className="min-w-0">
               <p className="text-eyebrow uppercase tracking-wider text-accent-text">
@@ -929,6 +931,7 @@ export function GarmentSelectionSheet({
                 {formatPrice(computedTotal)}
               </p>
             </div>
+          </div>
           </div>
 
           {/* Tab bar — manual selections vs AI reference flow */}
