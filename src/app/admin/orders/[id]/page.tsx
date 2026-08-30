@@ -33,6 +33,7 @@ import {
   updateOrderAdjustment,
   deleteOrderAdjustment,
   fetchGarmentTree,
+  catalogLabel,
   formatOrderSlot,
   type OrderRow,
   type GarmentOrderRow,
@@ -214,6 +215,98 @@ interface BreakdownLine {
   kind: "base" | "item" | "discount" | "fee";
 }
 
+// ─── Catalog price index (fallback for rows with no stamped price) ───────────
+// Orders placed before price stamping landed (pre-fix MYOD rows) have
+// garment_orders_items.price = NULL. The backend prices those live from the
+// catalog; this index lets the client resolve the same additive prices
+// (variation + sub-type / addon base + variation) so breakdown lines match
+// go.total_price instead of silently dropping the row.
+
+interface CatalogPriceEntry {
+  /** Additive price contribution (rupees). */
+  price: number;
+  /** Catalog display label for the line, already composed ("A → B"). */
+  label: string | null;
+}
+
+interface CatalogPriceIndex {
+  variations: Map<string, CatalogPriceEntry>;
+  variationTypes: Map<string, CatalogPriceEntry>;
+  addons: Map<string, CatalogPriceEntry>;
+  addonVariations: Map<string, CatalogPriceEntry>;
+}
+
+function buildCatalogPriceIndex(trees: GarmentTree[]): CatalogPriceIndex {
+  const variations = new Map<string, CatalogPriceEntry>();
+  const variationTypes = new Map<string, CatalogPriceEntry>();
+  const addons = new Map<string, CatalogPriceEntry>();
+  const addonVariations = new Map<string, CatalogPriceEntry>();
+  for (const tree of trees) {
+    for (const comp of tree.components ?? []) {
+      const compLabel = catalogLabel(comp.labels, "");
+      for (const v of comp.variations ?? []) {
+        const parts = [compLabel, catalogLabel(v.labels, "")].filter(Boolean);
+        variations.set(v.id, {
+          price: v.price ?? 0,
+          label: parts.length > 0 ? parts.join(" → ") : null,
+        });
+        for (const vt of v.variation_types ?? []) {
+          variationTypes.set(vt.id, {
+            price: vt.price ?? 0,
+            label: catalogLabel(vt.labels, "") || null,
+          });
+        }
+      }
+    }
+    for (const ao of tree.addons ?? []) {
+      const aoLabel = catalogLabel(ao.labels, "");
+      addons.set(ao.id, { price: ao.price ?? 0, label: aoLabel || null });
+      for (const av of ao.variations ?? []) {
+        const parts = [aoLabel, catalogLabel(av.labels, "")].filter(Boolean);
+        addonVariations.set(av.id, {
+          price: av.price ?? 0,
+          label: parts.length > 0 ? parts.join(" · ") : null,
+        });
+      }
+    }
+  }
+  return { variations, variationTypes, addons, addonVariations };
+}
+
+/** Resolve an item's live-catalog price + label when its stamped price is
+ *  NULL. Returns null when the row can't be resolved (no index, catalog row
+ *  gone) — the caller then keeps hiding it, matching the backend. */
+function resolveLiveCatalogPrice(
+  it: GarmentOrderItemRow,
+  index: CatalogPriceIndex,
+): { amount: number; label: string | null } | null {
+  if (it.type === "variation") {
+    const v = it.variation_id
+      ? index.variations.get(it.variation_id)
+      : undefined;
+    const vt = it.variation_type_id
+      ? index.variationTypes.get(it.variation_type_id)
+      : undefined;
+    if (!v && !vt) return null;
+    const parts = [v?.label, vt?.label].filter(
+      (x): x is string => Boolean(x),
+    );
+    return { amount: (v?.price ?? 0) + (vt?.price ?? 0), label: parts.join(" → ") || null };
+  }
+  if (it.type === "add_on") {
+    const ao = it.addon_id ? index.addons.get(it.addon_id) : undefined;
+    const av = it.addon_variation_id
+      ? index.addonVariations.get(it.addon_variation_id)
+      : undefined;
+    if (!ao && !av) return null;
+    const parts = [ao?.label, av?.label].filter(
+      (x): x is string => Boolean(x),
+    );
+    return { amount: (ao?.price ?? 0) + (av?.price ?? 0), label: parts.join(" · ") || null };
+  }
+  return null;
+}
+
 /** Effective garment total, derived ADDITIVELY from the visible lines so the
  *  card's sub-lines always sum exactly to the displayed total:
  *    Σ (base + item lines) + Σ garment-scoped adjustments.
@@ -226,11 +319,14 @@ function effectiveGarmentTotal(
   items: GarmentOrderItemRow[] | undefined,
   basePrice: number | null,
   adjustments: OrderAdjustmentRow[],
+  priceIndex?: CatalogPriceIndex | null,
 ): number {
-  const lineSum = buildGarmentBreakdown(go, items, basePrice).reduce(
-    (s, ln) => s + ln.amount,
-    0,
-  );
+  const lineSum = buildGarmentBreakdown(
+    go,
+    items,
+    basePrice,
+    priceIndex,
+  ).reduce((s, ln) => s + ln.amount, 0);
   const adjSum = adjustments
     .filter((a) => a.garment_order_id === go.id)
     .reduce((s, a) => s + (a.amount ?? 0), 0);
@@ -245,6 +341,7 @@ function buildGarmentBreakdown(
   go: GarmentOrderRow,
   items: GarmentOrderItemRow[] | undefined,
   basePrice: number | null,
+  priceIndex?: CatalogPriceIndex | null,
 ): BreakdownLine[] {
   const lines: BreakdownLine[] = [];
 
@@ -259,13 +356,24 @@ function buildGarmentBreakdown(
   }
 
   // One line per priced item. Matches backend `if amount:` gate — items
-  // whose snapshot price is null/0 are hidden (unpriced or free selection).
+  // whose snapshot price is null/0 are hidden (unpriced or free selection),
+  // except that a NULL price is first resolved from the catalog index (same
+  // live fallback the backend uses for pre-stamping rows).
   for (const it of items ?? []) {
-    if (it.price == null || it.price === 0) continue;
+    let amount = it.price;
+    let fallbackLabel: string | null = null;
+    if (amount == null && priceIndex) {
+      const resolved = resolveLiveCatalogPrice(it, priceIndex);
+      if (resolved) {
+        amount = resolved.amount;
+        fallbackLabel = resolved.label;
+      }
+    }
+    if (amount == null || amount === 0) continue;
     lines.push({
       key: it.id,
-      label: itemDisplayLabel(it),
-      amount: it.price,
+      label: fallbackLabel ?? itemDisplayLabel(it),
+      amount,
       kind: "item",
     });
   }
@@ -845,6 +953,11 @@ export default function OrderDetailPage() {
   const [garmentMap, setGarmentMap] = useState<Map<string, GarmentRow>>(
     new Map(),
   );
+  // Catalog prices for item rows whose stamped price is NULL (pre-stamping
+  // MYOD orders) — lets the breakdown sum every item like the backend does.
+  const [priceIndex, setPriceIndex] = useState<CatalogPriceIndex | null>(
+    null,
+  );
   const [showNewGOForm, setShowNewGOForm] = useState(false);
   const [newGOGarmentId, setNewGOGarmentId] = useState("");
   const [newGONote, setNewGONote] = useState("");
@@ -1050,6 +1163,32 @@ export default function OrderDetailPage() {
       setJobs(mj);
       setTransactions(tx);
       setAdjustments(adj);
+
+      // Catalog price index for the breakdown — one tree per unique garment
+      // (public endpoint). Rows without a stamped price (pre-fix MYOD
+      // orders) resolve their price/label from here, mirroring the
+      // backend's live-catalog fallback. Per-garment catch: a failed tree
+      // just leaves that garment's unpriced rows hidden.
+      const trees = await Promise.all(
+        [
+          ...new Set(
+            gos
+              .map((g) => g.garment_id)
+              .filter((id): id is string => Boolean(id)),
+          ),
+        ].map(async (gid) => {
+          try {
+            return await fetchGarmentTree(gid);
+          } catch {
+            return null;
+          }
+        }),
+      );
+      setPriceIndex(
+        buildCatalogPriceIndex(
+          trees.filter((t): t is GarmentTree => t !== null),
+        ),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load order");
     } finally {
@@ -1625,6 +1764,7 @@ export default function OrderDetailPage() {
         getItems(go.id),
         garmentMap.get(go.garment_id)?.base_price ?? null,
         adjustments,
+        priceIndex,
       ),
     }));
 
@@ -1952,12 +2092,14 @@ export default function OrderDetailPage() {
           itemsByGO.get(go.id),
           garmentMap.get(go.garment_id)?.base_price ?? null,
           adjustments,
+          priceIndex,
         ),
         lines: [
           ...buildGarmentBreakdown(
             go,
             itemsByGO.get(go.id),
             garmentMap.get(go.garment_id)?.base_price ?? null,
+            priceIndex,
           ).map((ln) => ({ label: ln.label, amount: ln.amount })),
           ...adjustments
             .filter((a) => a.garment_order_id === go.id)
@@ -2115,6 +2257,7 @@ export default function OrderDetailPage() {
           itemsByGO.get(go.id),
           garmentMap.get(go.garment_id)?.base_price ?? null,
           adjustments,
+          priceIndex,
         ),
       0,
     ) +
@@ -3082,6 +3225,7 @@ export default function OrderDetailPage() {
               itemsByGO.get(go.id),
               garmentMap.get(go.garment_id)?.base_price ?? null,
               adjustments,
+              priceIndex,
             ),
           }));
           const garmentsSum = garmentTotals.reduce(
@@ -3193,7 +3337,12 @@ export default function OrderDetailPage() {
               const goAdj = adjustments.filter(
                 (a) => a.garment_order_id === go.id,
               );
-              const lines = buildGarmentBreakdown(go, items, basePrice);
+              const lines = buildGarmentBreakdown(
+                go,
+                items,
+                basePrice,
+                priceIndex,
+              );
               const itemsSubtotal = lines.reduce(
                 (s, ln) => s + ln.amount,
                 0,
@@ -3530,6 +3679,7 @@ export default function OrderDetailPage() {
                   itemsByGO.get(go.id),
                   garmentMap.get(go.garment_id)?.base_price ?? null,
                   adjustments,
+                  priceIndex,
                 );
                 return (
                   <label
