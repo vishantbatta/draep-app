@@ -30,18 +30,7 @@ type LatLng = { lat: number; lng: number };
 
 const toLL = (p: LatLng): [number, number] => [p.lat, p.lng];
 
-export function CoverageMapEditor({
-  coverage,
-  saving,
-  onClose,
-  onSave,
-  captainName,
-  title,
-  subtitle,
-  maxShapes = MAX_SHAPES,
-  name,
-  onNameChange,
-}: {
+export interface CoverageMapEditorProps {
   coverage: Ring[];
   saving: boolean;
   onClose: () => void;
@@ -55,7 +44,20 @@ export function CoverageMapEditor({
   /** When provided, an editable name field renders in the toolbar. */
   name?: string;
   onNameChange?: (v: string) => void;
-}) {
+}
+
+export function CoverageMapEditor({
+  coverage,
+  saving,
+  onClose,
+  onSave,
+  captainName,
+  title,
+  subtitle,
+  maxShapes = MAX_SHAPES,
+  name,
+  onNameChange,
+}: CoverageMapEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const shapesLayerRef = useRef<L.LayerGroup | null>(null);

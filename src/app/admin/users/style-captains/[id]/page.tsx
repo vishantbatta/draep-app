@@ -31,7 +31,8 @@ import {
   type MeasurementJobRow,
 } from "@/lib/admin-api";
 import { CaptainScheduleManager } from "@/components/admin/CaptainScheduleManager";
-import { CoverageMapEditor, type Ring } from "@/components/admin/CoverageMapEditor";
+import { CoverageMapEditorModal as CoverageMapEditor } from "@/components/admin/CoverageMapEditorModal";
+import type { Ring } from "@/components/admin/CoverageMapEditor";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

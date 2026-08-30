@@ -20,7 +20,8 @@ import {
   fetchTableRows,
   updateTableRow,
 } from "@/lib/admin-api";
-import { CoverageMapEditor, type Ring } from "@/components/admin/CoverageMapEditor";
+import { CoverageMapEditorModal as CoverageMapEditor } from "@/components/admin/CoverageMapEditorModal";
+import type { Ring } from "@/components/admin/CoverageMapEditor";
 
 // ─── Sub-tabs for Configure (shared) ───────────────────────────────────────────
 
@@ -68,7 +69,6 @@ function ServiceabilityActionPageInner() {
   const [activeActionTab] = useState<ActionTabKey>("serviceability");
 
   const [areas, setAreas] = useState<AreaRow[] | null>(null);
-  const [linkCounts, setLinkCounts] = useState<Record<string, number>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -114,15 +114,6 @@ function ServiceabilityActionPageInner() {
         sortDirection: "asc",
       });
       setAreas(rows);
-      const { rows: links } = await fetchTableRows<{ area_id: string | null }>(
-        "staff_service_areas",
-        { perPage: 500 },
-      ).catch(() => ({ rows: [] as { area_id: string | null }[] }));
-      const counts: Record<string, number> = {};
-      for (const l of links) {
-        if (l.area_id) counts[l.area_id] = (counts[l.area_id] ?? 0) + 1;
-      }
-      setLinkCounts(counts);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load areas");
     }
@@ -202,12 +193,7 @@ function ServiceabilityActionPageInner() {
   };
 
   const removeArea = async (a: AreaRow) => {
-    const linked = linkCounts[a.id] ?? 0;
-    const msg =
-      `Remove "${areaName(a)}" permanently?` +
-      (linked > 0 ? `\n\n${linked} staff assignment(s) are linked and will be removed too.` : "") +
-      `\n\nIf no active areas remain, the platform falls back to the built-in default boundary.`;
-    if (!window.confirm(msg)) return;
+    if (!window.confirm(`Remove "${areaName(a)}"?`)) return;
     setBusy(true);
     try {
       await deleteTableRow("service_areas", a.id);
@@ -275,7 +261,6 @@ function ServiceabilityActionPageInner() {
           <ul className="divide-y divide-hairline">
             {areas.map((a) => {
               const active = a.is_active !== false;
-              const linked = linkCounts[a.id] ?? 0;
               return (
                 <li key={a.id} className="flex items-center gap-3 px-5 py-3.5">
                   <span
@@ -294,7 +279,6 @@ function ServiceabilityActionPageInner() {
                     <p className="truncate text-[11px] text-muted">
                       {a.city ?? "—"} · {ringCount(a.polygon)} shape
                       {ringCount(a.polygon) === 1 ? "" : "s"}
-                      {linked > 0 ? ` · ${linked} staff linked` : ""}
                     </p>
                   </div>
                   <button
