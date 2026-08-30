@@ -18,6 +18,9 @@ export default function LibraryDetailRoute() {
   const router = useRouter();
   const params = useParams<{ libraryId: string }>();
   const libraryId = typeof params?.libraryId === "string" ? params.libraryId : undefined;
+  // hooks first — the missing-id fallback returns after them
+  const [title, setTitle] = useState<string | null>(null);
+
   if (!libraryId) {
     return (
       <div className="flex h-dvh flex-col bg-warm-sand">
@@ -27,8 +30,6 @@ export default function LibraryDetailRoute() {
       </div>
     );
   }
-
-  const [title, setTitle] = useState<string | null>(null);
 
   return (
     <div className="flex h-dvh flex-col bg-warm-sand">
