@@ -16,6 +16,7 @@ import { Modal } from "../../catalogue/_shared/catalogue-helpers";
 
 const ACTION_TABS = [
   { key: "slot-scheduling", label: "Slot Scheduling", href: "/admin/actions/slot-scheduling" },
+  { key: "serviceability", label: "Serviceability Areas", href: "/admin/actions/serviceability" },
   { key: "urls", label: "URLs", href: "/admin/actions/urls" },
   { key: "measurements", label: "Measurements", href: "/admin/measurements" },
   { key: "validation-rules", label: "Validation Rules", href: "/admin/catalogue/validation-rules" },

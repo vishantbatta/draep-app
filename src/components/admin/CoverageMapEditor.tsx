@@ -36,12 +36,25 @@ export function CoverageMapEditor({
   onClose,
   onSave,
   captainName,
+  title,
+  subtitle,
+  maxShapes = MAX_SHAPES,
+  name,
+  onNameChange,
 }: {
   coverage: Ring[];
   saving: boolean;
   onClose: () => void;
   onSave: (next: Ring[]) => Promise<void>;
+  /** Captain usage: builds the default header title. */
   captainName: string;
+  /** Override header copy (e.g. master serviceability areas). */
+  title?: string;
+  subtitle?: string;
+  maxShapes?: number;
+  /** When provided, an editable name field renders in the toolbar. */
+  name?: string;
+  onNameChange?: (v: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -260,8 +273,8 @@ export function CoverageMapEditor({
   redrawDraftRef.current = redrawDraft;
 
   const startDrawing = () => {
-    if (shapes.length >= MAX_SHAPES) {
-      setError(`Up to ${MAX_SHAPES} areas per captain.`);
+    if (shapes.length >= maxShapes) {
+      setError(`Up to ${maxShapes} areas.`);
       return;
     }
     setError(null);
@@ -313,12 +326,12 @@ export function CoverageMapEditor({
       <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-chalk-white shadow-xl">
         {/* header */}
         <div className="flex items-center justify-between border-b border-hairline px-5 py-3">
-          <div>
+          <div className="min-w-0">
             <h2 className="font-heading text-base font-semibold text-ink-navy">
-              Serviceable areas — {captainName}
+              {title ?? `Serviceable areas — ${captainName}`}
             </h2>
             <p className="text-[11px] text-muted">
-              The captain is only bookable inside these shapes.
+              {subtitle ?? "The captain is only bookable inside these shapes."}
             </p>
           </div>
           <button
@@ -332,10 +345,19 @@ export function CoverageMapEditor({
 
         {/* toolbar */}
         <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-5 py-2.5">
+          {onNameChange && (
+            <input
+              value={name ?? ""}
+              onChange={(e) => onNameChange(e.target.value)}
+              placeholder="Area name (e.g. Bengaluru core)"
+              maxLength={80}
+              className="min-h-[34px] w-56 rounded-lg border border-hairline-strong bg-chalk-white px-2.5 text-xs text-ink-navy placeholder:text-muted focus:border-ink-navy focus:outline-none"
+            />
+          )}
           {!drawing ? (
             <button
               onClick={startDrawing}
-              disabled={shapes.length >= MAX_SHAPES}
+              disabled={shapes.length >= maxShapes}
               className="rounded-lg bg-ink-navy px-3 py-1.5 text-xs font-semibold text-chalk-white transition hover:bg-tape disabled:cursor-not-allowed disabled:opacity-40"
             >
               + Draw new area
