@@ -540,16 +540,19 @@ export function MyodSheet({
 
   /** The choice sheet's "Create new order" — deliberately skips the
       open-orders check (the user just declined the merge) so it can never
-      re-open the sheet (infinite loop). */
+      re-open the sheet (infinite loop). The sheet stays open so busy="create"
+      spins until the request resolves; it closes on success (redirect) and
+      on failure (the order-CTA error surfaces underneath). */
   const handleCreateNewOrder = useCallback(async () => {
     if (!tree) return;
-    setChoiceOpen(false);
     setOrdering(true);
     setOrderError(null);
     setOrderNowError(null);
     try {
       await submitMyodOrder();
+      setChoiceOpen(false);
     } catch (err) {
+      setChoiceOpen(false);
       const msg =
         err instanceof ApiError && err.message
           ? err.message

@@ -184,10 +184,16 @@ export function LibraryOrderPreviewSheet({
         } catch {
           // caller extras (track, photo attach) are best-effort
         }
+        // No-op on the direct path (sheet never opened); from the choice
+        // sheet it closes it just before the redirect, mirroring the add path.
+        setChoiceOpen(false);
         router.push(`/app/orders/${out.order_id}`);
         // No creatingRef reset on success — the route change unmounts this
         // sheet; until then the apply CTA stays pinned on "Saving order…".
       } catch (err) {
+        // Close the choice sheet so the error toast + the editor underneath
+        // (tweaks intact) are what the user sees.
+        setChoiceOpen(false);
         setCreateError(
           err instanceof Error ? err.message : strings.libraryOrder.error,
         );
@@ -203,6 +209,10 @@ export function LibraryOrderPreviewSheet({
   const createOrder = useCallback(
     async (desired: DraftItem[]) => {
       if (!libraryId || creatingRef.current) return;
+      // Stash before the open-orders check: the choice sheet's buttons read
+      // this ref, so it must hold the reviewed set by the time the sheet
+      // opens (createNewOrder alone sets it too late for that path).
+      lastDesiredRef.current = desired;
       lastAddTargetRef.current = null;
       // Add-to-existing check: fetch failure or empty list falls through to
       // the normal create — ordering is never blocked by this feature.
@@ -267,8 +277,12 @@ export function LibraryOrderPreviewSheet({
     [libraryId, onCreated, router],
   );
 
+  /** The choice sheet's "Create new order" — deliberately skips the
+      open-orders check (the user just declined the merge) so it can never
+      re-open the sheet (infinite loop). The sheet stays open so busy="create"
+      spins until the request resolves; createNewOrder closes it on success
+      (redirect) and on failure (error toast + editor underneath). */
   const handleCreateNew = useCallback(() => {
-    setChoiceOpen(false);
     lastAddTargetRef.current = null;
     const desired = lastDesiredRef.current;
     if (desired) void createNewOrder(desired);
@@ -367,8 +381,11 @@ export function LibraryOrderPreviewSheet({
                 void handleAddToOrder(target);
                 return;
               }
+              // A failed create retries the create itself — re-running
+              // createOrder would re-open the choice sheet the user already
+              // answered.
               const desired = lastDesiredRef.current;
-              if (desired) void createOrder(desired);
+              if (desired) void createNewOrder(desired);
             }}
             className="flex-none rounded-pill bg-chalk-white px-3 py-1 text-caption font-semibold text-ink-navy active:scale-95"
           >
