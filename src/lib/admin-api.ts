@@ -1690,6 +1690,7 @@ export interface LibraryAdmin {
   famous_for: Record<string, string> | null;
   reference_url: string | null;
   occasions: string[] | null;
+  ideal_body_types: string[] | null;
   styling_notes: Record<string, string> | null;
   hero_image_url: string | null;
   front_image_url: string | null;
