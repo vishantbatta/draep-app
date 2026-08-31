@@ -422,6 +422,17 @@ export const strings = {
     payAdvancePrefix: "Pay",
     payAdvanceSuffix: "in Advance",
     saveTag: (amount: string) => `Save ${amount}`,
+    // Garments stay editable until the visit concludes — add another design
+    // (routes to Explore; its order flow appends it here) or remove one.
+    addGarmentCta: "Add another garment",
+    removeGarmentCta: "Remove garment",
+    removeGarmentError: "Could not remove the garment. Please try again.",
+    removeGarmentConfirm:
+      "Remove this garment from the order? If you've already paid, it adjusts against your total or is refunded at delivery.",
+    // Over-collected: a paid order shrank below what was captured. The
+    // gap is never auto-refunded — it lands as cash back at delivery.
+    overpaidNote: (amount: string) =>
+      `${amount} will be refunded at delivery if you don't add more designs.`,
     payInitError: "Could not start the payment. Please try again.",
     loadError: "Could not load this order.",
     notFound: "Order not found.",

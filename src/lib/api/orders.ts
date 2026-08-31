@@ -29,6 +29,18 @@ export function addGarmentToOrder(
   return apiPost<AddGarmentResult>(`/orders/${orderId}/garments`, payload);
 }
 
+// DELETE /orders/{order_id}/garments/{garment_order_id} — remove a garment
+// from an editable order; totals resync server-side (over-collection on a
+// paid order surfaces as refund-at-delivery).
+export function removeGarmentFromOrder(
+  orderId: string,
+  garmentOrderId: string,
+): Promise<void> {
+  return apiDelete<void>(
+    `/orders/${orderId}/garments/${garmentOrderId}`,
+  );
+}
+
 // GET /orders — signed-in customer's own orders, newest first
 export function listOrders(
   page = 1,

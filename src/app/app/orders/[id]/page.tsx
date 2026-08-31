@@ -28,13 +28,17 @@
  *                                     address, never "confirmed".
  *   4. COD confirmed               → prominent confirmation card; the CTA
  *                                     demotes to a secondary "Pay ₹<advance>
- *                                     in Advance" (the ₹50 fee is waived if
+ *                                     in Advance" (the fee is waived if
  *                                     captured before delivery)
- *   5. advance paid                → prominent confirmation card; secondary
- *                                     "Explore More Designs"
+ *   5. money captured              → prominent confirmation card; the CTA
+ *                                     follows the balance: pay-balance when
+ *                                     the order grew (underpaid), "Explore
+ *                                     More Designs" + refund-at-delivery
+ *                                     note when it shrank (overpaid),
+ *                                     nothing when settled
  * A delivered order with a balance falls through to a plain pay-balance CTA;
- * fully paid hides the bar entirely. Placed orders also get invoice actions
- * above the bar.
+ * a delivered order with nothing left to pay hides the bar entirely. Placed
+ * orders also get invoice actions above the bar.
  */
 
 import {
@@ -67,6 +71,7 @@ import {
   ShieldCheck,
   Sparkles,
   Thread,
+  Trash,
 } from "@/components/ui/icons";
 import { ApiError, addressesApi, checkoutApi, ordersApi } from "@/lib/api";
 import { Loader } from "@/components/ui/Loader";
@@ -444,6 +449,31 @@ function OrderDetailContent() {
      dashboard uses, persisted through the customer selection endpoints. */
   const [editingGOId, setEditingGOId] = useState<string | null>(null);
 
+  /* ── Garment removal — allowed while the order is editable (draft through
+     the booked visit). Paid orders shrink too: the ledger stays, totals
+     resync server-side and an over-collection reads as refund-at-delivery. */
+  const [removingGOId, setRemovingGOId] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  const handleRemoveGarment = async (garmentOrderId: string) => {
+    if (removingGOId) return;
+    if (!window.confirm(strings.orderDetail.removeGarmentConfirm)) return;
+    setRemovingGOId(garmentOrderId);
+    setRemoveError(null);
+    try {
+      await ordersApi.removeGarmentFromOrder(id, garmentOrderId);
+      await refreshDetail();
+    } catch (err) {
+      setRemoveError(
+        err instanceof Error && err.message
+          ? err.message
+          : strings.orderDetail.removeGarmentError,
+      );
+    } finally {
+      setRemovingGOId(null);
+    }
+  };
+
   const openNoteEditor = (garmentOrderId: string, currentNote: string | null) => {
     setNoteDraft(currentNote ?? "");
     setNoteError(null);
@@ -547,10 +577,16 @@ function OrderDetailContent() {
 
   /* ── Detail ──────────────────────────────────────────────────────────── */
   const isDraft = detail.fulfillment_status === "draft";
-  // Selection editing mirrors the server gate exactly: editable while no
-  // money has moved (paid orders would desync items from the invoice).
-  const selectionsEditable =
-    detail.payment_status !== "paid" && detail.paid_amount === 0;
+  // Selection editing mirrors the server gate exactly: garments stay
+  // editable until the visit concludes. Money no longer locks edits — a
+  // paid order that grows re-derives balance_due; one that shrinks
+  // over-collects, which the CTA surfaces as refund-at-delivery.
+  const selectionsEditable = [
+    "draft",
+    "pending",
+    "awaiting_visit",
+    "visit_scheduled",
+  ].includes(detail.fulfillment_status ?? "");
   // The slot drives the visit time; orders booked before slots were linked
   // (slot: null) still have it on the measurement job, so fall back there.
   const visit =
@@ -656,19 +692,35 @@ function OrderDetailContent() {
   /* ── Bottom-bar state machine, priority order ────────────────────────────
      Driven by concrete facts (attached address → visit held or measured →
      how the booking is confirmed), never the order status:
-       1 "address"  nothing attached             → Select Address
-       2 "slot"     attached, no slot held AND
-                    measurements not completed  → Select Slot (a completed
-                                                    measurement never re-books)
-       3 "confirm"  visit held or measured,
-                    nothing paid, no COD choice → Confirm Booking
-       4 "cod"      COD confirmed, advance due  → secondary Pay-advance (save pill)
-       5 "paid"     advance paid, balance left  → secondary Explore More Designs
-     A delivered order with a balance falls through to a plain pay-balance
-     CTA; fully paid (paidUp) hides the bar entirely. */
+       1 "address"   nothing attached              → Select Address
+       2 "slot"      attached, no slot held AND
+                     measurements not completed   → Select Slot (a completed
+                                                     measurement never re-books)
+       3 "confirm"   visit held or measured,
+                     nothing paid, no COD choice  → Confirm Booking
+       4 "cod"       COD confirmed, nothing paid  → Pay-advance (save pill)
+       5 "underpaid" money captured, balance left → Pay balance (save pill
+                                                     while a COD fee is live)
+       6 "overpaid"  captured exceeds the total
+                     (the order shrank)           → Explore More Designs +
+                                                     refund-at-delivery note
+       7 "settled"   captured == total            → confirmed card only
+     Garment adds/edits/deletes move the order between these money states
+     live — totals resync server-side, balance_due re-derives from the
+     ledger. A delivered order with a balance falls through to a plain
+     pay-balance CTA; a delivered order with nothing left to pay hides the
+     bar entirely. */
   const codChosen = codAdj !== null;
   const advancePaid = detail.paid_amount > 0;
-  const barState: "address" | "slot" | "confirm" | "cod" | "paid" | "balance" =
+  const barState:
+    | "address"
+    | "slot"
+    | "confirm"
+    | "cod"
+    | "underpaid"
+    | "overpaid"
+    | "settled"
+    | "balance" =
     !attached
       ? "address"
       : isDelivered
@@ -676,15 +728,24 @@ function OrderDetailContent() {
         : currentBooking == null && !measuredDone
           ? "slot"
           : advancePaid
-            ? "paid"
+            ? payAmount > 0
+              ? "underpaid"
+              : payAmount < 0
+                ? "overpaid"
+                : "settled"
             : codChosen
               ? "cod"
               : "confirm";
   // The cards follow the same ladder, strictly: the prominent confirmation
-  // card only in the COD/paid states — a slot must exist AND be locked in
-  // before anything reads "confirmed". Without a slot it's the draft card
-  // with the address only; with an unpaid slot, address + held time.
-  const bookingConfirmed = barState === "cod" || barState === "paid";
+  // card in every money-moved state (COD confirmed or captured > 0) — a
+  // slot must exist AND be locked in before anything reads "confirmed".
+  // Without a slot it's the draft card with the address only; with an
+  // unpaid slot, address + held time.
+  const bookingConfirmed =
+    barState === "cod" ||
+    barState === "underpaid" ||
+    barState === "overpaid" ||
+    barState === "settled";
 
   /* ── Pay ₹X to Book — Cashfree drop-in, then the paying page verifies ──── */
   const handlePay = async () => {
@@ -919,7 +980,23 @@ function OrderDetailContent() {
                 {g.garment_label ?? "Garment"}
                 {detail.garment_orders.length > 1 ? ` ${gi + 1}` : ""}
               </h2>
-              {g.status && <StatusPill status={g.status} kind="fulfillment" />}
+              <span className="flex flex-none items-center gap-2">
+                {g.status && <StatusPill status={g.status} kind="fulfillment" />}
+                {/* Remove — never on the last garment (the order is
+                    cancelled instead); paid orders shrink the same way and
+                    the CTA re-derives. */}
+                {selectionsEditable && detail.garment_orders.length > 1 && (
+                  <button
+                    type="button"
+                    aria-label={strings.orderDetail.removeGarmentCta}
+                    disabled={removingGOId !== null}
+                    onClick={() => void handleRemoveGarment(g.id)}
+                    className="flex h-7 w-7 items-center justify-center rounded-pill text-muted transition-all ease-brand hover:bg-warm-sand hover:text-accent-text active:scale-90 disabled:opacity-40"
+                  >
+                    <Trash size={14} />
+                  </button>
+                )}
+              </span>
             </div>
 
             {selections.length > 0 && (
@@ -1041,10 +1118,36 @@ function OrderDetailContent() {
         );
       })}
 
+      {/* Add another garment — routes to Explore; the design's order flow
+          offers appending it to this order (one visit for everything). */}
+      {selectionsEditable && (
+        <button
+          type="button"
+          onClick={() => router.push("/app/explore")}
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-card border border-dashed border-hairline-strong px-3 py-3 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-[0.98] active:bg-mist-navy"
+        >
+          <Plus size={14} />
+          {strings.orderDetail.addGarmentCta}
+        </button>
+      )}
+
+      {removeError && (
+        <Banner variant="error" className="mt-3">
+          <p className="text-caption">{removeError}</p>
+        </Banner>
+      )}
+
       {/* Order-level adjustments + payment summary */}
       <section className="mt-3 rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
         <p className="eyebrow">{strings.orderDetail.summaryTitle}</p>
         <div className="mt-2">
+          {/* Order total leads — adjustments (COD fee, discounts) follow it,
+              then the ledger rows. */}
+          <SummaryRow
+            label={strings.orderDetail.total}
+            value={formatPrice(detail.total_price ?? 0)}
+            strong
+          />
           {orderAdjustments.map((a, idx) => (
             <SummaryRow
               key={idx}
@@ -1052,11 +1155,6 @@ function OrderDetailContent() {
               value={`${a.amount < 0 ? "−" : "+"}${formatPrice(Math.abs(a.amount))}`}
             />
           ))}
-          <SummaryRow
-            label={strings.orderDetail.total}
-            value={formatPrice(detail.total_price ?? 0)}
-            strong
-          />
           <SummaryRow
             label={strings.orderDetail.paid}
             value={formatPrice(detail.paid_amount)}
@@ -1106,10 +1204,9 @@ function OrderDetailContent() {
 
       {/* Bottom bar — pinned to the viewport bottom. Its state follows
           concrete facts (attached address → drafted slot → how the booking
-          is confirmed), never the order status. A paid advance keeps the
-          bar up ("Booking confirmed" + Explore More Designs) until
-          delivery; only a delivered order with nothing left to pay
-          hides it entirely. */}
+          is confirmed), never the order status. Money moved keeps the bar
+          up ("Booking confirmed" card) until delivery; only a delivered
+          order with nothing left to pay hides it entirely. */}
       {(!isDelivered || payAmount > 0) && (
       <div className="sticky bottom-0 z-20 -mx-4 -mb-6 mt-5 border-t border-hairline bg-chalk-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-6px_16px_-8px_rgba(23,42,72,0.25)]">
         {/* Draft card — address + held time. Before COD is confirmed or the
@@ -1233,32 +1330,81 @@ function OrderDetailContent() {
           <Button
             variant="secondary"
             fullWidth
-            className="mt-3"
+            className="mt-3 !px-3"
             loading={paying}
             disabled={paying}
             onClick={() => void handlePay()}
           >
-            {strings.orderDetail.payAdvancePrefix}{" "}
-            <span aria-hidden className="line-through opacity-50">
-              {formatPrice(payAmount)}
-            </span>{" "}
-            <span className="font-semibold">{formatPrice(advanceAmount)}</span>{" "}
-            {strings.orderDetail.payAdvanceSuffix}{" "}
-            <span className="ml-1 inline-block rounded-pill bg-ink-navy px-2 py-px text-[10px] font-semibold uppercase tracking-wider text-chalk-white">
-              {strings.orderDetail.saveTag(formatPrice(codFee))}
+            {/* One line — the advance composition is long, so the label
+                gets the pill's full width (trim px) and never wraps. */}
+            <span className="whitespace-nowrap">
+              {strings.orderDetail.payAdvancePrefix}{" "}
+              <span aria-hidden className="line-through opacity-50">
+                {formatPrice(payAmount)}
+              </span>{" "}
+              <span className="font-semibold">{formatPrice(advanceAmount)}</span>{" "}
+              {strings.orderDetail.payAdvanceSuffix}{" "}
+              <span className="ml-1 inline-block rounded-pill bg-ink-navy px-2 py-px text-[10px] font-semibold uppercase tracking-wider text-chalk-white">
+                {strings.orderDetail.saveTag(formatPrice(codFee))}
+              </span>
             </span>
           </Button>
         )}
-        {barState === "paid" && (
-          <Button
-            variant="secondary"
-            fullWidth
-            className="mt-3"
-            onClick={() => router.push("/app/explore")}
-          >
-            {strings.orderDetail.exploreMoreCta}
-          </Button>
+        {barState === "underpaid" &&
+          (codChosen ? (
+            // COD fee still live on the balance: paying it in full in
+            // advance waives the fee — same composition as the COD confirm.
+            <Button
+              variant="secondary"
+              fullWidth
+              className="mt-3 !px-3"
+              loading={paying}
+              disabled={paying}
+              onClick={() => void handlePay()}
+            >
+              <span className="whitespace-nowrap">
+                {strings.orderDetail.payAdvancePrefix}{" "}
+                <span aria-hidden className="line-through opacity-50">
+                  {formatPrice(payAmount)}
+                </span>{" "}
+                <span className="font-semibold">{formatPrice(advanceAmount)}</span>{" "}
+                {strings.orderDetail.payAdvanceSuffix}{" "}
+                <span className="ml-1 inline-block rounded-pill bg-ink-navy px-2 py-px text-[10px] font-semibold uppercase tracking-wider text-chalk-white">
+                  {strings.orderDetail.saveTag(formatPrice(codFee))}
+                </span>
+              </span>
+            </Button>
+          ) : (
+            <Button
+              fullWidth
+              className="mt-3"
+              loading={paying}
+              disabled={paying}
+              onClick={() => void handlePay()}
+            >
+              {strings.orderDetail.payBalanceCta(formatPrice(payAmount))}
+            </Button>
+          ))}
+        {barState === "overpaid" && (
+          <>
+            {/* The order shrank below what was captured — the gap is never
+                auto-refunded; it reads as refund-at-delivery unless the
+                customer fills it with more designs. */}
+            <Button
+              variant="secondary"
+              fullWidth
+              className="mt-3"
+              onClick={() => router.push("/app/explore")}
+            >
+              {strings.orderDetail.exploreMoreCta}
+            </Button>
+            <p className="mt-2 text-center text-caption text-muted">
+              {strings.orderDetail.overpaidNote(formatPrice(Math.abs(payAmount)))}
+            </p>
+          </>
         )}
+        {/* barState "settled" renders no CTA — the confirmed card above
+            and the Paid summary are the whole story. */}
         {barState === "balance" && (
           <Button
             fullWidth
