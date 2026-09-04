@@ -71,6 +71,9 @@ export interface InvoiceInput {
   adjustmentLines: InvoiceLine[];
   /** Captured payments — one entry each, carrying its recorded note. */
   payments: InvoicePayment[];
+  /** Date printed as Invoice Date / Due Date — "yyyy-mm-dd" from the admin
+   *  download sheet. Omitted (public page, embedded report invoice) → today. */
+  invoiceDate?: string | null;
 }
 
 interface ComputedInvoice {
@@ -282,7 +285,13 @@ function buildInvoiceHtml(
   upiQrDataUrl?: string | null,
   payUrl?: string | null,
 ): string {
-  const today = new Date();
+  // Invoice date — the admin-picked date from the download sheet when given
+  // ("yyyy-mm-dd" parsed as LOCAL midnight so the day can't shift across
+  // timezones), otherwise today. Garbage strings fall back to today too.
+  const pickedDate = input.invoiceDate
+    ? new Date(`${input.invoiceDate}T00:00:00`)
+    : new Date();
+  const today = Number.isNaN(pickedDate.getTime()) ? new Date() : pickedDate;
   const dateStr = fmtDate(today);
   const { customer, address } = input;
 

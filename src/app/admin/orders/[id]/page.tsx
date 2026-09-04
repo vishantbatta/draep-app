@@ -58,7 +58,6 @@ import {
 import { ACQUISITION_FIELDS } from "@/lib/acquisition";
 import { SlotPicker } from "@/components/admin/SlotPicker";
 import { Chip } from "@/components/ui/Chip";
-import { BottomSheet } from "@/components/ui/BottomSheet";
 import {
   downloadMeasurementJobPdf,
   type PdfSectionOptions,
@@ -67,6 +66,7 @@ import {
 } from "@/lib/job-pdf";
 import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
 import { GarmentSelectionSheet } from "@/components/admin/GarmentSelectionSheet";
+import { BottomSheet } from "@/components/ui/BottomSheet";
 import { GarmentOrderAssets } from "./GarmentOrderAssets";
 import { MeasurementsSheet } from "./MeasurementsSheet";
 import {
@@ -994,6 +994,15 @@ export default function OrderDetailPage() {
   const [pdfProgress, setPdfProgress] = useState<string | null>(null);
   // ── Invoice generation state (single client-side PDF, tax-inclusive total) ─
   const [invoiceLoading, setInvoiceLoading] = useState(false);
+  // Download sheet: date printed on the invoice, pre-filled with today's LOCAL
+  // date (not toISOString — that's UTC and yields yesterday near midnight IST).
+  const [invoiceSheetOpen, setInvoiceSheetOpen] = useState(false);
+  const [invoiceDate, setInvoiceDate] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate(),
+    ).padStart(2, "0")}`;
+  });
   // Copy-quote image builder (canvas render + clipboard write).
   const [quoteBusy, setQuoteBusy] = useState(false);
   // Customization sheet (section toggles). Defaults to all-on so the first
@@ -1753,6 +1762,7 @@ export default function OrderDetailPage() {
   function buildInvoiceInput(
     garmentRows: GarmentOrderRow[],
     getItems: (goId: string) => GarmentOrderItemRow[] | undefined,
+    invoiceDateIso?: string | null,
   ): InvoiceInput {
     // One line per garment order — effective (adjustment-inclusive) total,
     // the same number the "Order total" card shows for each garment.
@@ -1801,6 +1811,9 @@ export default function OrderDetailPage() {
       garmentLines,
       adjustmentLines,
       payments,
+      // Download sheet's picked date; undefined (embedded report invoice) →
+      // buildInvoiceHtml falls back to today.
+      invoiceDate: invoiceDateIso ?? null,
     };
   }
 
@@ -2043,17 +2056,19 @@ export default function OrderDetailPage() {
   // No network: consumes the already-loaded order / garment / adjustment /
   // transaction state.
   // ──────────────────────────────────────────────────────────────────────────
-  async function handleGenerateInvoice() {
+  async function handleGenerateInvoice(invoiceDateIso?: string) {
     if (!order) return;
     setInvoiceLoading(true);
     try {
       // Same builder the PDF's embedded invoice page uses, over the full
       // (unfiltered) garment list — the standalone invoice and the report's
-      // invoice page can never drift apart.
+      // invoice page can never drift apart. The date comes from the download
+      // sheet (defaults to today).
       await generateInvoicePdf(
-        buildInvoiceInput(garmentOrders, (id) => itemsByGO.get(id)),
+        buildInvoiceInput(garmentOrders, (id) => itemsByGO.get(id), invoiceDateIso),
       );
       flash("Invoice downloaded");
+      setInvoiceSheetOpen(false);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Invoice generation failed");
     } finally {
@@ -3205,9 +3220,9 @@ export default function OrderDetailPage() {
               🔗 Copy Invoice URL
             </button>
             <button
-              onClick={handleGenerateInvoice}
+              onClick={() => setInvoiceSheetOpen(true)}
               disabled={invoiceLoading || pdfLoading}
-              title="Generate a GST tax invoice from the order grand total (tax-inclusive)"
+              title="Pick the invoice date, then generate a GST tax invoice from the order grand total (tax-inclusive)"
               className="rounded-lg border border-tape bg-tape/10 px-3 py-1.5 text-xs font-medium text-tape transition hover:bg-tape/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {invoiceLoading ? "Preparing…" : "⬇ Download Invoice PDF"}
@@ -3723,6 +3738,61 @@ export default function OrderDetailPage() {
               )}
             </div>
           </div>
+        </div>
+      </BottomSheet>
+
+      {/* INVOICE DATE SHEET — opens from "⬇ Download Invoice PDF". The only
+          choice is the date printed as Invoice Date / Due Date, pre-filled
+          with today; "Download Invoice" runs the same generator the direct
+          button used to. Opens when "Download Invoice PDF" is clicked. */}
+      <BottomSheet
+        open={invoiceSheetOpen}
+        onClose={() => {
+          if (!invoiceLoading) setInvoiceSheetOpen(false);
+        }}
+        title="Download Invoice"
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <button
+              onClick={() => setInvoiceSheetOpen(false)}
+              disabled={invoiceLoading}
+              className="rounded-lg border border-hairline bg-chalk-white px-4 py-2 text-sm font-medium text-ink-navy transition hover:bg-mist-navy/40 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => handleGenerateInvoice(invoiceDate)}
+              disabled={invoiceLoading}
+              className="rounded-lg border border-ink-navy bg-ink-navy px-4 py-2 text-sm font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
+            >
+              {invoiceLoading ? "Preparing…" : "⬇ Download Invoice"}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-1 pb-2">
+          <p className="mb-3 text-xs text-muted">
+            The invoice date prints as both Invoice Date and Due Date (&quot;Due
+            on Receipt&quot;). Defaults to today — change it to back-date or
+            pre-date the invoice.
+          </p>
+          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-hairline bg-chalk-white px-3 py-2.5 transition hover:bg-mist-navy/30">
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-ink-navy">
+                Invoice date
+              </span>
+              <span className="block text-xs text-muted">
+                Printed on the GST tax invoice
+              </span>
+            </span>
+            <input
+              type="date"
+              value={invoiceDate}
+              onChange={(e) => setInvoiceDate(e.target.value)}
+              disabled={invoiceLoading}
+              className="shrink-0 rounded-lg border border-hairline-strong bg-chalk-white px-2.5 py-1.5 text-sm font-medium text-ink-navy disabled:opacity-50"
+            />
+          </label>
         </div>
       </BottomSheet>
     </div>
