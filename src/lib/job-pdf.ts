@@ -685,16 +685,26 @@ function garmentMeasurementRow(r: BodyMeasurementWithMetric): string {
 
 // ── 2.2 Inspiration · 2.4 materials · note ─────────────────────────────────
 
-/** Customer-uploaded inspiration photos + the reference-only disclaimer. */
+/** Customer-uploaded inspiration photos + the reference-only disclaimer
+ *  (trilingual: English, Hindi, Kannada — matching the report's language
+ *  treatment everywhere else). */
 function inspirationHtml(style: StyleSelectionGroup): string {
   const urls = (style.assetsShared ?? [])
     .map((u) => (typeof u === "string" ? u : null))
     .filter((u): u is string => Boolean(u));
   if (urls.length === 0) return "";
   return `
-    <div class="gs-note"><strong>${upper("Reference only")}:</strong> ${
-      esc("these are inspiration images shared by the customer — indicative of look and feel, NOT to be copied as-is.")
-    }</div>
+    <div class="gs-note">
+      <div><strong>${upper("Reference only")}:</strong> ${
+        esc("these are inspiration images shared by the customer — indicative of look and feel, NOT to be copied as-is.")
+      }</div>
+      <div><strong>${esc("केवल संदर्भ हेतु")}:</strong> ${esc(
+        "ये ग्राहक द्वारा साझा की गई प्रेरणा तस्वीरें हैं — ये केवल लुक और फील का संकेत हैं, इन्हें जैसी हैं वैसी कॉपी न करें।",
+      )}</div>
+      <div><strong>${esc("ಉಲ್ಲೇಖಕ್ಕಾಗಿ ಮಾತ್ರ")}:</strong> ${esc(
+        "ಇವು ಗ್ರಾಹಕರು ಹಂಚಿಕೊಂಡಿರುವ ಸ್ಪೂರ್ತಿ ಚಿತ್ರಗಳಾಗಿವೆ — ಇವು ಕೇವಲ ಲುಕ್ ಮತ್ತು ಫೀಲ್ ಅನ್ನು ಸೂಚಿಸುತ್ತವೆ, ಇವುಗಳನ್ನು ಹೀಗೇ ನಕಲಿಸಬಾರದು.",
+      )}</div>
+    </div>
     <div class="photo-grid">
       ${urls
         .map(
@@ -2540,4 +2550,7 @@ const PRINT_CSS = `
     border-radius: 0 4pt 4pt 0;
     margin: 0 0 10pt 0;
   }
+  /* Trilingual reference-only note: stack the Hindi/Kannada lines under the
+     English one inside the same callout box. */
+  .gs-note div + div { margin-top: 4pt; }
 `;
