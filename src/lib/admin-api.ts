@@ -1659,9 +1659,17 @@ export function resolveAssetUrl(url: string | null | undefined): string | null {
     return url;
   }
   // Public Next.js assets (/cards/*) are served from the frontend origin,
-  // /uploads/* is proxied to the backend via next.config.mjs rewrites —
-  // both stay relative (same-origin).
-  if (url.startsWith("/cards/") || url.startsWith("/_next/") || url.startsWith("/uploads/")) {
+  // /uploads/* and /designs/* are proxied to the backend via next.config.mjs
+  // rewrites — all stay relative (same-origin). /designs MUST stay relative:
+  // as an absolute cross-origin URL it breaks in the browser (cached no-cors
+  // <img> response + Vary: Origin ⇒ later cors fetch throws "Failed to
+  // fetch"), which blanked the design-inspiration photos in the PDF report.
+  if (
+    url.startsWith("/cards/") ||
+    url.startsWith("/_next/") ||
+    url.startsWith("/uploads/") ||
+    url.startsWith("/designs/")
+  ) {
     return url;
   }
   const origin = API_URL.replace(/\/api\/v\d+$/, "");

@@ -1748,19 +1748,49 @@ async function inlineImagesAsCanvases(root: HTMLElement): Promise<void> {
 
   // Decode each unique URL into an off-DOM HTMLImageElement sourced from a
   // blob URL (same-origin, no taint).
+  //
+  // A plain fetch can throw even when the server is healthy — a poisoned
+  // browser HTTP-cache entry (cached no-cors <img> response behind
+  // `Vary: Origin`) makes the next cors-mode fetch fail with
+  // "TypeError: Failed to fetch". On ANY thrown error retry once with
+  // `cache: "no-store"` so one bad cache entry can't blank a photo in the
+  // report (this is what dropped the design-inspiration images on prod).
+  const fetchImageBlob = async (abs: string): Promise<Blob | null> => {
+    // Timeout after 8s so a hung fetch doesn't block the whole PDF.
+    for (const cache of ["default", "no-store"] as const) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      try {
+        const res = await fetch(abs, {
+          signal: ctrl.signal,
+          ...(cache === "no-store" ? { cache } : {}),
+        });
+        if (res.ok) return await res.blob();
+        // Status failures (404 etc.) won't improve on retry — give up.
+        console.warn(`[job-pdf] image fetch returned ${res.status} for ${abs}`);
+        return null;
+      } catch (err) {
+        if (cache === "default") {
+          console.warn(
+            `[job-pdf] image fetch threw for ${abs} — retrying with cache: "no-store"`,
+            err,
+          );
+          continue;
+        }
+        console.warn(`[job-pdf] image decode failed for ${abs}:`, err);
+        return null;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    return null;
+  };
+
   await Promise.all(
     uniqueUrls.map(async (abs) => {
       try {
-        // Timeout after 8s so a hung fetch doesn't block the whole PDF.
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 8000);
-        const res = await fetch(abs, { signal: ctrl.signal });
-        clearTimeout(timer);
-        if (!res.ok) {
-          console.warn(`[job-pdf] image fetch returned ${res.status} for ${abs}`);
-          return;
-        }
-        const blob = await res.blob();
+        const blob = await fetchImageBlob(abs);
+        if (!blob) return;
         const objectUrl = URL.createObjectURL(blob);
         try {
           const decoded = await new Promise<HTMLImageElement>((resolve, reject) => {
