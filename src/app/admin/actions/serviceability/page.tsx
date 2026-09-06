@@ -29,6 +29,7 @@ const ACTION_TABS = [
   { key: "slot-scheduling", label: "Slot Scheduling", href: "/admin/actions/slot-scheduling" },
   { key: "serviceability", label: "Serviceability Areas", href: "/admin/actions/serviceability" },
   { key: "urls", label: "URLs", href: "/admin/actions/urls" },
+  { key: "promotions", label: "Promotions", href: "/admin/actions/promotions" },
   { key: "measurements", label: "Measurements", href: "/admin/measurements" },
   { key: "validation-rules", label: "Validation Rules", href: "/admin/catalogue/validation-rules" },
   { key: "sop-video", label: "SOP Video Generator", href: "/admin/actions/sop-video" },
