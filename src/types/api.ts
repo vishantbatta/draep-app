@@ -346,8 +346,67 @@ export interface OrderDetailAdjustment {
   label: string | null;
   type: string | null; // discount | fee
   amount: number;
-  /** Provenance: manual (admin) | cod (booking-advance fee) | … */
+  /** Provenance: manual (admin) | cod (booking-advance fee) | coupon | sale */
   source: string | null;
+}
+
+// ─── Promotions (be/app/services/promotions.py) ──────────────────────────────
+
+/** A discount the engine applied to the draft (coupon and/or sale). */
+export interface PromoAppliedDecision {
+  kind: string | null; // coupon | sale
+  code: string | null;
+  label: Record<string, string> | null;
+  discount_amount: number;
+}
+
+/** Why a promotion did NOT apply — always a result, never an HTTP error. */
+export interface PromoDroppedDecision {
+  reason: string;
+  code: string | null;
+  label: Record<string, string> | null;
+  /** min_subtotal gap in rupees ("add ₹X more"). */
+  gap_amount: number | null;
+  /** First unsatisfied combo group (any tier: garment / component /
+   * variation / variation-type / add-on slugs + min_qty). */
+  missing_requirement: {
+    garment_slugs?: string[];
+    component_slugs?: string[];
+    variation_slugs?: string[];
+    variation_type_slugs?: string[];
+    addon_slugs?: string[];
+    addon_variation_slugs?: string[];
+    min_qty?: number;
+  } | null;
+  /** Display names for the missing group, tier order — the nudge shows
+   * "Blouse" instead of the raw slug ("garment_0d202ad2"). */
+  missing_labels?: string[] | null;
+}
+
+/** POST /orders/{id}/promo response. */
+export interface PromoApplyOut {
+  applied_code: string | null;
+  /** Every held code, apply-order (applied_code = first entry). */
+  applied_codes: string[];
+  applied: PromoAppliedDecision[];
+  dropped: PromoDroppedDecision[];
+  total_amount: number | null;
+}
+
+/** One live sale from the public GET /promotions/active-sales feed. */
+export interface ActiveSale {
+  id: string;
+  labels: Record<string, string> | null;
+  descriptions: Record<string, string> | null;
+  discount_type: string | null; // percent | flat | price_override
+  value: number | null; // percent points, or rupees
+  min_subtotal: number | null; // rupees
+  scope: Record<string, unknown> | null;
+  ends_at: string | null;
+}
+
+export interface ActiveSalesOut {
+  sales: ActiveSale[];
 }
 
 export interface OrderTransaction {
@@ -386,6 +445,11 @@ export interface CustomerOrderDetail {
   measurement_jobs: OrderMeasurementJob[];
   created_at: string | null;
   updated_at: string | null;
+  /** Coupon codes applied on the open order (applied_promo_code = first
+   *  entry; absent on pre-multi-coupon payloads — fall back to the single
+   *  column). The discount itself is adjustment rows. */
+  applied_promo_code: string | null;
+  applied_promo_codes?: string[] | null;
   garment_orders: OrderDetailGarmentOrder[];
   adjustments: OrderDetailAdjustment[];
   transactions: OrderTransaction[];

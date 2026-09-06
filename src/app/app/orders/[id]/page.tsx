@@ -45,6 +45,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -64,6 +65,7 @@ import {
   ChatBubble,
   Check,
   Clock,
+  Close,
   HomeVisit,
   MapPin,
   Pencil,
@@ -73,7 +75,7 @@ import {
   Thread,
   Trash,
 } from "@/components/ui/icons";
-import { ApiError, addressesApi, checkoutApi, ordersApi } from "@/lib/api";
+import { ApiError, addressesApi, checkoutApi, ordersApi, promotionsApi } from "@/lib/api";
 import { Loader } from "@/components/ui/Loader";
 import { useAuthBootstrapped } from "@/lib/auth-store";
 import type { GarmentOrderItemRow } from "@/lib/admin-api";
@@ -85,6 +87,7 @@ import {
   visitDateTimeLabel,
 } from "@/lib/order-display";
 import { formatPrice } from "@/lib/pricing";
+import { appliedPromoCodes, pickDroppedForNudge } from "@/lib/promo-ui";
 import { strings } from "@/lib/strings";
 import { AddressForm } from "@/components/contact/AddressForm";
 import { SlotSheet } from "@/components/order/SlotSheet";
@@ -96,10 +99,12 @@ import {
 } from "@/components/admin/GarmentSelectionSheet";
 import type { Booking } from "@/types/booking";
 import type {
+  ActiveSale,
   Address,
   CustomerOrderDetail,
   OrderDetailGarmentOrder,
   OrderDetailItem,
+  PromoDroppedDecision,
 } from "@/types/api";
 
 /* ─── Row renderers ───────────────────────────────────────────────────────── */
@@ -405,6 +410,208 @@ function makeCustomerPersistence(
   };
 }
 
+/* ─── Coupons + sales (draft carts) ───────────────────────────────────────── */
+
+/** Reason → friendly nudge; gap/combo reasons interpolate engine payloads. */
+function promoNudge(d: PromoDroppedDecision): string {
+  const entry = strings.orderDetail.promoReason[d.reason];
+  if (typeof entry === "function") {
+    if (d.reason === "min_subtotal" && d.gap_amount != null) {
+      return entry(formatPrice(d.gap_amount));
+    }
+    if (d.reason === "missing_requirement" && d.missing_requirement) {
+      const mr = d.missing_requirement;
+      // resolved names when the engine sent them, raw slugs otherwise
+      const names = d.missing_labels?.length
+        ? d.missing_labels
+        : [
+            ...(mr.garment_slugs ?? []),
+            ...(mr.component_slugs ?? []),
+            ...(mr.variation_slugs ?? []),
+            ...(mr.variation_type_slugs ?? []),
+            ...(mr.addon_slugs ?? []),
+            ...(mr.addon_variation_slugs ?? []),
+          ];
+      if (names.length) return entry(names.join(" + "));
+    }
+    return strings.orderDetail.promoGenericError;
+  }
+  return entry ?? strings.orderDetail.promoGenericError;
+}
+
+/** "25% off" / "₹500 off" from a sale's discount fields. */
+function saleDiscountLabel(sale: ActiveSale): string | null {
+  if (sale.discount_type === "percent" && sale.value != null) return `${sale.value}% off`;
+  if (sale.discount_type === "flat" && sale.value != null) return `${formatPrice(sale.value)} off`;
+  return null; // price_override — the cart math speaks for itself
+}
+
+/** The top live sale, as a banner above the coupon box. */
+function SaleBanner({ sale }: { sale: ActiveSale }) {
+  const discount = saleDiscountLabel(sale);
+  return (
+    <div className="mt-3 flex items-center gap-3 rounded-card bg-warm-sand/70 p-3">
+      <span className="rounded-pill bg-ink-navy px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-chalk-white">
+        {strings.orderDetail.saleBadge}
+      </span>
+      <span className="min-w-0 flex-1 text-body font-medium text-ink-navy">
+        {sale.labels?.en ?? strings.orderDetail.saleBadge}
+        {discount ? <span className="text-muted"> · {discount}</span> : null}
+      </span>
+      {sale.ends_at ? (
+        <span className="flex-none text-caption text-muted">
+          {strings.orderDetail.saleEnds(formatDate(sale.ends_at))}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Coupon box — one chip per held code, an always-available input to add
+ * more. The backend only holds codes that actually discount (it prunes
+ * dead ones on every apply/remove/revalidate), so a chip always means
+ * subtracting. An add that doesn't discount is answered with its reason
+ * as an error under the input and the code stays drafted right there —
+ * never a chip, never a success line; refreshing simply clears it. The
+ * error line only ever speaks about the code just typed (bug e), never
+ * about a sale that lost the stacking pick.
+ */
+function PromoCard({
+  orderId,
+  appliedCodes,
+  refresh,
+}: {
+  orderId: string;
+  appliedCodes: string[];
+  refresh: () => Promise<void>;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  // which code a busy in-flight remove is taking (drives the button label)
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [justAdded, setJustAdded] = useState<string | null>(null);
+  const [nudge, setNudge] = useState<string | null>(null);
+  // why the last ADD failed — red, under the input; the code stays drafted
+  const [error, setError] = useState<string | null>(null);
+
+  const add = async (next: string) => {
+    if (busy) return;
+    const target = next.trim().toUpperCase();
+    if (!target) return;
+    setBusy(true);
+    setNudge(null);
+    setError(null);
+    try {
+      const out = await promotionsApi.applyOrderPromo(orderId, target);
+      // a code that doesn't discount is rejected, not held — keep it
+      // drafted in the input with the reason as an error underneath
+      const mine = pickDroppedForNudge(target, out.dropped);
+      // hold every confirmation until the refreshed totals paint — the
+      // "applied" line used to land ~5s before the payment summary it
+      // describes (2026-09-07)
+      await refresh();
+      if (mine) {
+        setError(strings.orderDetail.promoNotApplicable(target, promoNudge(mine)));
+        setJustAdded(null);
+      } else {
+        setJustAdded(target);
+        setCode("");
+      }
+    } catch {
+      setError(strings.orderDetail.promoGenericError);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeOne = async (target: string) => {
+    if (busy) return;
+    setBusy(true);
+    setRemoving(target);
+    setNudge(null);
+    setError(null);
+    try {
+      await promotionsApi.removeOrderPromo(orderId, target);
+      await refresh();
+      setJustAdded(null);
+    } catch {
+      setNudge(strings.orderDetail.promoGenericError);
+    } finally {
+      setBusy(false);
+      setRemoving(null);
+    }
+  };
+
+  return (
+    <section className="mt-3 rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
+      <p className="eyebrow">{strings.orderDetail.promoTitle}</p>
+      {appliedCodes.length > 0 ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {appliedCodes.map((c) => (
+            <span
+              key={c}
+              className="flex min-w-0 items-center gap-1.5 rounded-pill border border-hairline-strong bg-chalk-white py-1.5 pl-3 pr-1.5 font-mono text-data text-ink-navy"
+            >
+              <Check size={13} className="flex-none text-accent-text" />
+              {c}
+              <button
+                type="button"
+                aria-label={strings.orderDetail.promoRemoveCta}
+                disabled={busy}
+                onClick={() => void removeOne(c)}
+                className="-mr-1 flex h-7 w-7 flex-none items-center justify-center rounded-full text-muted transition-all ease-brand hover:bg-hairline hover:text-ink-navy active:scale-90 disabled:opacity-40"
+              >
+                <Close size={14} />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div className="mt-2 flex items-center gap-2">
+        <input
+          type="text"
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          placeholder={strings.orderDetail.promoPlaceholder}
+          autoCapitalize="characters"
+          autoCorrect="off"
+          disabled={busy}
+          className="min-w-0 flex-1 rounded-pill border border-hairline-strong bg-chalk-white px-3 py-2 font-mono text-data uppercase text-ink outline-none focus:border-accent-text"
+        />
+        <Button
+          variant="secondary"
+          disabled={busy || code.trim() === ""}
+          onClick={() => void add(code.trim())}
+        >
+          {busy
+            ? removing
+              ? strings.orderDetail.promoRemoving
+              : strings.orderDetail.promoApplying
+            : strings.orderDetail.promoApplyCta}
+        </Button>
+      </div>
+      {busy ? (
+        // spans the POST *and* the totals refresh — replaces the
+        // confirmation lines so nothing stale shows while totals catch up
+        <div className="mt-2">
+          <Loader size="sm" label={strings.orderDetail.promoUpdating} />
+        </div>
+      ) : (
+        <>
+          {error ? <p className="mt-2 text-caption text-error-text">{error}</p> : null}
+          {justAdded ? (
+            <p className="mt-2 text-caption text-accent-text">
+              {strings.orderDetail.promoApplied(justAdded)}
+            </p>
+          ) : null}
+          {nudge ? <p className="mt-2 text-caption text-muted">{nudge}</p> : null}
+        </>
+      )}
+    </section>
+  );
+}
+
 function OrderDetailContent() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -448,6 +655,11 @@ function OrderDetailContent() {
   /* ── Selection editing — the same GarmentSelectionSheet the admin
      dashboard uses, persisted through the customer selection endpoints. */
   const [editingGOId, setEditingGOId] = useState<string | null>(null);
+
+  /* ── Promotions — the coupon box + sale banner live on drafts. The sale
+     feed is public and priority-ordered; one banner (the top sale) is
+     plenty next to the coupon input. */
+  const [topSale, setTopSale] = useState<ActiveSale | null>(null);
 
   /* ── Garment removal — allowed while the order is editable (draft through
      the booked visit). Paid orders shrink too: the ledger stays, totals
@@ -514,6 +726,35 @@ function OrderDetailContent() {
     };
   }, [detail]);
 
+  /* ── Active sales — one banner next to the coupon box, drafts only (the
+     only stage a promo evaluates). Keyed to the order's identity + stage so
+     a booked order clears the banner; refreshes that don't change the
+     draft stage don't re-fetch. Banner is decorative — failures stay
+     silent. */
+  /* Live sale banner — fetched while the order is still open for promo
+     changes (draft, or pending: library/MYOD orders booked but unpaid, whose
+     Pay moment is their checkout). Keyed to the order's identity + stage so
+     a paid order clears the banner; refreshes that don't change the stage
+     don't re-fetch. Banner is decorative — failures stay silent. */
+  const detailId = detail?.id;
+  const detailStage = detail?.fulfillment_status;
+  useEffect(() => {
+    if (detailStage !== "draft" && detailStage !== "pending") {
+      setTopSale(null);
+      return;
+    }
+    let cancelled = false;
+    promotionsApi
+      .listActiveSales()
+      .then((out) => {
+        if (!cancelled) setTopSale(out.sales[0] ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [detailId, detailStage]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -541,6 +782,29 @@ function OrderDetailContent() {
     if (!bootstrapped) return;
     void load();
   }, [bootstrapped, load]);
+
+  /* ── Background promo revalidation ─────────────────────────────────────
+     The detail GET is a pure read (fast paint), so a coupon whose
+     conditions changed since the last write (expired, paused, combo unmet
+     after a cart edit) would keep showing as applied. Right after the
+     first paint we quietly ask the engine to re-check and swap in the
+     refreshed detail — never blocking or flickering the load state.
+     Once per mount, still-open orders only; failures are ignored (the
+     stale view simply persists until the next interaction). */
+  const revalidated = useRef(false);
+  useEffect(() => {
+    if (revalidated.current || !detail) return;
+    const status = detail.fulfillment_status;
+    if (status !== "draft" && status !== "pending") {
+      revalidated.current = true; // closed orders are frozen history
+      return;
+    }
+    revalidated.current = true;
+    promotionsApi
+      .revalidateOrderPromos(detail.id)
+      .then(setDetail)
+      .catch(() => {});
+  }, [detail]);
 
   /* ── Loading / error states ──────────────────────────────────────────── */
   if (loading) {
@@ -577,6 +841,10 @@ function OrderDetailContent() {
 
   /* ── Detail ──────────────────────────────────────────────────────────── */
   const isDraft = detail.fulfillment_status === "draft";
+  // Promo surface mirrors the server gate: coupons/sale nudges live on open
+  // orders — drafts, and pending (library/MYOD) orders whose Pay moment is
+  // still ahead of them.
+  const canPromo = isDraft || detail.fulfillment_status === "pending";
   // Selection editing mirrors the server gate exactly: garments stay
   // editable until the visit concludes. Money no longer locks edits — a
   // paid order that grows re-derives balance_due; one that shrinks
@@ -1135,6 +1403,18 @@ function OrderDetailContent() {
         <Banner variant="error" className="mt-3">
           <p className="text-caption">{removeError}</p>
         </Banner>
+      )}
+
+      {/* Coupon + live sale — the promo surface lives on open orders only
+          (draft or pending); once paid, the applied discount already shows
+          in the summary rows. */}
+      {canPromo && topSale && <SaleBanner sale={topSale} />}
+      {canPromo && (
+        <PromoCard
+          orderId={detail.id}
+          appliedCodes={appliedPromoCodes(detail.applied_promo_codes, detail.applied_promo_code)}
+          refresh={refreshDetail}
+        />
       )}
 
       {/* Order-level adjustments + payment summary */}

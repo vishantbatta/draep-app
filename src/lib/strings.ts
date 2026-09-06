@@ -371,6 +371,41 @@ export const strings = {
     total: "Order total",
     paid: "Paid",
     balanceDue: "Balance due",
+    // ─── Coupon box (draft only) ───────────────────────────────────────────
+    promoTitle: "Coupon",
+    promoPlaceholder: "Enter code",
+    promoApplyCta: "Apply",
+    promoApplying: "Applying…",
+    // apply/remove is followed by a totals refresh; this spans BOTH —
+    // the confirmation below must land WITH the adjusted payment summary
+    promoUpdating: "Updating order total…",
+    promoApplied: (code: string) => `${code} applied`,
+    // why a typed code was refused — the reason comes from promoNudge()
+    promoNotApplicable: (code: string, reason: string) =>
+      `${code} can't be applied — ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`,
+    promoRemoveCta: "Remove",
+    promoRemoving: "Removing…",
+    promoGenericError: "Couldn't apply the coupon. Please try again.",
+    // Reason → nudge copy; gap/missing interpolate the engine's payloads.
+    promoReason: {
+      invalid_code: "That code doesn't exist. Check the spelling?",
+      not_started: "This offer hasn't started yet.",
+      expired: "This offer has expired.",
+      inactive: "This offer is currently paused.",
+      disabled: "Offers are temporarily disabled.",
+      min_subtotal: (gap: string) => `Add ${gap} more to your order to unlock this coupon.`,
+      area: "This offer isn't available in your area.",
+      missing_requirement: (slugs: string) =>
+        `Add ${slugs} to your order to unlock this coupon.`,
+      no_target: "This coupon doesn't apply to anything in your order.",
+      superseded: "A better offer is already applied to this order.",
+      limit_reached: "This offer has been fully claimed.",
+      payment_method: "This coupon is only valid on prepaid (online) payments.",
+      first_order_only: "This coupon is only for a customer's first order.",
+    } as Record<string, string | ((arg: string) => string)>,
+    // ─── Sale banner (live auto-applied sales) ────────────────────────────
+    saleBadge: "Offer",
+    saleEnds: (when: string) => `Ends ${when}`,
     paymentsTitle: "Payments",
     refund: "Refund",
     paymentMethod: (method: string | null) =>

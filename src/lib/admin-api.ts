@@ -2409,6 +2409,196 @@ export async function deleteShortLink(id: string): Promise<void> {
   await adminFetch<void>(`/admin/short-links/${id}`, { method: "DELETE" });
 }
 
+// ─── Promotions (Configure → Promotions admin sub-tab) ──────────────────────
+
+/** Mirror of the backend's JSONB `scope` (unknown keys pass through). */
+export interface PromotionScope {
+  target?: "order" | "garment" | "component" | "addon";
+  garment_slugs?: string[];
+  component_slugs?: string[];
+  addon_slugs?: string[];
+  /** Leaf-level narrows (blank = every line of the component / add-on). */
+  variation_slugs?: string[];
+  variation_type_slugs?: string[];
+  addon_variation_slugs?: string[];
+  service_area_ids?: string[];
+  pincodes?: string[];
+  first_order_only?: boolean;
+  payment_methods?: string[];
+  requires?: PromotionRequiresGroup[];
+  [key: string]: unknown;
+}
+
+/** One combo requirement group — ALL groups must hold for the promo to apply.
+ * Blank keys don't filter; a garment order counts only if it passes every
+ * named filter (garment / component-selection leaf / add-on, group M). */
+export interface PromotionRequiresGroup {
+  garment_slugs?: string[];
+  component_slugs?: string[];
+  variation_slugs?: string[];
+  variation_type_slugs?: string[];
+  addon_slugs?: string[];
+  addon_variation_slugs?: string[];
+  min_qty?: number;
+}
+
+export interface Promotion {
+  id: string;
+  kind: string | null; // "coupon" | "sale"
+  code: string | null;
+  labels: Record<string, string> | null;
+  descriptions: Record<string, string> | null;
+  discount_type: string | null; // "percent" | "flat" | "price_override"
+  value: number | null; // percent: 1-100 · flat/price_override: paise
+  min_subtotal: number | null; // paise
+  scope: PromotionScope | null;
+  max_quantity: number | null;
+  priority: number | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  usage_limit_total: number | null;
+  usage_limit_per_user: number | null;
+  is_active: boolean | null;
+  /** Within-kind stacking (coupons with coupons / sales with sales).
+   *  null/undefined = stackable (the default). */
+  is_stackable: boolean | null;
+}
+
+export interface PromotionList {
+  promotions: Promotion[];
+  total: number;
+}
+
+export interface PromotionCreateInput {
+  kind: "coupon" | "sale";
+  code?: string | null; // required for coupons, forbidden for sales
+  labels?: Record<string, string> | null;
+  descriptions?: Record<string, string> | null;
+  discount_type: "percent" | "flat" | "price_override";
+  value: number; // percent: 1-100 · flat/price_override: paise (> 0)
+  min_subtotal?: number | null;
+  scope?: PromotionScope | null;
+  max_quantity?: number | null;
+  priority?: number;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  usage_limit_total?: number | null;
+  usage_limit_per_user?: number | null;
+  is_active?: boolean;
+  is_stackable?: boolean;
+}
+
+/** Fields explicitly present are written — null clears the optional ones. */
+export interface PromotionUpdateInput {
+  /** Immutable after create — never sent by the admin UI. */
+  kind?: "coupon" | "sale";
+  code?: string | null;
+  labels?: Record<string, string> | null;
+  descriptions?: Record<string, string> | null;
+  discount_type?: "percent" | "flat" | "price_override";
+  value?: number;
+  min_subtotal?: number | null;
+  scope?: PromotionScope | null;
+  max_quantity?: number | null;
+  priority?: number;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  usage_limit_total?: number | null;
+  usage_limit_per_user?: number | null;
+  is_active?: boolean;
+  is_stackable?: boolean;
+}
+
+export async function listPromotions(): Promise<PromotionList> {
+  return adminFetch<PromotionList>("/admin/promotions");
+}
+
+export async function createPromotion(input: PromotionCreateInput): Promise<Promotion> {
+  return adminFetch<Promotion>("/admin/promotions", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updatePromotion(
+  id: string,
+  input: PromotionUpdateInput,
+): Promise<Promotion> {
+  return adminFetch<Promotion>(`/admin/promotions/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deletePromotion(id: string): Promise<void> {
+  await adminFetch<void>(`/admin/promotions/${id}`, { method: "DELETE" });
+}
+
+/** One fresh unused coupon code, shaped by the promo settings (prefix/length). */
+export async function generatePromoCode(): Promise<string> {
+  const data = await adminFetch<{ code: string }>("/admin/promotions/generate-code", {
+    method: "POST",
+  });
+  return data.code;
+}
+
+// ─── Promo picker options (bottom sheets in the promo form) ─────────────────
+
+/** One tier of the picker tree — `slug` is exactly what a scope stores. */
+export interface PromoOptionNode {
+  slug: string;
+  label: string;
+  price: number | null; // rupees
+  children: PromoOptionNode[]; // garments → components → variations → types
+  garment_slug?: string | null; // add-on nodes: parent garment (null = global add-on)
+  garment_label?: string | null;
+}
+
+/** Service areas key by id — the scope stores area ids. */
+export interface PromoServiceAreaOption {
+  id: string;
+  label: string;
+  city: string | null;
+  pincodes: string[];
+}
+
+export interface PromoOptions {
+  garments: PromoOptionNode[];
+  addons: PromoOptionNode[]; // children = addon variations
+  service_areas: PromoServiceAreaOption[];
+}
+
+/** Every slug/id the promo scope can reference, in one payload. */
+export async function fetchPromoOptions(): Promise<PromoOptions> {
+  return adminFetch<PromoOptions>("/admin/promotions/options");
+}
+
+// ─── Promo settings (Configure → Promo Settings sub-tab) ────────────────────
+
+export interface PromoSettings {
+  global_enabled: boolean | null;
+  stacking_mode: string | null; // "single" | "multi"
+  max_stack: number | null; // 1-10, applies when stacking_mode = multi
+  rounding_mode: string | null; // "half_up" | "floor"
+  code_prefix: string | null;
+  code_length: number | null; // 3-16
+}
+
+/** GET creates nothing — defaults come back until the first PUT. */
+export async function getPromoSettings(): Promise<PromoSettings> {
+  return adminFetch<PromoSettings>("/admin/promo-settings");
+}
+
+/** Upsert the singleton — only sent fields change. */
+export async function updatePromoSettings(
+  input: Partial<PromoSettings>,
+): Promise<PromoSettings> {
+  return adminFetch<PromoSettings>("/admin/promo-settings", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 // ─── Admin AI content (descriptions + images) ────────────────────────────────
 
 export type AiEntityType =
