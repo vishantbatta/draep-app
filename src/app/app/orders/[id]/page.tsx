@@ -64,6 +64,7 @@ import {
   Calendar,
   ChatBubble,
   Check,
+  ChevronDown,
   Clock,
   Close,
   HomeVisit,
@@ -139,21 +140,33 @@ function SummaryRow({
   label,
   value,
   strong = false,
+  large = false,
 }: {
   label: string;
   value: string;
   strong?: boolean;
+  large?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-1.5">
-      <span className={strong ? "font-heading text-body text-ink-navy" : "text-body text-ink/85"}>
+    <div className={`flex items-center justify-between gap-3 ${large ? "py-2" : "py-1.5"}`}>
+      <span
+        className={
+          large
+            ? "font-heading text-h2 text-ink-navy"
+            : strong
+              ? "font-heading text-body text-ink-navy"
+              : "text-body text-ink/85"
+        }
+      >
         {label}
       </span>
       <span
         className={
-          strong
-            ? "font-heading font-semibold text-body text-ink-navy"
-            : "font-mono text-data text-ink-navy"
+          large
+            ? "font-heading font-semibold text-h2 text-ink-navy"
+            : strong
+              ? "font-heading font-semibold text-body text-ink-navy"
+              : "font-mono text-data text-ink-navy"
         }
       >
         {value}
@@ -656,6 +669,18 @@ function OrderDetailContent() {
      dashboard uses, persisted through the customer selection endpoints. */
   const [editingGOId, setEditingGOId] = useState<string | null>(null);
 
+  /* ── Garment card collapse — collapsed by default (a compact title row
+     with quick edit/remove); expanding reveals the full breakdown. */
+  const [expandedGOIds, setExpandedGOIds] = useState<Set<string>>(new Set());
+  const toggleGarmentCard = (garmentOrderId: string) => {
+    setExpandedGOIds((cur) => {
+      const next = new Set(cur);
+      if (next.has(garmentOrderId)) next.delete(garmentOrderId);
+      else next.add(garmentOrderId);
+      return next;
+    });
+  };
+
   /* ── Promotions — the coupon box + sale banner live on drafts. The sale
      feed is public and priority-ordered; one banner (the top sale) is
      plenty next to the coupon input. */
@@ -875,6 +900,11 @@ function OrderDetailContent() {
     .join(" · ");
 
   const orderAdjustments = detail.adjustments.filter((a) => a.amount !== 0);
+  // The stored total is already net of the adjustment rows (discounts
+  // subtracted, fees added) — adding them back recovers the pre-adjustment
+  // top line the payment summary leads with.
+  const grossTotal =
+    (detail.total_price ?? 0) - orderAdjustments.reduce((sum, a) => sum + a.amount, 0);
   const payments = detail.transactions.filter(
     (t) =>
       (t.type === "payment" && t.status === "captured") ||
@@ -1234,22 +1264,60 @@ function OrderDetailContent() {
         </section>
       )}
 
-      {/* Garment orders — the full breakdown */}
+      {/* Garment orders — the full breakdown. Each card is collapsed by
+          default to a compact title row (quick edit + remove) plus the
+          inspiration photos; tapping the title expands it. */}
       {detail.garment_orders.map((g, gi) => {
         const selections = g.items.filter((i) => i.type === "selection");
         const addons = g.items.filter((i) => i.type === "add_on");
+        const collapsed = !expandedGOIds.has(g.id);
         return (
           <section
             key={g.id}
             className="mt-3 rounded-card border border-hairline bg-chalk-white p-4 shadow-card"
           >
             <div className="flex items-center justify-between gap-3">
-              <h2 className="font-heading text-h3 text-ink-navy">
-                {g.garment_label ?? "Garment"}
-                {detail.garment_orders.length > 1 ? ` ${gi + 1}` : ""}
+              {/* The title toggles the card; the chevron mirrors the state. */}
+              <h2 className="min-w-0">
+                <button
+                  type="button"
+                  aria-expanded={!collapsed}
+                  onClick={() => toggleGarmentCard(g.id)}
+                  className="flex items-center gap-1.5 rounded-pill text-left"
+                >
+                  <span className="font-heading text-h3 text-ink-navy">
+                    {g.garment_label ?? "Garment"}
+                    {detail.garment_orders.length > 1 ? ` ${gi + 1}` : ""}
+                  </span>
+                  <ChevronDown
+                    size={16}
+                    className={`flex-none text-muted transition-transform duration-200 ${collapsed ? "" : "rotate-180"}`}
+                  />
+                </button>
               </h2>
               <span className="flex flex-none items-center gap-2">
-                {g.status && <StatusPill status={g.status} kind="fulfillment" />}
+                {/* Collapsed swaps the status pill for a quick-edit pencil —
+                    it opens the selection sheet and re-expands the card. */}
+                {collapsed && selectionsEditable && g.garment_id && (
+                  <button
+                    type="button"
+                    aria-label={strings.orderDetail.selectionsEditCta}
+                    onClick={() => {
+                      setExpandedGOIds((cur) => {
+                        const next = new Set(cur);
+                        next.add(g.id);
+                        return next;
+                      });
+                      setEditingGOId(g.id);
+                    }}
+                    className="flex h-7 w-7 items-center justify-center rounded-pill text-muted transition-all ease-brand active:scale-90"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                )}
+                {!collapsed && g.status && (
+                  <StatusPill status={g.status} kind="fulfillment" />
+                )}
                 {/* Remove — never on the last garment (the order is
                     cancelled instead); paid orders shrink the same way and
                     the CTA re-derives. */}
@@ -1259,7 +1327,7 @@ function OrderDetailContent() {
                     aria-label={strings.orderDetail.removeGarmentCta}
                     disabled={removingGOId !== null}
                     onClick={() => void handleRemoveGarment(g.id)}
-                    className="flex h-7 w-7 items-center justify-center rounded-pill text-muted transition-all ease-brand hover:bg-warm-sand hover:text-accent-text active:scale-90 disabled:opacity-40"
+                    className="flex h-7 w-7 items-center justify-center rounded-pill text-muted transition-all ease-brand active:scale-90 disabled:opacity-40"
                   >
                     <Trash size={14} />
                   </button>
@@ -1267,95 +1335,133 @@ function OrderDetailContent() {
               </span>
             </div>
 
-            {selections.length > 0 && (
+            {/* Collapsed keeps the inspiration photos on screen — a compact
+                view-only strip (taps open the fullscreen viewer); the upload
+                surface stays in the expanded view below. */}
+            {collapsed && g.assets.length > 0 && (
+              <InspirationGallery
+                orderId={detail.id}
+                garmentOrderId={g.id}
+                assets={g.assets}
+                editable={false}
+                compact
+                onUploaded={() => {
+                  void refreshDetail();
+                }}
+              />
+            )}
+
+            {/* Everything else below the header hides while collapsed — the
+                breakdown, note, uploadable inspiration, and per-garment
+                prices. */}
+            {!collapsed && (
               <>
-                <p className="eyebrow mt-4">{strings.orderDetail.selectionsTitle}</p>
-                <div className="mt-1">
-                  {selections.map((item, idx) => (
-                    <ItemRow key={idx} item={item} />
-                  ))}
+                {selections.length > 0 && (
+                  <>
+                    <p className="eyebrow mt-4">
+                      {strings.orderDetail.selectionsTitle}
+                    </p>
+                    <div className="mt-1">
+                      {selections.map((item, idx) => (
+                        <ItemRow key={idx} item={item} />
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {addons.length > 0 && (
+                  <>
+                    <p className="eyebrow mt-4">{strings.orderDetail.addonsTitle}</p>
+                    <div className="mt-1">
+                      {addons.map((item, idx) => (
+                        <ItemRow key={idx} item={item} />
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* Edit selections — same sheet + flow as the admin dashboard's
+                    edit-selections, persisted via the customer endpoints. Only
+                    while no money has moved (paid orders are locked). */}
+                {selectionsEditable && g.garment_id && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditingGOId((cur) => (cur === g.id ? null : g.id))
+                    }
+                    className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-[0.98] active:bg-mist-navy"
+                  >
+                    <Pencil size={14} />
+                    {editingGOId === g.id
+                      ? strings.orderDetail.selectionsCloseCta
+                      : strings.orderDetail.selectionsEditCta}
+                  </button>
+                )}
+
+                {/* Customer note — the customer's message for the style
+                    captain. Editable at every order state; MYOD orders start
+                    empty (the design itself lives in the selection rows). */}
+                {g.user_note ? (
+                  <div className="mt-4 flex items-start gap-2 rounded-card bg-warm-sand/70 p-3">
+                    <Thread size={16} className="mt-0.5 text-accent-text" />
+                    <p className="min-w-0 flex-1 whitespace-pre-line break-words text-body text-ink">
+                      <span className="text-caption text-muted">
+                        {strings.orderDetail.noteTitle} —{" "}
+                      </span>
+                      {g.user_note}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => openNoteEditor(g.id, g.user_note)}
+                      className="flex-none rounded-pill px-2 py-1 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-95 active:bg-mist-navy"
+                    >
+                      {strings.orderDetail.noteEditCta}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => openNoteEditor(g.id, null)}
+                    className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-[0.98] active:bg-mist-navy"
+                  >
+                    <Thread size={14} />
+                    {strings.orderDetail.noteAddCta}
+                  </button>
+                )}
+
+                {/* Design inspiration — the images (MYOD renders + uploads) the
+                    tailor receives with the design. Uploads allowed while the
+                    design is still editable (no money moved). */}
+                <InspirationGallery
+                  orderId={detail.id}
+                  garmentOrderId={g.id}
+                  assets={g.assets}
+                  editable={selectionsEditable}
+                  onUploaded={() => {
+                    void refreshDetail();
+                  }}
+                />
+
+                <div className="mt-4 border-t border-hairline pt-2">
+                  <SummaryRow
+                    label={strings.orderDetail.basePrice}
+                    value={formatPrice(g.base_price ?? 0)}
+                  />
+                  <SummaryRow
+                    label={strings.orderDetail.garmentTotal}
+                    value={formatPrice(g.total_price ?? 0)}
+                    strong
+                  />
                 </div>
               </>
             )}
-
-            {addons.length > 0 && (
-              <>
-                <p className="eyebrow mt-4">{strings.orderDetail.addonsTitle}</p>
-                <div className="mt-1">
-                  {addons.map((item, idx) => (
-                    <ItemRow key={idx} item={item} />
-                  ))}
-                </div>
-              </>
-            )}
-
-            {/* Edit selections — same sheet + flow as the admin dashboard's
-                edit-selections, persisted via the customer endpoints. Only
-                while no money has moved (paid orders are locked). */}
-            {selectionsEditable && g.garment_id && (
-              <button
-                type="button"
-                onClick={() =>
-                  setEditingGOId((cur) => (cur === g.id ? null : g.id))
-                }
-                className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-[0.98] active:bg-mist-navy"
-              >
-                <Pencil size={14} />
-                {editingGOId === g.id
-                  ? strings.orderDetail.selectionsCloseCta
-                  : strings.orderDetail.selectionsEditCta}
-              </button>
-            )}
-
-            {/* Customer note — the customer's message for the style
-                captain. Editable at every order state; MYOD orders start
-                empty (the design itself lives in the selection rows). */}
-            {g.user_note ? (
-              <div className="mt-4 flex items-start gap-2 rounded-card bg-warm-sand/70 p-3">
-                <Thread size={16} className="mt-0.5 text-accent-text" />
-                <p className="min-w-0 flex-1 whitespace-pre-line break-words text-body text-ink">
-                  <span className="text-caption text-muted">
-                    {strings.orderDetail.noteTitle} —{" "}
-                  </span>
-                  {g.user_note}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => openNoteEditor(g.id, g.user_note)}
-                  className="flex-none rounded-pill px-2 py-1 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-95 active:bg-mist-navy"
-                >
-                  {strings.orderDetail.noteEditCta}
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => openNoteEditor(g.id, null)}
-                className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-card border border-dashed border-hairline-strong px-3 py-2.5 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-[0.98] active:bg-mist-navy"
-              >
-                <Thread size={14} />
-                {strings.orderDetail.noteAddCta}
-              </button>
-            )}
-
-            {/* Design inspiration — the images (MYOD renders + uploads) the
-                tailor receives with the design. Uploads allowed while the
-                design is still editable (no money moved). */}
-            <InspirationGallery
-              orderId={detail.id}
-              garmentOrderId={g.id}
-              assets={g.assets}
-              editable={selectionsEditable}
-              onUploaded={() => {
-                void refreshDetail();
-              }}
-            />
 
             {/* The selection editor — identical UX to the admin dashboard
                 (catalog tree, component pills, add-on matrix), saving through
                 the customer selection endpoints instead of the admin tables.
                 Prices never round-trip: totals re-derive server-side and the
-                refetch repaints the card. */}
+                refetch repaints the card. Rendered outside the collapse guard
+                so the collapsed pencil can still open this overlay. */}
             {selectionsEditable && g.garment_id && (
               <GarmentSelectionSheet
                 open={editingGOId === g.id}
@@ -1370,18 +1476,6 @@ function OrderDetailContent() {
                 }}
               />
             )}
-
-            <div className="mt-4 border-t border-hairline pt-2">
-              <SummaryRow
-                label={strings.orderDetail.basePrice}
-                value={formatPrice(g.base_price ?? 0)}
-              />
-              <SummaryRow
-                label={strings.orderDetail.garmentTotal}
-                value={formatPrice(g.total_price ?? 0)}
-                strong
-              />
-            </div>
           </section>
         );
       })}
@@ -1421,28 +1515,40 @@ function OrderDetailContent() {
       <section className="mt-3 rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
         <p className="eyebrow">{strings.orderDetail.summaryTitle}</p>
         <div className="mt-2">
-          {/* Order total leads — adjustments (COD fee, discounts) follow it,
-              then the ledger rows. */}
+          {/* Order total leads with the pre-adjustment sum; discounts and
+              fees follow as signed rows, so the card reads top-down:
+              gross − discounts + fees − paid = balance due. */}
           <SummaryRow
             label={strings.orderDetail.total}
-            value={formatPrice(detail.total_price ?? 0)}
+            value={formatPrice(grossTotal)}
             strong
           />
           {orderAdjustments.map((a, idx) => (
             <SummaryRow
               key={idx}
-              label={a.label ?? (a.type === "discount" ? "Discount" : "Adjustment")}
+              label={
+                a.label ??
+                (a.type === "discount"
+                  ? "Discount"
+                  : a.type === "fee"
+                    ? "Fee"
+                    : "Adjustment")
+              }
               value={`${a.amount < 0 ? "−" : "+"}${formatPrice(Math.abs(a.amount))}`}
             />
           ))}
-          <SummaryRow
-            label={strings.orderDetail.paid}
-            value={formatPrice(detail.paid_amount)}
-          />
-          <SummaryRow
-            label={strings.orderDetail.balanceDue}
-            value={formatPrice(detail.balance_due)}
-          />
+          {/* Ledger rows sit below the price build-up, balance due emphasized. */}
+          <div className="mt-1 border-t border-hairline pt-1">
+            <SummaryRow
+              label={strings.orderDetail.paid}
+              value={formatPrice(detail.paid_amount)}
+            />
+            <SummaryRow
+              label={strings.orderDetail.balanceDue}
+              value={formatPrice(detail.balance_due)}
+              large
+            />
+          </div>
         </div>
       </section>
 

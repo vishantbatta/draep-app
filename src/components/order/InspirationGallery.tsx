@@ -53,7 +53,8 @@ function assetSrc(url: string): string {
  * renders + the customer's own uploads) the tailor receives with the design.
  * Owns its upload flow (multipart → customer inspiration endpoint) and tells
  * the parent to refetch; view-only when editable is false (paid orders are
- * locked).
+ * locked). In compact mode it degrades to a read-only thumbnail strip — the
+ * collapsed garment card keeps the photos visible without the upload surface.
  */
 export function InspirationGallery({
   orderId,
@@ -61,12 +62,16 @@ export function InspirationGallery({
   assets,
   editable,
   onUploaded,
+  compact = false,
 }: {
   orderId: string;
   garmentOrderId: string;
   assets: string[];
   editable: boolean;
   onUploaded: () => void;
+  /** Read-only thumbnail strip for a collapsed garment card — no header,
+   *  no upload tile; taps still open the fullscreen viewer. */
+  compact?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -121,53 +126,67 @@ export function InspirationGallery({
   }, [lightbox]);
 
   return (
-    <div className="mt-4">
-      <p className="text-eyebrow uppercase tracking-wider text-accent-text">
-        {strings.orderDetail.inspirationTitle}
-        {items.length > 0 ? ` (${items.length})` : ""}
-      </p>
-      <p className="mt-1 text-[11px] leading-snug text-muted">
-        {strings.orderDetail.inspirationTailorNote}
-      </p>
+    <div className={compact ? "mt-2.5" : "mt-4"}>
+      {!compact && (
+        <>
+          <p className="text-eyebrow uppercase tracking-wider text-accent-text">
+            {strings.orderDetail.inspirationTitle}
+            {items.length > 0 ? ` (${items.length})` : ""}
+          </p>
+          <p className="mt-1 text-[11px] leading-snug text-muted">
+            {strings.orderDetail.inspirationTailorNote}
+          </p>
 
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        accept="image/jpeg,image/png,image/webp"
-        className="hidden"
-        onChange={(e) => {
-          void handleFiles(e.target.files);
-          e.target.value = ""; // reset so the same file can be re-selected
-        }}
-      />
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              void handleFiles(e.target.files);
+              e.target.value = ""; // reset so the same file can be re-selected
+            }}
+          />
+        </>
+      )}
 
-      <div className="mt-2 grid grid-cols-4 gap-2">
+      {/* Compact = one scrollable row of small squares (collapsed card);
+          full = the 4-column grid with the upload tile. */}
+      <div
+        className={
+          compact ? "flex gap-2 overflow-x-auto" : "mt-2 grid grid-cols-4 gap-2"
+        }
+      >
         {items.map((raw, i) => (
           <button
             key={`${raw}-${i}`}
             type="button"
             onClick={() => setLightbox({ src: assetSrc(raw), index: i })}
             aria-label={`View inspiration photo ${i + 1}`}
-            className="overflow-hidden rounded-card border border-hairline bg-mist-navy/20 transition ease-brand active:scale-[0.97]"
+            className={`${compact ? "flex-none " : ""}overflow-hidden rounded-card border border-hairline bg-mist-navy/20 transition ease-brand active:scale-[0.97]`}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={assetSrc(raw)}
               alt={`Design inspiration ${i + 1}`}
-              className="aspect-square w-full object-contain"
+              className={
+                compact
+                  ? "h-14 w-14 object-contain"
+                  : "aspect-square w-full object-contain"
+              }
               loading="lazy"
             />
           </button>
         ))}
 
-        {uploading && (
+        {!compact && uploading && (
           <div className="flex aspect-square items-center justify-center rounded-card border border-hairline bg-mist-navy/20">
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-ink-navy border-t-transparent" />
           </div>
         )}
 
-        {editable && !uploading && (
+        {!compact && editable && !uploading && (
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
@@ -182,7 +201,7 @@ export function InspirationGallery({
         )}
       </div>
 
-      {items.length === 0 && !editable && !uploading && (
+      {!compact && items.length === 0 && !editable && !uploading && (
         <p className="mt-2 text-[11px] text-muted">
           {strings.orderDetail.inspirationEmpty}
         </p>
