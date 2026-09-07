@@ -685,6 +685,8 @@ function OrderDetailContent() {
      feed is public and priority-ordered; one banner (the top sale) is
      plenty next to the coupon input. */
   const [topSale, setTopSale] = useState<ActiveSale | null>(null);
+  // global kill switch — while promotions are off the coupon input goes too
+  const [promosEnabled, setPromosEnabled] = useState(true);
 
   /* ── Garment removal — allowed while the order is editable (draft through
      the booked visit). Paid orders shrink too: the ledger stays, totals
@@ -772,7 +774,10 @@ function OrderDetailContent() {
     promotionsApi
       .listActiveSales()
       .then((out) => {
-        if (!cancelled) setTopSale(out.sales[0] ?? null);
+        if (!cancelled) {
+          setTopSale(out.sales[0] ?? null);
+          setPromosEnabled(out.promotions_enabled);
+        }
       })
       .catch(() => {});
     return () => {
@@ -1288,8 +1293,8 @@ function OrderDetailContent() {
                     className="flex items-center gap-1.5 rounded-pill text-left"
                   >
                     <span className="font-heading text-h3 text-ink-navy">
+                      {detail.garment_orders.length > 1 ? `${gi + 1}. ` : ""}
                       {g.garment_label ?? "Garment"}
-                      {detail.garment_orders.length > 1 ? ` ${gi + 1}` : ""}
                     </span>
                     <ChevronDown
                       size={16}
@@ -1508,10 +1513,11 @@ function OrderDetailContent() {
       )}
 
       {/* Coupon + live sale — the promo surface lives on open orders only
-          (draft or pending); once paid, the applied discount already shows
-          in the summary rows. */}
+          (draft or pending), and disappears entirely while the global
+          promotions switch is off; once paid, the applied discount
+          already shows in the summary rows. */}
       {canPromo && topSale && <SaleBanner sale={topSale} />}
-      {canPromo && (
+      {canPromo && promosEnabled && (
         <PromoCard
           orderId={detail.id}
           appliedCodes={appliedPromoCodes(detail.applied_promo_codes, detail.applied_promo_code)}

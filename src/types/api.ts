@@ -407,6 +407,8 @@ export interface ActiveSale {
 
 export interface ActiveSalesOut {
   sales: ActiveSale[];
+  /** Global kill switch — false hides the whole promo surface (banner + coupon input). */
+  promotions_enabled: boolean;
 }
 
 export interface OrderTransaction {
