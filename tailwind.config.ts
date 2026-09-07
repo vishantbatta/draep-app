@@ -38,6 +38,7 @@ const config: Config = {
         "navy-bg": "var(--navy-bg)",
         "orange-highlight": "var(--orange-highlight)",
         "orange-fill": "var(--orange-fill)",
+        "orange-badge-bg": "var(--orange-badge-bg)",
         "warm-bg": "var(--warm-bg)",
 
         // Semantic — Brand Book §4

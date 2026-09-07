@@ -370,7 +370,7 @@ export const strings = {
     summaryTitle: "Payment summary",
     total: "Order total",
     paid: "Paid",
-    balanceDue: "Balance due",
+    balanceDue: "To be paid",
     // ─── Coupon box (draft only) ───────────────────────────────────────────
     promoTitle: "Coupon",
     promoPlaceholder: "Enter code",
@@ -457,9 +457,7 @@ export const strings = {
     payAdvancePrefix: "Pay",
     payAdvanceSuffix: "in Advance",
     saveTag: (amount: string) => `Save ${amount}`,
-    // Garments stay editable until the visit concludes — add another design
-    // (routes to Explore; its order flow appends it here) or remove one.
-    addGarmentCta: "Add another garment",
+    // Garments stay editable until the visit concludes — remove one below.
     removeGarmentCta: "Remove garment",
     removeGarmentError: "Could not remove the garment. Please try again.",
     removeGarmentConfirm:

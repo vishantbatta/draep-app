@@ -53,7 +53,7 @@ import {
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
-import { OrderStatusRows, StatusPill } from "@/components/order/OrderStatus";
+import { OrderStatusPills, StatusPill } from "@/components/order/OrderStatus";
 import { ScreenShell } from "@/components/layout/ScreenShell";
 import { Banner } from "@/components/ui/Banner";
 import { BottomSheet } from "@/components/ui/BottomSheet";
@@ -148,24 +148,24 @@ function SummaryRow({
   large?: boolean;
 }) {
   return (
-    <div className={`flex items-center justify-between gap-3 ${large ? "py-2" : "py-1.5"}`}>
+    <div className={`flex items-baseline justify-between gap-3 ${large ? "py-2" : "py-1.5"}`}>
       <span
         className={
-          large
-            ? "font-heading text-h2 text-ink-navy"
-            : strong
-              ? "font-heading text-body text-ink-navy"
-              : "text-body text-ink/85"
+          large || strong
+            ? "text-body font-medium text-ink-navy"
+            : "text-body text-ink/85"
         }
       >
         {label}
       </span>
+      {/* The money column reads as one ledger — mono data font for every
+          line value; Poppins is reserved for the final large total. */}
       <span
         className={
           large
             ? "font-heading font-semibold text-h2 text-ink-navy"
             : strong
-              ? "font-heading font-semibold text-body text-ink-navy"
+              ? "font-mono text-data font-medium text-ink-navy"
               : "font-mono text-data text-ink-navy"
         }
       >
@@ -463,13 +463,16 @@ function saleDiscountLabel(sale: ActiveSale): string | null {
 function SaleBanner({ sale }: { sale: ActiveSale }) {
   const discount = saleDiscountLabel(sale);
   return (
-    <div className="mt-3 flex items-center gap-3 rounded-card bg-warm-sand/70 p-3">
-      <span className="rounded-pill bg-ink-navy px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-chalk-white">
+    <div className="mt-3 flex items-center gap-3 rounded-card border border-orange-fill bg-orange-badge-bg p-3 shadow-card">
+      <span className="flex flex-none items-center gap-1 rounded-pill bg-tape px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wide text-chalk-white shadow-primary">
+        <Sparkles size={11} aria-hidden />
         {strings.orderDetail.saleBadge}
       </span>
       <span className="min-w-0 flex-1 text-body font-medium text-ink-navy">
         {sale.labels?.en ?? strings.orderDetail.saleBadge}
-        {discount ? <span className="text-muted"> · {discount}</span> : null}
+        {discount ? (
+          <span className="font-heading font-bold text-accent-text"> · {discount}</span>
+        ) : null}
       </span>
       {sale.ends_at ? (
         <span className="flex-none text-caption text-muted">
@@ -1195,26 +1198,27 @@ function OrderDetailContent() {
         </div>
       </div>
 
-      {/* Header */}
-      <header className="mt-2">
+      {/* Header + statuses — one squeezed card: order number and placed
+          date share the top line, status pills run on a single line below. */}
+      <header className="mt-3 rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
         <p className="eyebrow">{strings.orderDetail.title}</p>
-        <h1 className="mt-1 font-heading text-h1 text-ink-navy">
-          <MonoNumber>{displayOrderNumber(detail.order_number, detail.id)}</MonoNumber>
-        </h1>
-        {detail.created_at && (
-          <p className="mt-1 text-caption text-muted">
-            Placed {formatDate(detail.created_at)}
-          </p>
-        )}
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+          <h1 className="font-heading text-h1 text-ink-navy">
+            <MonoNumber>{displayOrderNumber(detail.order_number, detail.id)}</MonoNumber>
+          </h1>
+          {detail.created_at && (
+            <p className="text-caption text-muted">
+              Placed {formatDate(detail.created_at)}
+            </p>
+          )}
+        </div>
+        <div className="mt-2">
+          <OrderStatusPills
+            fulfillmentStatus={detail.fulfillment_status}
+            paymentStatus={detail.payment_status}
+          />
+        </div>
       </header>
-
-      {/* Statuses — separate labelled rows, like the dashboard cards */}
-      <section className="mt-4 rounded-card border border-hairline bg-chalk-white p-4 shadow-card">
-        <OrderStatusRows
-          fulfillmentStatus={detail.fulfillment_status}
-          paymentStatus={detail.payment_status}
-        />
-      </section>
 
       {/* Home visit + address + the style captain's measurement job(s) */}
       {(visit || addressLine1 || detail.measurement_jobs.length > 0) && (
@@ -1493,19 +1497,6 @@ function OrderDetailContent() {
         })}
       </section>
 
-      {/* Add another garment — routes to Explore; the design's order flow
-          offers appending it to this order (one visit for everything). */}
-      {selectionsEditable && (
-        <button
-          type="button"
-          onClick={() => router.push("/app/explore")}
-          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-card border border-dashed border-hairline-strong px-3 py-3 text-caption font-semibold text-navy-interactive transition-all ease-brand active:scale-[0.98] active:bg-mist-navy"
-        >
-          <Plus size={14} />
-          {strings.orderDetail.addGarmentCta}
-        </button>
-      )}
-
       {removeError && (
         <Banner variant="error" className="mt-3">
           <p className="text-caption">{removeError}</p>
@@ -1551,12 +1542,13 @@ function OrderDetailContent() {
               value={`${a.amount < 0 ? "−" : "+"}${formatPrice(Math.abs(a.amount))}`}
             />
           ))}
-          {/* Ledger rows sit below the price build-up, balance due emphasized. */}
-          <div className="mt-1 border-t border-hairline pt-1">
-            <SummaryRow
-              label={strings.orderDetail.paid}
-              value={formatPrice(detail.paid_amount)}
-            />
+          {/* Invoice-style ledger: price build-up and paid rows run as plain
+              ledger lines, then a hairline, then the emphasized balance. */}
+          <SummaryRow
+            label={strings.orderDetail.paid}
+            value={formatPrice(detail.paid_amount)}
+          />
+          <div className="mt-1.5 border-t border-hairline pt-2">
             <SummaryRow
               label={strings.orderDetail.balanceDue}
               value={formatPrice(detail.balance_due)}
