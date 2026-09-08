@@ -15,6 +15,7 @@ import {
   type PaymentStatus,
   type FilterNode,
 } from "@/lib/admin-api";
+import { orderPromoCodes } from "@/lib/admin-promo-ui";
 import { NewOrderSheet } from "./NewOrderSheet";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -610,7 +611,15 @@ export default function OrdersListPage() {
                           <StatusBadge value={order.payment_status} />
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-[13px]">
-                          {formatPrice(order.total_price)}
+                          <div>{formatPrice(order.total_price)}</div>
+                          {orderPromoCodes(order).length > 0 && (
+                            <div
+                              title={`Coupon applied: ${orderPromoCodes(order).join(", ")}`}
+                              className="mt-0.5 inline-flex items-center gap-1 rounded-pill bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-violet-700"
+                            >
+                              🎟 {orderPromoCodes(order).join(" · ")}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-[13px]">
                           {formatPrice(order.advance_amount)}

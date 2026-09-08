@@ -808,6 +808,14 @@ export interface OrderRow {
   acquisition_medium?: string | null;
   acquisition_term?: string | null;
   acquisition_content?: string | null;
+  /**
+   * Coupon codes finalized at placement — the generic tables API returns
+   * every column at runtime, so rows carry these even though older callers
+   * never typed them. Sales don't appear here (no code); they only live in
+   * order_adjustments rows.
+   */
+  applied_promo_codes?: string[] | string | null;
+  applied_promo_code?: string | null;
 }
 
 /** Safely render an order's `slot` value as a string, regardless of
@@ -1096,6 +1104,51 @@ export const updateOrderAdjustment = (
 ) => updateTableRow("order_adjustments", id, patch as Record<string, unknown>);
 export const deleteOrderAdjustment = (id: string) =>
   deleteTableRow("order_adjustments", id);
+
+export interface AdminPromoResyncOut {
+  order_id: string;
+  fulfillment_status: string;
+  /** True when the engine ran — open orders only; closed orders are frozen. */
+  synced: boolean;
+  total_price: number;
+}
+
+/**
+ * One-shot promo resync — the healing pass the customer app fires after
+ * first paint, exposed for the admin order page. Stamps promotions created
+ * after the order's last engine sync (checkout/payment/coupon touch) onto
+ * open orders; placed orders come back synced=false, untouched.
+ */
+export async function resyncOrderPromos(orderId: string): Promise<AdminPromoResyncOut> {
+  return adminFetch<AdminPromoResyncOut>(`/admin/orders/${orderId}/promo/resync`, {
+    method: "POST",
+  });
+}
+
+export interface AdminPromoApplyOut {
+  applied_code: string | null;
+  applied_codes: string[];
+  applied: unknown[];
+  /** Why a code didn't stick — an unknown/ineligible code is a result, not
+   *  an HTTP error (same always-200 contract as the customer endpoint). */
+  dropped: { reason: string; code: string | null; gap_amount?: number | null }[];
+  total_amount: number;
+}
+
+/**
+ * Apply a coupon code on the admin order page (Grand-total section).
+ * Coupons only — sale-kind codes are refused by the engine (422), and
+ * placed orders are frozen (409).
+ */
+export async function applyOrderCoupon(
+  orderId: string,
+  code: string,
+): Promise<AdminPromoApplyOut> {
+  return adminFetch<AdminPromoApplyOut>(`/admin/orders/${orderId}/promo`, {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
 
 /** Fetch all style captains (users holding the style_captain role). */
 export async function fetchStyleCaptains(): Promise<UserRow[]> {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   fetchTableRows,
@@ -32,6 +32,9 @@ import {
   createOrderAdjustment,
   updateOrderAdjustment,
   deleteOrderAdjustment,
+  resyncOrderPromos,
+  applyOrderCoupon,
+  getPromoSettings,
   fetchGarmentTree,
   catalogLabel,
   formatOrderSlot,
@@ -55,6 +58,13 @@ import {
   type AdminSlotOption,
   type OrderAdjustmentRow,
 } from "@/lib/admin-api";
+import {
+  canApplyCoupon,
+  canDeleteAdjustment,
+  couponDropText,
+  promoSourceBadge,
+  shouldAdminResync,
+} from "@/lib/admin-promo-ui";
 import { ACQUISITION_FIELDS } from "@/lib/acquisition";
 import { SlotPicker } from "@/components/admin/SlotPicker";
 import { Chip } from "@/components/ui/Chip";
@@ -948,6 +958,15 @@ export default function OrderDetailPage() {
   );
   // Admin discounts/fees. garment_order_id === null => whole-order scope.
   const [adjustments, setAdjustments] = useState<OrderAdjustmentRow[]>([]);
+  // Coupon apply (Grand total section) — open orders only.
+  const [couponCode, setCouponCode] = useState("");
+  const [couponBusy, setCouponBusy] = useState(false);
+  const [couponMsg, setCouponMsg] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
+  // null = not fetched yet / fetch failed → treated as enabled; only an
+  // explicit global_enabled=false hides the coupon input.
+  const [promoEnabled, setPromoEnabled] = useState<boolean | null>(null);
   const [garments, setGarments] = useState<GarmentRow[]>([]);
   const [garmentMap, setGarmentMap] = useState<Map<string, GarmentRow>>(
     new Map(),
@@ -1207,6 +1226,38 @@ export default function OrderDetailPage() {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  // ── Background promo resync ────────────────────────────────────────────────
+  /* The page is a pure reader of order rows, so a promotion created after
+     the order's last engine sync (checkout, payment, coupon touch) would
+     never land here — the customer app heals this on its own order page,
+     admin had no equivalent. Right after the first paint we quietly ask
+     the engine to re-check (open orders only; placed orders are frozen
+     history) and refresh just the order row + adjustments — never the
+     whole page, so nothing flashes. Once per mount; failures are ignored
+     (the stale view simply persists until the next interaction). */
+  const resynced = useRef(false);
+  useEffect(() => {
+    if (resynced.current || !order) return;
+    resynced.current = true;
+    if (!shouldAdminResync(order.fulfillment_status)) return;
+
+    resyncOrderPromos(orderId)
+      .then(async (out) => {
+        if (!out.synced) return;
+        const [{ rows }, adj] = await Promise.all([
+          fetchTableRows<OrderRow>("orders", { filters: { id: orderId }, perPage: 1 }),
+          fetchOrderAdjustments(orderId),
+        ]);
+        if (rows[0]) setOrder(rows[0]);
+        setAdjustments(adj);
+      })
+      .catch(() => {});
+    // Kill-switch gate for the coupon input, same once-per-mount pass.
+    getPromoSettings()
+      .then((s) => setPromoEnabled(s.global_enabled !== false))
+      .catch(() => {});
+  }, [order, orderId]);
 
   // ── Load items for garment orders ──────────────────────────────────────────
   // Backstop only: loadAll() now fetches every GO's items in the same render
@@ -1557,6 +1608,47 @@ export default function OrderDetailPage() {
     }
   }
 
+  /** Apply a coupon code through the promo engine (Grand-total section).
+   *  Same slice-refresh as the background resync — order row + adjustments
+   *  only, never the whole page. Non-2xx (sale code, frozen order) lands in
+   *  the message line; a 200 that didn't stick renders the drop reason. */
+  async function handleApplyCoupon() {
+    const code = couponCode.trim();
+    if (!code || couponBusy) return;
+    setCouponBusy(true);
+    setCouponMsg(null);
+    try {
+      const out = await applyOrderCoupon(orderId, code);
+      const [{ rows }, adj] = await Promise.all([
+        fetchTableRows<OrderRow>("orders", { filters: { id: orderId }, perPage: 1 }),
+        fetchOrderAdjustments(orderId),
+      ]);
+      if (rows[0]) setOrder(rows[0]);
+      setAdjustments(adj);
+      if (out.applied_code) {
+        setCouponCode("");
+        setCouponMsg({
+          ok: true,
+          text: `${out.applied_code} applied — total ${formatPrice(out.total_amount)}`,
+        });
+      } else {
+        setCouponMsg({
+          ok: false,
+          text: couponDropText(
+            out.dropped[0] ?? { reason: "invalid_code", code: null },
+          ),
+        });
+      }
+    } catch (e) {
+      setCouponMsg({
+        ok: false,
+        text: e instanceof Error ? e.message : "Could not apply the coupon.",
+      });
+    } finally {
+      setCouponBusy(false);
+    }
+  }
+
   /** Reusable adjustments list + add-row. garmentOrderId=null => order scope. */
   function renderAdjustmentBlock(
     scopeKey: string,
@@ -1594,6 +1686,11 @@ export default function OrderDetailPage() {
               const amt = a.amount ?? 0;
               const isDiscount = amt < 0 || a.type === "discount";
               const rowBusy = adjBusy === a.id;
+              // Distinguish engine-authored rows from admin-authored ones —
+              // coupon/sale/cod all render as a bare "Discount"/"Fee" pill
+              // otherwise. Coupon badge carries the applied code.
+              const badge = promoSourceBadge(a.source, a.source_ref);
+              const deletable = canDeleteAdjustment(a, order?.fulfillment_status);
               return (
                 <div
                   key={a.id}
@@ -1611,6 +1708,19 @@ export default function OrderDetailPage() {
                     >
                       {isDiscount ? "Discount" : "Fee"}
                     </span>
+                    {badge && (
+                      <span
+                        className={`rounded-pill px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
+                          badge.kind === "coupon"
+                            ? "bg-violet-50 text-violet-700"
+                            : badge.kind === "sale"
+                              ? "bg-sky-50 text-sky-700"
+                              : "bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {badge.text}
+                      </span>
+                    )}
                     <span className="truncate text-xs text-ink">
                       {adjustmentLabel(a.label)}
                     </span>
@@ -1623,28 +1733,44 @@ export default function OrderDetailPage() {
                     >
                       {formatPrice(amt)}
                     </span>
-                    <button
-                      onClick={() => handleDeleteAdjustment(a.id)}
-                      disabled={rowBusy || !!adjBusy}
-                      title="Remove adjustment"
-                      aria-label="Remove adjustment"
-                      className="flex h-5 w-5 items-center justify-center rounded text-red-500 transition hover:bg-red-50 disabled:opacity-40"
-                    >
-                      {rowBusy ? (
-                        <svg
-                          className="h-3 w-3 animate-spin text-muted"
-                          viewBox="0 0 16 16"
-                          fill="none"
-                        >
-                          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-                          <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                        </svg>
-                      ) : (
+                    {deletable ? (
+                      <button
+                        onClick={() => handleDeleteAdjustment(a.id)}
+                        disabled={rowBusy || !!adjBusy}
+                        title="Remove adjustment"
+                        aria-label="Remove adjustment"
+                        className="flex h-5 w-5 items-center justify-center rounded text-red-500 transition hover:bg-red-50 disabled:opacity-40"
+                      >
+                        {rowBusy ? (
+                          <svg
+                            className="h-3 w-3 animate-spin text-muted"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                          >
+                            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                            <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          </svg>
+                        ) : (
+                          <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none">
+                            <path d="M3 5h10M6 5V3.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V5M5 5l.5 8a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1l.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </button>
+                    ) : (
+                      <span
+                        title={
+                          a.source === "sale"
+                            ? "Sale discounts are applied automatically by the promotions engine — they can't be deleted. Disable the sale, or add a manual adjustment to change this total."
+                            : "Promotion adjustments are frozen once the order is placed — the discount was finalized with the customer. Add a manual adjustment to change the total."
+                        }
+                        className="flex h-5 w-5 items-center justify-center text-muted"
+                      >
                         <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none">
-                          <path d="M3 5h10M6 5V3.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V5M5 5l.5 8a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1l.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                          <rect x="3.5" y="7" width="9" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.3" />
+                          <path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                         </svg>
-                      )}
-                    </button>
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -3308,6 +3434,52 @@ export default function OrderDetailPage() {
                     Order adjustments
                   </div>
                   {renderAdjustmentBlock("order", null)}
+                  {/* Coupon apply — open orders only (placed orders finalized
+                      their discounts); hidden while the kill switch is off. */}
+                  {canApplyCoupon(order?.fulfillment_status, promoEnabled !== false) && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-hairline-strong px-2.5 py-2">
+                      <span className="font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-navy/50">
+                        Coupon
+                      </span>
+                      <input
+                        type="text"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleApplyCoupon();
+                        }}
+                        disabled={couponBusy}
+                        placeholder="Code (e.g. DRAEP500)"
+                        className="min-w-[8rem] flex-1 rounded-md border border-hairline bg-white px-2 py-1 font-mono text-xs text-ink disabled:opacity-60"
+                      />
+                      <button
+                        onClick={handleApplyCoupon}
+                        disabled={couponBusy || !couponCode.trim()}
+                        className="flex items-center gap-1.5 rounded-md bg-ink-navy px-2.5 py-1 text-xs font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {couponBusy ? (
+                          <>
+                            <svg className="h-3 w-3 animate-spin" viewBox="0 0 16 16" fill="none">
+                              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
+                              <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                            </svg>
+                            Applying…
+                          </>
+                        ) : (
+                          "Apply"
+                        )}
+                      </button>
+                      {couponMsg && (
+                        <span
+                          className={`w-full text-[11px] ${
+                            couponMsg.ok ? "text-green-700" : "text-red-600"
+                          }`}
+                        >
+                          {couponMsg.text}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Reconciliation strip — shows the additive path so the math
