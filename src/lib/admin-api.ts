@@ -302,6 +302,7 @@ export interface Variation {
   not_ideal_for: string[] | null;
   price: number | null;
   default_type_id: string | null;
+  is_material_needed: boolean | null;
 }
 
 export interface VariationCreateInput {
@@ -315,6 +316,7 @@ export interface VariationCreateInput {
   not_ideal_for?: string[] | null;
   price?: number | null;
   default_type_id?: string | null;
+  is_material_needed?: boolean | null;
 }
 
 export interface VariationUpdateInput {
@@ -328,6 +330,7 @@ export interface VariationUpdateInput {
   not_ideal_for?: string[] | null;
   price?: number | null;
   default_type_id?: string | null;
+  is_material_needed?: boolean | null;
 }
 
 export async function createVariation(input: VariationCreateInput): Promise<Variation> {
@@ -361,6 +364,7 @@ export interface VariationType {
   ideal_for: string[] | null;
   not_ideal_for: string[] | null;
   price: number | null;
+  is_material_needed: boolean | null;
 }
 
 export interface VariationTypeCreateInput {
@@ -373,6 +377,7 @@ export interface VariationTypeCreateInput {
   ideal_for?: string[] | null;
   not_ideal_for?: string[] | null;
   price?: number | null;
+  is_material_needed?: boolean | null;
 }
 
 export interface VariationTypeUpdateInput {
@@ -385,6 +390,7 @@ export interface VariationTypeUpdateInput {
   ideal_for?: string[] | null;
   not_ideal_for?: string[] | null;
   price?: number | null;
+  is_material_needed?: boolean | null;
 }
 
 export async function createVariationType(input: VariationTypeCreateInput): Promise<VariationType> {
@@ -421,6 +427,7 @@ export interface Addon {
   default_variation_id: string | null;
   is_default_on: boolean | null;
   price: number | null;
+  is_material_needed: boolean | null;
 }
 
 export interface AddonCreateInput {
@@ -436,6 +443,7 @@ export interface AddonCreateInput {
   default_variation_id?: string | null;
   is_default_on?: boolean | null;
   price?: number | null;
+  is_material_needed?: boolean | null;
 }
 
 export interface AddonUpdateInput {
@@ -451,6 +459,7 @@ export interface AddonUpdateInput {
   default_variation_id?: string | null;
   is_default_on?: boolean | null;
   price?: number | null;
+  is_material_needed?: boolean | null;
 }
 
 export async function createAddon(input: AddonCreateInput): Promise<Addon> {
@@ -489,6 +498,7 @@ export interface AddonVariation {
   /** placement-specific pricing axis; null = applies at every placement */
   placement: string | null;
   price: number | null;
+  is_material_needed: boolean | null;
 }
 
 export interface AddonVariationCreateInput {
@@ -505,6 +515,7 @@ export interface AddonVariationCreateInput {
   color?: string | null;
   placement?: string | null;
   price?: number | null;
+  is_material_needed?: boolean | null;
 }
 
 export interface AddonVariationUpdateInput {
@@ -521,6 +532,7 @@ export interface AddonVariationUpdateInput {
   color?: string | null;
   placement?: string | null;
   price?: number | null;
+  is_material_needed?: boolean | null;
 }
 
 export async function createAddonVariation(input: AddonVariationCreateInput): Promise<AddonVariation> {

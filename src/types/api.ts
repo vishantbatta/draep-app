@@ -85,6 +85,7 @@ export interface VariationTypeOut {
   ideal_for: string[] | null;
   not_ideal_for: string[] | null;
   price: number | null;
+  is_material_needed: boolean | null;
 }
 
 export interface VariationOut {
@@ -97,6 +98,7 @@ export interface VariationOut {
   not_ideal_for: string[] | null;
   price: number | null;
   default_type_id: string | null;
+  is_material_needed: boolean | null;
   variation_types: VariationTypeOut[];
 }
 
@@ -126,6 +128,7 @@ export interface AddonVariationOut {
   /** placement-specific pricing axis; null = applies at every placement */
   placement: string | null;
   price: number | null;
+  is_material_needed: boolean | null;
 }
 
 export interface AddonOut {
@@ -140,6 +143,7 @@ export interface AddonOut {
   is_default_on: boolean | null;
   default_variation_id: string | null;
   price: number | null;
+  is_material_needed: boolean | null;
   variations: AddonVariationOut[];
 }
 

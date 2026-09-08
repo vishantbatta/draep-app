@@ -57,6 +57,7 @@ import {
   ConfirmDelete,
   ReorderableCardGrid,
 } from "./_shared/catalogue-helpers";
+import { materialBadge, toMaterialChecked } from "./_shared/material-flag";
 import { AddonMatrixModal } from "./AddonMatrixModal";
 import { EntityMetricsSection } from "./_shared/EntityMetricsSection";
 import {
@@ -783,6 +784,8 @@ function CataloguePageInner() {
                       if (a.type) b.push({ label: a.type, variant: "accent" });
                       if (a.price != null) b.push({ label: `+\u20B9${a.price}`, variant: "positive" });
                       if (a.is_default_on) b.push({ label: "Default", variant: "positive" });
+                      const material = materialBadge(a.is_material_needed);
+                      if (material) b.push(material);
                       return b;
                     }}
                     onReorder={(reordered) => {
@@ -833,6 +836,8 @@ function CataloguePageInner() {
                     badges={(v) => {
                       const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
                       if (v.price != null) b.push({ label: `\u20B9${v.price}`, variant: "positive" });
+                      const material = materialBadge(v.is_material_needed);
+                      if (material) b.push(material);
                       return b;
                     }}
                     onReorder={(reordered) => {
@@ -873,6 +878,8 @@ function CataloguePageInner() {
                       if (a.type) b.push({ label: a.type, variant: "accent" });
                       if (a.price != null) b.push({ label: `+\u20B9${a.price}`, variant: "positive" });
                       if (a.is_default_on) b.push({ label: "Default", variant: "positive" });
+                      const material = materialBadge(a.is_material_needed);
+                      if (material) b.push(material);
                       return b;
                     }}
                   />
@@ -907,6 +914,8 @@ function CataloguePageInner() {
                   badges={(t) => {
                     const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
                     if (t.price != null) b.push({ label: `\u20B9${t.price}`, variant: "positive" });
+                    const material = materialBadge(t.is_material_needed);
+                    if (material) b.push(material);
                     return b;
                   }}
                   onReorder={(reordered) => {
@@ -968,6 +977,8 @@ function CataloguePageInner() {
                     if (v.size) b.push({ label: v.size });
                     if (v.placement) b.push({ label: `@ ${v.placement}`, variant: "accent" });
                     if (v.price != null) b.push({ label: `\u20B9${v.price}`, variant: "positive" });
+                    const material = materialBadge(v.is_material_needed);
+                    if (material) b.push(material);
                     return b;
                   }}
                   onReorder={(reordered) => {
@@ -1091,6 +1102,7 @@ function CatalogueFormModal({
   const [importance, setImportance] = useState<string>((d?.importance as string) ?? "");
   const [type, setType] = useState<string>((d?.type as string) ?? "");
   const [isDefaultOn, setIsDefaultOn] = useState<boolean>((d?.is_default_on as boolean) ?? false);
+  const [isMaterialNeeded, setIsMaterialNeeded] = useState<boolean>(toMaterialChecked(d?.is_material_needed));
   const [placementsList, setPlacementsList] = useState<string[]>(
     () => (Array.isArray(d?.placements) ? (d!.placements as string[]) : []),
   );
@@ -1422,6 +1434,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               default_type_id: defaultTypeId || null,
+              is_material_needed: isMaterialNeeded,
             });
           } else {
             const id = d!.id as string;
@@ -1433,6 +1446,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               default_type_id: defaultTypeId || null,
+              is_material_needed: isMaterialNeeded,
             } as VariationUpdateInput);
           }
           break;
@@ -1449,6 +1463,7 @@ function CatalogueFormModal({
               asset_urls: assetUrls,
               price: priceNum,
               priority_order: priorityNum,
+              is_material_needed: isMaterialNeeded,
             });
           } else {
             const id = d!.id as string;
@@ -1459,6 +1474,7 @@ function CatalogueFormModal({
               asset_urls: assetUrls,
               price: priceNum,
               priority_order: priorityNum,
+              is_material_needed: isMaterialNeeded,
             } as VariationTypeUpdateInput);
           }
           break;
@@ -1489,6 +1505,7 @@ function CatalogueFormModal({
             placements: effectivePlacements.length > 0 ? effectivePlacements : null,
             price: priceNum,
             is_default_on: isDefaultOn,
+            is_material_needed: isMaterialNeeded,
             default_variation_id: defaultAddonVariationId || null,
             priority_order: priorityNum,
           };
@@ -1519,6 +1536,7 @@ function CatalogueFormModal({
               placement: placement || null,
               price: priceNum,
               priority_order: priorityNum,
+              is_material_needed: isMaterialNeeded,
             });
           } else {
             const id = d!.id as string;
@@ -1535,6 +1553,7 @@ function CatalogueFormModal({
               placement: placement || null,
               price: priceNum,
               priority_order: priorityNum,
+              is_material_needed: isMaterialNeeded,
             } as AddonVariationUpdateInput);
           }
           break;
@@ -1688,6 +1707,11 @@ function CatalogueFormModal({
             <Field label="Priority Order">
               <TextInput value={priority} onChange={setPriority} type="number" placeholder="0" />
             </Field>
+            <Field label="Material Needed?">
+              <div className="flex h-[38px] items-center">
+                <MaterialToggle checked={isMaterialNeeded} onChange={setIsMaterialNeeded} />
+              </div>
+            </Field>
           </div>
         )}
 
@@ -1750,6 +1774,11 @@ function CatalogueFormModal({
                   />
                   <span className="text-[13px] text-ink-navy">Enabled by default</span>
                 </label>
+              </Field>
+              <Field label="Material Needed?">
+                <div className="flex h-[38px] items-center">
+                  <MaterialToggle checked={isMaterialNeeded} onChange={setIsMaterialNeeded} />
+                </div>
               </Field>
             </div>
 
@@ -1944,6 +1973,11 @@ function CatalogueFormModal({
             <Field label="Priority Order">
               <TextInput value={priority} onChange={setPriority} type="number" placeholder="0" />
             </Field>
+            <Field label="Material Needed?">
+              <div className="flex h-[38px] items-center">
+                <MaterialToggle checked={isMaterialNeeded} onChange={setIsMaterialNeeded} />
+              </div>
+            </Field>
           </div>
         )}
 
@@ -1996,3 +2030,30 @@ function CatalogueFormModal({
 // ═══════════════════════════════════════════════════════════════════════════════
 // Small form helpers
 // ═══════════════════════════════════════════════════════════════════════════════
+
+function MaterialToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label="Material needed"
+      onClick={() => onChange(!checked)}
+      className={`tap relative inline-flex h-5 w-9 flex-none items-center rounded-pill transition-colors duration-200 ${
+        checked ? "bg-ink-navy" : "bg-hairline-strong"
+      }`}
+    >
+      <span
+        className={`absolute h-3 w-3 transform rounded-full bg-chalk-white shadow-card transition-transform duration-200 ease-brand ${
+          checked ? "translate-x-5" : "translate-x-1"
+        }`}
+      />
+    </button>
+  );
+}
