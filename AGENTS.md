@@ -46,10 +46,11 @@ The shared Postgres URL points to the **production database**.
 
 ---
 
-## 🧹 Test Files Policy
+## 🧹 Test Files & Test Data Policy
 
-- Always generate test files **fresh** — do not reuse old ones.
-- **Delete all generated test files** once the task is complete **and approved by the user**.
+- **Never reuse existing test files** — always create your own fresh files for testing.
+- When committing changes: **delete every test file you generated**.
+- When committing changes: **delete all testing data you generated** (e.g. test orders, users, or any other records created for testing).
 
 ---
 
@@ -57,10 +58,10 @@ The shared Postgres URL points to the **production database**.
 
 | Role | Credentials |
 | ---- | ----------- |
-| **Admin** | `admin@draep.com` / `draeptothemoon` |
+| **Admin** | `admin@draep.com` / `draepadmintothemoon` |
 | **User** | Phone: `7986147238` — OTP: `1221` (always) |
 | **Style Captain** | `1111111111` / password: `password` |
 
 ---
 
-*Last updated: 2026-08-29*
+*Last updated: 2026-09-09*
