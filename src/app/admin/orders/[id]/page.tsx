@@ -3854,6 +3854,45 @@ export default function OrderDetailPage() {
           <p className="mb-3 text-xs text-muted">
             Choose which sections to include. The cover page always renders.
           </p>
+          {/* Master toggle: one click selects/deselects every section and
+              every garment order. "Select all" when anything is off. */}
+          {(() => {
+            const allSelected =
+              Object.values(pdfOptions).every(Boolean) &&
+              garmentOrders.every((go) => !pdfExcludedGoIds.has(go.id));
+            return (
+              <label className="mb-3 flex cursor-pointer items-center gap-3 rounded-lg border border-hairline bg-mist-navy/20 px-3 py-2.5 transition hover:bg-mist-navy/40">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setPdfOptions((prev) => {
+                        const next = { ...prev };
+                        for (const k of Object.keys(next) as (keyof PdfSectionOptions)[])
+                          next[k] = true;
+                        return next;
+                      });
+                      setPdfExcludedGoIds(new Set());
+                    } else {
+                      setPdfOptions((prev) => {
+                        const next = { ...prev };
+                        for (const k of Object.keys(next) as (keyof PdfSectionOptions)[])
+                          next[k] = false;
+                        return next;
+                      });
+                      setPdfExcludedGoIds(new Set(garmentOrders.map((go) => go.id)));
+                    }
+                  }}
+                  disabled={pdfLoading}
+                  className="h-4 w-4 shrink-0 cursor-pointer accent-ink-navy"
+                />
+                <span className="text-sm font-semibold text-ink-navy">
+                  {allSelected ? "Deselect all" : "Select all"}
+                </span>
+              </label>
+            );
+          })()}
           {(
             [
               {
