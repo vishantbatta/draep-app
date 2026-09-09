@@ -75,6 +75,7 @@ import {
   type StyleItemDetail,
 } from "@/lib/job-pdf";
 import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
+import type { MaterialsRequiredSourceItem } from "@/lib/materials-required";
 import { GarmentSelectionSheet } from "@/components/admin/GarmentSelectionSheet";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { GarmentOrderAssets } from "./GarmentOrderAssets";
@@ -1033,6 +1034,7 @@ export default function OrderDetailPage() {
     measurementDetails: true,
     designDetails: true,
     fabricDetails: true,
+    materialsRequired: true,
     invoice: true,
   });
   // Garment orders the user DESELECTED in the PDF sheet. Empty = include
@@ -2141,6 +2143,64 @@ export default function OrderDetailPage() {
         assetsShared: row.assets_shared,
       }));
 
+      // Materials Required input: each selection resolved against the same
+      // catalogue trees, keeping the is_material_needed flag. The flag is an
+      // OR over the chosen entity and its parent (a flagged variation needs
+      // material even when its type isn't flagged, and vice versa); display
+      // still follows the most specific entity picked. Unresolvable items
+      // carry null → filtered out downstream. Deselected garment orders are
+      // already absent from pdfGoRows.
+      const materialsRequired: MaterialsRequiredSourceItem[] = pdfGoRows.flatMap(
+        (row) =>
+          (itemsByGOId.get(row.id) ?? []).map((it) => {
+            const tree = row.garment_id
+              ? treeByGarmentId.get(row.garment_id)
+              : undefined;
+            if (it.type === "add_on") {
+              const addon = tree?.addons.find((a) => a.id === it.addon_id) ?? null;
+              const addonVariation =
+                addon?.variations.find((v) => v.id === it.addon_variation_id) ?? null;
+              return {
+                garmentOrderId: row.id,
+                garmentLabel: garmentDisplayLabel(row.garment_id),
+                isAddon: true,
+                placement: it.placement ?? null,
+                componentLabels: addon?.labels ?? null,
+                componentDescriptions: addon?.descriptions ?? null,
+                choiceLabels: addonVariation?.labels ?? null,
+                choiceDescriptions: addonVariation?.descriptions ?? null,
+                isMaterialNeeded:
+                  addonVariation?.is_material_needed === true ||
+                  addon?.is_material_needed === true,
+              };
+            }
+            const components = tree?.components ?? [];
+            const component =
+              components.find((c) => c.id === it.garment_style_component_id) ?? null;
+            const variation =
+              component?.variations.find((v) => v.id === it.variation_id) ??
+              null;
+            const variationType =
+              variation?.variation_types.find(
+                (t) => t.id === it.variation_type_id,
+              ) ?? null;
+            const choice = variationType ?? variation;
+            return {
+              garmentOrderId: row.id,
+              garmentLabel: garmentDisplayLabel(row.garment_id),
+              isAddon: false,
+              placement: it.placement ?? null,
+              componentLabels: component?.labels ?? null,
+              componentDescriptions: component?.descriptions ?? null,
+              choiceLabels: choice?.labels ?? null,
+              choiceDescriptions: choice?.descriptions ?? null,
+              isMaterialNeeded:
+                variationType?.is_material_needed === true ||
+                variation?.is_material_needed === true,
+            };
+          }),
+      );
+
       // Invoice input for the embedded invoice page — always built (cheap;
       // reuses already-loaded adjustments + transactions). The page itself is
       // gated by the toggle.
@@ -2155,6 +2215,7 @@ export default function OrderDetailPage() {
           bodyMeasurements: body,
           garmentMeasurements: garments,
           styleSelections: styleGroups,
+          materialsRequired,
           sections: opts,
           invoice,
         },
@@ -3814,6 +3875,11 @@ export default function OrderDetailPage() {
                 key: "fabricDetails" as const,
                 title: "Fabric details",
                 desc: "Cloth/material details, colors, and photos",
+              },
+              {
+                key: "materialsRequired" as const,
+                title: "Materials Required",
+                desc: "Selections needing material from the customer (flagged in the catalogue)",
               },
               {
                 key: "invoice" as const,

@@ -46,6 +46,13 @@ import {
   invoiceUpiUrl,
   type InvoiceInput,
 } from "./invoice-pdf";
+import {
+  planMaterialsPages,
+  toChecklistItem,
+  toMaterialsRequiredRows,
+  type MaterialsChecklistItem,
+  type MaterialsRequiredSourceItem,
+} from "./materials-required";
 
 // Lazily imported inside downloadMeasurementJobPdf so the QR encoder never
 // bloats the main bundle for callers that never build a PDF.
@@ -104,6 +111,10 @@ export interface StyleSelectionGroup {
  *   designDetails      → the per-garment Style Selections table (2.1) and
  *                        Design Inspiration images (2.2)
  *   fabricDetails      → the per-garment Cloth & Materials section (2.4)
+ *   materialsRequired  → the order-level "Materials Required" table (every
+ *                        catalogue selection on this order flagged
+ *                        is_material_needed, i.e. the material the customer
+ *                        must bring; auto-omitted when none qualify)
  *   invoice            → the embedded one-page tax invoice (invoice-pdf.ts
  *                        template — the same invoice the "Download Invoice
  *                        PDF" button produces)
@@ -113,6 +124,7 @@ export interface PdfSectionOptions {
   measurementDetails: boolean;
   designDetails: boolean;
   fabricDetails: boolean;
+  materialsRequired: boolean;
   invoice: boolean;
 }
 
@@ -122,6 +134,7 @@ const ALL_SECTIONS: PdfSectionOptions = {
   measurementDetails: true,
   designDetails: true,
   fabricDetails: true,
+  materialsRequired: true,
   invoice: true,
 };
 
@@ -1170,6 +1183,131 @@ function garmentSectionPages(
 // machinery were folded into the unified per-garment section above when the
 // PDF was restructured — see buildGarmentSectionBlocks / measureGarmentSections.)
 
+// ─── Materials Required section (order-level) ─────────────────────────────
+
+/** Label + intro shared by the probe and the emitter — identical markup
+ *  ⇒ identical measured heights (the label only prints on the first page). */
+const MATERIALS_LABEL_BLOCK = `
+  <div class="style-section-label">${upper("Materials Required")}</div>
+  <div class="gs-note">These selections need material from the customer — tick each one off as you collect it before stitching begins.</div>`;
+
+/** One checklist card: empty tick-box on the left, the entity's details
+ *  compressed into crisp lines on the right (title + add-on badge, garment ·
+ *  placement context, native names, blurb, per-language descriptions). */
+function materialsChecklistItemHtml(item: MaterialsChecklistItem): string {
+  return `
+    <div class="mat-item">
+      <div class="mat-check"></div>
+      <div class="mat-body">
+        <div class="mat-title-row">
+          <div class="mat-title">${esc(item.title)}</div>
+          ${item.isAddon ? `<div class="mat-addon">${upper("Add-on")}</div>` : ""}
+        </div>
+        <div class="mat-context">${esc(item.context)}</div>
+        ${item.native ? `<div class="mat-native">${esc(item.native)}</div>` : ""}
+        ${item.blurb ? `<div class="mat-blurb">${esc(item.blurb)}</div>` : ""}
+        ${item.descs.map((d) => `<div class="mat-desc">${esc(d)}</div>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
+/** Probe-measure the checklist cards in an offscreen document (same pattern
+ *  as measureGarmentSections) and greedy-plan its pages. Returns null when
+ *  there is nothing to render. */
+async function measureMaterialsRequiredSection(
+  items: MaterialsChecklistItem[],
+): Promise<{ pages: number[][] } | null> {
+  if (items.length === 0) return null;
+
+  const holder = document.createElement("div");
+  holder.setAttribute("data-pdf-measure-holder", "");
+  holder.style.position = "fixed";
+  holder.style.zIndex = "-9999";
+  holder.style.left = "-99999px";
+  holder.style.top = "0";
+  holder.style.width = "794px";
+  holder.style.background = "#ffffff";
+  holder.style.pointerEvents = "none";
+  holder.innerHTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><style>${PRINT_CSS}</style></head>
+<body>
+  <section class="page garment-page">
+    <header class="page-header">
+      <h2>${upper("Materials Required")}</h2>
+      <div class="page-num">Page 1 of 1</div>
+    </header>
+    ${MATERIALS_LABEL_BLOCK}
+    <div class="mat-list">${items.map((it) => materialsChecklistItemHtml(it)).join("")}</div>
+    ${gsFooterHtml(1, 1)}
+  </section>
+</body>
+</html>`;
+  document.body.appendChild(holder);
+  try {
+    await nextPaint();
+    const blockH = (el: HTMLElement | null): number => {
+      if (!el) return 0;
+      const cs = getComputedStyle(el);
+      return (
+        el.getBoundingClientRect().height +
+        parseFloat(cs.marginTop) +
+        parseFloat(cs.marginBottom)
+      );
+    };
+    const sec = holder.querySelector<HTMLElement>(".page");
+    if (!sec) return null;
+    // Footer height WITHOUT its margin-top (margin-top:auto filler — see
+    // the same note in measureGarmentSections).
+    const headerH = blockH(sec.querySelector(".page-header"));
+    const footerH =
+      sec.querySelector<HTMLElement>(".report-footer")?.getBoundingClientRect()
+        .height ?? 0;
+    const labelH = blockH(sec.querySelector(".style-section-label")) +
+      blockH(sec.querySelector(".gs-note"));
+    const itemHeights = Array.from(
+      sec.querySelectorAll(".mat-item"),
+    ).map((el) => blockH(el as HTMLElement));
+
+    const budget = GS_PAGE_CONTENT_H - headerH - footerH - GS_SAFETY;
+    return { pages: planMaterialsPages(itemHeights, { budget, labelHeight: labelH }) };
+  } finally {
+    if (holder.parentNode) holder.parentNode.removeChild(holder);
+  }
+}
+
+/** Emit the planned Materials Required pages: header + footer on every page,
+ *  label + intro on the first (matches the planner's accounting exactly —
+ *  checklist cards carry no repeating header). */
+function materialsRequiredPages(
+  items: MaterialsChecklistItem[],
+  pages: number[][],
+  startPageNum: number,
+  totalPageCount: number,
+): { html: string; pages: number } {
+  let pageNum = startPageNum;
+  const html = pages
+    .map((indices, pi) => {
+      const current = pageNum++;
+      return `
+        <section class="page garment-page">
+          <header class="page-header">
+            <h2>${upper("Materials Required")}${pi > 0 ? ` — ${upper("continued")}` : ""}</h2>
+            <div class="page-num">Page ${current} of ${totalPageCount}</div>
+          </header>
+          ${pi === 0 ? MATERIALS_LABEL_BLOCK : ""}
+          <div class="mat-list">${indices
+        .map((ii) => materialsChecklistItemHtml(items[ii]))
+        .join("")}</div>
+          ${gsFooterHtml(current, totalPageCount)}
+        </section>
+      `;
+    })
+    .join("");
+  return { html, pages: pages.length };
+}
+
 // ─── Public entry point ──────────────────────────────────────────────────
 
 export interface JobPdfInput {
@@ -1185,6 +1323,15 @@ export interface JobPdfInput {
    * "Style Selections" page is rendered for each garment order.
    */
   styleSelections?: StyleSelectionGroup[];
+  /**
+   * Optional order-level "Materials Required" input: this order's selections
+   * resolved against their catalogue entities (labels/descriptions + the
+   * entity's is_material_needed flag). Rendered as its own table page(s)
+   * after the per-garment sections, only when `sections.materialsRequired`
+   * is true (default) AND at least one selection is flagged — the page is
+   * auto-omitted otherwise.
+   */
+  materialsRequired?: MaterialsRequiredSourceItem[];
   /**
    * Which sections to include. Omit (or pass all-true) to get the default
    * report. The cover page always renders; these flags only gate the
@@ -1277,7 +1424,7 @@ export async function downloadMeasurementJobPdf(
   // everything about one garment before the next:
   //   1 cover  →  [garment 1: style table + inspiration + measurements +
   //                cloth/materials, flowed over as many pages as needed]…
-  //            →  invoice  →  body measurements
+  //            →  materials required  →  invoice  →  body measurements
   // (Body measurements come LAST: a tailor reads the spec pages first, then
   //  the order-level reading table.)
   const styleGroups = styleSelections ?? [];
@@ -1339,11 +1486,22 @@ export async function downloadMeasurementJobPdf(
       : 0;
   const invoicePages = opts.invoice && invoice ? 1 : 0;
 
-  const totalPages = 1 /* cover */ + garmentPages + invoicePages + bodyPages;
+  // Order-level Materials Required checklist: flagged selections only,
+  // measured and planned like the garment sections so continuation pages count.
+  const materialsItems = opts.materialsRequired
+    ? toMaterialsRequiredRows(input.materialsRequired ?? []).map(toChecklistItem)
+    : [];
+  onProgress?.(0, 1, "Laying out materials required…");
+  const materialsPlan = await measureMaterialsRequiredSection(materialsItems);
+  const materialsPagesCount = materialsPlan ? materialsPlan.pages.length : 0;
+
+  const totalPages =
+    1 /* cover */ + garmentPages + materialsPagesCount + invoicePages + bodyPages;
 
   // Page-number offsets (cover is page 1); the garment middle pages all come
-  // before the invoice and body sections.
-  const invoiceStart = 2 + garmentPages;
+  // before the materials, invoice and body sections.
+  const materialsStart = 2 + garmentPages;
+  const invoiceStart = materialsStart + materialsPagesCount;
   const bodyStart = invoiceStart + invoicePages;
 
   // Emit each garment section's pages in order. The section builder stamps
@@ -1376,6 +1534,23 @@ export async function downloadMeasurementJobPdf(
     }
   }
 
+  // Materials Required pages flow between the garment sections and the
+  // invoice. Their labels append to middleLabels so the assembly loop's
+  // ternary (cover / middle / body) picks them up without further math.
+  const materialsSections: string[] = [];
+  if (materialsPlan) {
+    const out = materialsRequiredPages(
+      materialsItems,
+      materialsPlan.pages,
+      materialsStart,
+      totalPages,
+    );
+    materialsSections.push(out.html);
+    for (let ci = 0; ci < out.pages; ci++) {
+      middleLabels.push(`Materials required${ci > 0 ? " (cont.)" : ""}`);
+    }
+  }
+
   const fullHtml = `<!doctype html>
 <html lang="en">
 <head>
@@ -1388,6 +1563,7 @@ export async function downloadMeasurementJobPdf(
 <body>
   ${coverPage(job, customer, order, voiceNote, opts.customerDetails, address)}
   ${middleSections.join("")}
+  ${materialsSections.join("")}
   ${bodySections.join("")}
 </body>
 </html>`;
@@ -2486,6 +2662,83 @@ const PRINT_CSS = `
     margin-top: 3pt;
   }
   .gs-desc-line:first-child { margin-top: 0; }
+
+  /* ─── Materials Required checklist (order-level) ─────────────────────────
+     One card per flagged selection: tick-box + crisp detail lines. Same
+     html2canvas constraints as everywhere: no text-transform (upper() at
+     source), flex children instead of inline-block pills, explicit sizes.
+     The card's margin-bottom is included in its measured height (blockH in
+     measureMaterialsRequiredSection), so the planner accounts for the
+     inter-card gap; the last card's trailing margin is absorbed by
+     GS_SAFETY. */
+  .mat-list { margin-top: 2pt; }
+  .mat-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12pt;
+    padding: 12pt 14pt;
+    border: 1pt solid #e2e8f0;
+    border-radius: 6pt;
+    background: #ffffff;
+    margin-bottom: 10pt;
+  }
+  .mat-check {
+    flex: 0 0 auto;
+    width: 13pt;
+    height: 13pt;
+    border: 1.5pt solid #475569;
+    border-radius: 3pt;
+    margin-top: 3pt;
+  }
+  .mat-body { flex: 1 1 auto; }
+  .mat-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10pt;
+  }
+  .mat-title {
+    font-size: 12pt;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.3;
+    word-break: break-word;
+  }
+  .mat-addon {
+    flex: 0 0 auto;
+    font-size: 7.5pt;
+    font-weight: 700;
+    color: #ffffff;
+    background: #6d28d9;
+    padding: 2.5pt 10pt;
+    border-radius: 3pt;
+    white-space: nowrap;
+    letter-spacing: 0;
+  }
+  .mat-context {
+    font-size: 9pt;
+    color: #475569;
+    line-height: 1.4;
+    margin-top: 3pt;
+  }
+  .mat-native {
+    font-size: 9pt;
+    color: #64748b;
+    line-height: 1.4;
+    margin-top: 2pt;
+  }
+  .mat-blurb {
+    font-size: 8.5pt;
+    color: #94a3b8;
+    line-height: 1.4;
+    margin-top: 3pt;
+  }
+  .mat-desc {
+    font-size: 8.5pt;
+    color: #64748b;
+    line-height: 1.5;
+    margin-top: 3pt;
+  }
 
   /* 2.3 measurement image rail (canvases = pre-rasterized by
      inlineImagesAsCanvases before html2canvas runs). */

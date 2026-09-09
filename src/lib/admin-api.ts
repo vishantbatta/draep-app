@@ -1327,6 +1327,7 @@ export interface CatalogVariationType {
   ideal_for: string[] | null;
   not_ideal_for: string[] | null;
   price: number | null;
+  is_material_needed: boolean | null;
 }
 
 export interface CatalogVariation {
@@ -1338,6 +1339,7 @@ export interface CatalogVariation {
   ideal_for: string[] | null;
   not_ideal_for: string[] | null;
   price: number | null;
+  is_material_needed: boolean | null;
   default_type_id: string | null;
   variation_types: CatalogVariationType[];
 }
@@ -1367,6 +1369,7 @@ export interface CatalogAddonVariation {
   /** placement-specific pricing axis; null = applies at every placement */
   placement: string | null;
   price: number | null;
+  is_material_needed: boolean | null;
 }
 
 export interface CatalogAddon {
@@ -1379,6 +1382,7 @@ export interface CatalogAddon {
   garment_style_component_ids: string[] | null;
   placements: string[] | null;
   is_default_on: boolean | null;
+  is_material_needed: boolean | null;
   default_variation_id: string | null;
   price: number | null;
   variations: CatalogAddonVariation[];
