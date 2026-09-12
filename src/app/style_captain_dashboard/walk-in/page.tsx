@@ -745,7 +745,7 @@ function WalkInWizard() {
       {state.step === "garment-pick" && (
         <div className="space-y-4">
           <div className="text-caption text-muted">
-            Tap a garment the customer is ordering — it's added to order{" "}
+            Tap a garment the customer is ordering — it&apos;s added to order{" "}
             {state.orderNumber} with catalog defaults you can edit next.
           </div>
           {catalogueError && <div className={bannerCls}>{catalogueError}</div>}
@@ -797,7 +797,7 @@ function WalkInWizard() {
         ) : (
           <div className="space-y-4">
             <div className={bannerCls}>
-              Could not load this garment's configuration.
+              Could not load this garment&apos;s configuration.
             </div>
             <Button
               fullWidth

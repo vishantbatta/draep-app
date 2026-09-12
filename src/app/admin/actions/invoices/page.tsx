@@ -536,7 +536,7 @@ function ManualInvoiceTab() {
                 ))}
               </select>
               <span className="mt-1 block text-[11px] text-muted">
-                Printed on the invoice's Terms line.
+                Printed on the invoice&apos;s Terms line.
               </span>
             </div>
           </div>
