@@ -13,6 +13,17 @@ import type {
   OpenOrderListOut,
   ValidateOut,
 } from "@/types/api";
+import type { OrderDocuments } from "@/lib/gst-documents";
+
+// GET /orders/{order_id}/documents — the customer's own minted tax invoices
+// and credit notes (403s for anyone else's order). Empty lists pre-payment,
+// so callers render nothing (no empty-card noise for COD customers).
+export function getOrderDocuments(
+  orderId: string,
+  signal?: AbortSignal,
+): Promise<OrderDocuments> {
+  return apiGet<OrderDocuments>(`/orders/${orderId}/documents`, { signal });
+}
 
 // GET /orders/open — the customer's open (pending / awaiting_visit) orders,
 // the merge-target list for the add-to-existing choice sheet.

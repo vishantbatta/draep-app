@@ -14,7 +14,7 @@
  *       fired once
  *
  * Prerequisites:
- *   1. BE on :8000 with OTP_MODE=test (OTP_TEST_CODE=123456) AND the
+ *   1. BE on :8000 with OTP_MODE=test (OTP_TEST_CODE=1221) AND the
  *      serviceability seed applied (scripts/seed_serviceability.py):
  *      fence row + test captain with HSR coverage + availability rule.
  *   2. FE dev server on :3002.
@@ -32,7 +32,7 @@ import { chromium } from "playwright";
 const BASE = process.env.E2E_BASE ?? "http://localhost:3002";
 const API = process.env.E2E_API ?? "http://localhost:8000/api/v1";
 const PHONE = process.env.E2E_PHONE ?? "7986147238";
-const TEST_OTP = "123456";
+const TEST_OTP = "1221";
 const GARMENT = "4dcd2822-ab9d-4c1e-be29-81e0c7c8291e"; // Blouse
 
 const OUTSIDE = { latitude: 13.37, longitude: 77.68 }; // Nandi Hills — outside fence

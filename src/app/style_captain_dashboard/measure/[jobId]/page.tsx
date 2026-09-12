@@ -425,7 +425,7 @@ export default function MeasureJobPage() {
     // Save current metric before going back
     saveStepSilently(drafts[currentMetric?.id ?? ""]);
     if (step > 0) setStep((s) => s - 1);
-    else router.push("/style_captain_dashboard/measure/start");
+    else router.push("/style_captain_dashboard");
   }
 
   /** Jump directly to a step. */
@@ -828,9 +828,7 @@ export default function MeasureJobPage() {
           {error}
         </div>
         <button
-          onClick={() =>
-            router.push("/style_captain_dashboard/measure/start")
-          }
+          onClick={() => router.push("/style_captain_dashboard")}
           className="tap w-full rounded-pill border border-hairline-strong bg-chalk-white px-4 py-3 text-body font-medium text-ink-navy"
         >
           Back to job list

@@ -22,7 +22,7 @@
  *                       CTA goes straight to the order-preview sheet.
  *
  * The injected stages mint their session through the BE's test-mode OTP
- * endpoints (OTP_MODE=test → code 123456) — no SMS — then set localStorage
+ * endpoints (OTP_MODE=test → code 1221) — no SMS — then set localStorage
  * before the app boots, exactly like a returning visitor.
  *
  * DB states the orchestrator sets on the test user before each stage
@@ -73,7 +73,7 @@ async function mintSession() {
   const res = await fetch(`${API}/auth/otp/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone: PHONE, country_code: "+91", otp: "123456", order_id: null }),
+    body: JSON.stringify({ phone: PHONE, country_code: "+91", otp: "1221", order_id: null }),
   });
   return res.json();
 }

@@ -51,9 +51,10 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { OrderStatusPills, StatusPill } from "@/components/order/OrderStatus";
+import { WalkInLoginGate } from "@/components/order/WalkInLoginGate";
 import { ScreenShell } from "@/components/layout/ScreenShell";
 import { Banner } from "@/components/ui/Banner";
 import { BottomSheet } from "@/components/ui/BottomSheet";
@@ -78,7 +79,7 @@ import {
 } from "@/components/ui/icons";
 import { ApiError, addressesApi, checkoutApi, ordersApi, promotionsApi } from "@/lib/api";
 import { Loader } from "@/components/ui/Loader";
-import { useAuthBootstrapped } from "@/lib/auth-store";
+import { useAuthBootstrapped, useAuthStore } from "@/lib/auth-store";
 import type { GarmentOrderItemRow } from "@/lib/admin-api";
 import { loadCashfree } from "@/lib/cashfree";
 import {
@@ -632,6 +633,19 @@ function OrderDetailContent() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
+  /* ── Walk-in QR landing (WALKIN_V2_PLAN.md §5.8): the captain's QR encodes
+     ?wi=1&ph=<10-digit>. A 404 with those params means the current session
+     isn't the order's owner — an anonymous visitor gets the inline OTP gate
+     instead of the generic "not found" card. */
+  const searchParams = useSearchParams();
+  const wiPhoneParam = searchParams.get("ph") ?? "";
+  const wiPhone =
+    searchParams.get("wi") === "1" && /^[6-9]\d{9}$/.test(wiPhoneParam)
+      ? wiPhoneParam
+      : "";
+  const sessionType = useAuthStore((s) => s.sessionType);
+  const loggedIn = sessionType === "user";
+
   const [detail, setDetail] = useState<CustomerOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -788,6 +802,28 @@ function OrderDetailContent() {
     };
   }, [detailId, detailStage]);
 
+  // Minted tax documents for this order (invoices + credit notes). Quiet
+  // fetch — nothing pre-payment (COD customers see no invoice noise), a
+  // chip with the count once documents exist (F5.2).
+  const [docCount, setDocCount] = useState(0);
+  useEffect(() => {
+    if (!detailId) return;
+    let cancelled = false;
+    ordersApi
+      .getOrderDocuments(detailId)
+      .then((docs) => {
+        if (!cancelled) {
+          setDocCount(docs.invoices.length + docs.creditNotes.length);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // Re-check whenever money may have moved (payment status flips after a
+    // successful pay on this page) so a fresh invoice shows up immediately.
+  }, [detailId, detail?.payment_status]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -815,6 +851,21 @@ function OrderDetailContent() {
     if (!bootstrapped) return;
     void load();
   }, [bootstrapped, load]);
+
+  /* ── Walk-in gate follow-through (§5.8): session upgraded via the inline
+     OTP gate → strip wi/ph from the URL (no re-trigger on refresh) and
+     refetch — the session now owns the order. */
+  const handleWalkInVerified = () => {
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("wi");
+      url.searchParams.delete("ph");
+      window.history.replaceState(null, "", url.pathname + (url.search || ""));
+    }
+    setNotFound(false);
+    setError(null);
+    void load();
+  };
 
   /* ── Background promo revalidation ─────────────────────────────────────
      The detail GET is a pure read (fast paint), so a coupon whose
@@ -845,6 +896,39 @@ function OrderDetailContent() {
   }
 
   if (notFound || error || !detail) {
+    // Walk-in QR landing (§5.8): a 404 with ?wi=1&ph= and no user session
+    // means the customer hasn't logged in yet — the inline OTP gate replaces
+    // the generic not-found card.
+    if (notFound && wiPhone && !loggedIn) {
+      return <WalkInLoginGate phone={wiPhone} onVerified={handleWalkInVerified} />;
+    }
+    // Logged in as a different number than the order's owner: require_order_
+    // access 404s uniformly, so the owner's phone can only come from ph.
+    if (notFound && wiPhone && loggedIn) {
+      const masked = `••••••${wiPhone.slice(-4)}`;
+      return (
+        <ScreenShell className="px-4 pt-6">
+          <div
+            role="alert"
+            className="mt-6 rounded-card border border-hairline bg-chalk-white p-6 text-center text-body text-ink shadow-card"
+          >
+            <p className="font-semibold text-ink-navy">This order belongs to a different phone number</p>
+            <p className="mt-2 text-caption text-muted">
+              It was started in-store for {masked}. Log out and log in with that
+              number to open it.
+            </p>
+            <div className="mt-4">
+              <Link
+                href="/app/account"
+                className="inline-flex min-h-[44px] items-center text-caption font-semibold text-navy-interactive underline"
+              >
+                Go to account to switch number
+              </Link>
+            </div>
+          </div>
+        </ScreenShell>
+      );
+    }
     return (
       <ScreenShell className="px-4 pt-6">
         <Link
@@ -1218,6 +1302,15 @@ function OrderDetailContent() {
             paymentStatus={detail.payment_status}
           />
         </div>
+        {docCount > 0 && (
+          <Link
+            href={`/invoice/${detail.id}`}
+            className="mt-2.5 inline-flex items-center gap-1.5 rounded-pill bg-mist-navy px-3 py-1 text-caption font-medium text-ink-navy transition hover:bg-mist-navy/70"
+          >
+            🧾 {docCount} tax document{docCount > 1 ? "s" : ""} — invoices &amp; credit notes
+            <span aria-hidden>→</span>
+          </Link>
+        )}
       </header>
 
       {/* Home visit + address + the style captain's measurement job(s) */}

@@ -8,6 +8,8 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 const TOKEN_KEY = "draep_admin_token";
 
+import type { GstCreditNote, GstDocument, GstInvoice, OrderDocuments } from "./gst-documents";
+
 export function getAdminToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(TOKEN_KEY);
@@ -2335,6 +2337,8 @@ export async function receivePayment(
     method_detail?: Record<string, unknown>;
     note?: string;
     customer_phone?: string;
+    /** Cashfree mode — create the link on the sandbox (test) environment. */
+    test_mode?: boolean;
   },
 ): Promise<ReceivePaymentResult> {
   return adminFetch<ReceivePaymentResult>(`/admin/orders/${orderId}/payments`, {
@@ -2362,6 +2366,162 @@ export async function recordRefund(
 /** Live balance breakdown for an order. */
 export async function getOrderBalance(orderId: string): Promise<OrderBalance> {
   return adminFetch<OrderBalance>(`/admin/orders/${orderId}/balance`);
+}
+
+/** Re-check open Cashfree transactions against the gateway (webhook backstop
+ *  — captures paid links/orders, mints invoices) and return the new balance. */
+export async function syncOrderPayments(orderId: string): Promise<OrderBalance> {
+  return adminFetch<OrderBalance>(`/admin/orders/${orderId}/payments/sync`, {
+    method: "POST",
+  });
+}
+
+// ─── GST documents (persisted invoices & credit notes) ───────────────────────
+
+/** One reconciliation problem from GET /admin/invoices/reconciliation. */
+export interface ReconciliationProblem {
+  code: string;
+  orderId?: string | null;
+  transactionId?: string | null;
+  series?: string;
+  number?: string;
+  [k: string]: unknown;
+}
+
+export interface ReconciliationReport {
+  ok: boolean;
+  problemCount: number;
+  problems: ReconciliationProblem[];
+}
+
+/** All minted invoices + credit notes for an order (admin view: voided too). */
+export function fetchOrderDocuments(orderId: string): Promise<OrderDocuments> {
+  return adminFetch<OrderDocuments>(`/admin/orders/${orderId}/documents`);
+}
+
+/** One document by its printed number, e.g. "INV/2627/000001" (has slashes). */
+export function fetchDocumentByNumber(number: string): Promise<GstDocument> {
+  return adminFetch<GstDocument>(
+    `/admin/documents/${number.split("/").map(encodeURIComponent).join("/")}`,
+  );
+}
+
+/** Global books health: unminted captures, unnoted refunds, series gaps. */
+export function fetchReconciliation(): Promise<ReconciliationReport> {
+  return adminFetch<ReconciliationReport>("/admin/invoices/reconciliation");
+}
+
+export interface BackfillResult {
+  dryRun: boolean;
+  invoiceCount: number;
+  creditNoteCount: number;
+  items: {
+    orderId?: string | null;
+    orderNumber?: string | null;
+    /** Order's customer name (joined via orders.user_id → users.name). */
+    customerName?: string | null;
+    transactionId?: string | null;
+    amountRupees?: number | null;
+    /** "dd MMM yyyy" in IST — when the payment/refund happened. */
+    dateIst?: string | null;
+    wouldMint?: string;
+    minted?: { number: string } | { number: string }[] | null;
+  }[];
+}
+
+/** Mint invoices/CNs for legacy payments that predate the auto-mint system.
+ *  Dry-run first; real run issues documents dated TODAY (never backdated). */
+export function backfillLegacyDocuments(
+  orderIds?: string[],
+  dryRun = true,
+): Promise<BackfillResult> {
+  return adminFetch<BackfillResult>("/admin/invoices/backfill-legacy", {
+    method: "POST",
+    body: JSON.stringify({ order_ids: orderIds ?? null, dry_run: dryRun }),
+  });
+}
+
+/** Full invoice history across both flows (payment + manual), newest first. */
+export function listAllInvoices(): Promise<GstInvoice[]> {
+  return adminFetch<GstInvoice[]>("/admin/invoices");
+}
+
+/** Full credit-note history (refund-driven + admin-issued), newest first. */
+export function listAllCreditNotes(): Promise<GstCreditNote[]> {
+  return adminFetch<GstCreditNote[]>("/admin/credit-notes");
+}
+
+export interface ManualInvoiceInput {
+  buyer_name: string;
+  buyer_state: string;
+  item_description: string;
+  /** Tax-inclusive integer rupees (GST is back-calculated server-side). */
+  total_rupees: number;
+  buyer_address?: string | null;
+  buyer_gstin?: string | null;
+  /** Basis points: 0 | 500 | 1200 | 1800. */
+  rate_bp?: number | null;
+  note?: string | null;
+  /** "yyyy-mm-dd" — any day in the current financial year up to today IST. */
+  issue_date?: string | null;
+  /** SAC/HSN override, 1–16 chars. Omitted → settings default (998822). */
+  sac_code?: string | null;
+  /** paid_in_full (default) | due_on_receipt | partially_paid. */
+  payment_terms?: string | null;
+}
+
+/** Mint a standalone tax invoice (counter sale — no order/payment behind it).
+ *  Shares the gapless INV/{FY} series with payment invoices and is immutable
+ *  from the moment it is created. Returns the full document payload. */
+export function createManualInvoice(input: ManualInvoiceInput): Promise<GstInvoice> {
+  return adminFetch<GstInvoice>("/admin/invoices/manual", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Invoices issued through the manual flow (newest first, up to 200). */
+export function listManualInvoices(): Promise<GstInvoice[]> {
+  return adminFetch<GstInvoice[]>("/admin/invoices/manual");
+}
+
+export interface ManualCreditNoteInput {
+  /** Whole rupees to reverse — capped at the invoice's unreversed balance. */
+  amount_rupees: number;
+  note?: string | null;
+  reason?: "refund" | "payment_recorded_in_error" | null;
+}
+
+/** Reverse (part of) a manually-issued invoice with a credit note dated now.
+ *  Corrections are always credit notes — invoices are never edited. */
+export function createManualCreditNote(
+  invoiceId: string,
+  input: ManualCreditNoteInput,
+): Promise<GstCreditNote> {
+  return adminFetch<GstCreditNote>(
+    `/admin/invoices/manual/${invoiceId}/credit-note`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export interface ReversePaymentResult {
+  transaction_id: string | null;
+  reversed_amount: number | null;
+  payment_status: string | null;
+  balance_due: number | null;
+}
+
+/** Reverse a payment recorded in error: removes it from the order's ledger
+ *  (no money moves) and issues a credit note for the reversed amount. */
+export function reversePayment(
+  orderId: string,
+  transactionId: string,
+  payload: { amount_rupees?: number; note?: string } = {},
+): Promise<ReversePaymentResult> {
+  return adminFetch<ReversePaymentResult>(
+    `/admin/orders/${orderId}/payments/${transactionId}/reverse`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
 }
 
 // ─── Reports (admin Reports tab) ─────────────────────────────────────────────

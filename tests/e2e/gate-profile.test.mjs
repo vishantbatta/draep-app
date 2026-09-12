@@ -8,7 +8,7 @@
  * the overlay takes the ask).
  *
  * Prerequisites (test OTP mode — no real SMS):
- *   1. BE on :8000 with OTP_MODE=test (OTP_TEST_CODE=123456).
+ *   1. BE on :8000 with OTP_MODE=test (OTP_TEST_CODE=1221).
  *   2. FE dev server booted with the MSG91 widget vars BLANK so the sheet
  *      uses the legacy test endpoints, e.g. from the fe dir:
  *
@@ -38,7 +38,7 @@ const BASE = process.env.E2E_BASE ?? "http://localhost:3002";
 const API = process.env.E2E_API ?? "http://localhost:8000/api/v1";
 const PHONE_A = "9876543215"; // fresh signup through the gate
 const PHONE_B = "9876543216"; // logged-in user missing gender
-const TEST_OTP = "123456";
+const TEST_OTP = "1221";
 const ORDER_URL = /\/app\/orders\/[0-9a-f-]{36}/;
 
 const PASS = [];

@@ -186,13 +186,15 @@ export function SelectionSheet({
   onClose,
   onDone,
 }: {
-  jobId: string;
+  /** Present in the measure flow; omitted pre-measurement (walk-in draft
+   *  orders) — the post-save checklist diff is skipped without it. */
+  jobId?: string;
   garmentOrderId: string;
   selections: SCSelection[];
   /** Catalog add-ons offered for this garment (job-detail payload). */
   availableAddons: SCAvailableAddon[];
   /** Flattened metric ids this garment's checklist asks for right now. */
-  baselineMetricIds: string[];
+  baselineMetricIds?: string[];
   /** Scroll this component into view on open (step-through entry). */
   focusComponentId?: string | null;
   onClose: () => void;
@@ -334,6 +336,9 @@ export function SelectionSheet({
   const [delta, setDelta] = useState<{ added: number; removed: number } | null>(
     null,
   );
+  // Saved flag: flipped by any successful save — drives the Done footer in
+  // both flows (delta carries the checklist wording when a job exists).
+  const [saved, setSaved] = useState(false);
 
   const focusRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -811,24 +816,28 @@ export function SelectionSheet({
         });
       }
 
-      // Report how the checklist shifted for this garment instance.
-      try {
-        const fresh = await scFetchChecklist(jobId, garmentOrderId);
-        const before = new Set(baselineMetricIds);
-        const after = new Set<string>();
-        for (const g of fresh.garments) {
-          if (g.garment_order_id !== garmentOrderId) continue;
-          for (const s of g.sections)
-            for (const m of s.metrics) after.add(m.id);
+      // Report how the checklist shifted for this garment instance (measure
+      // flow only — walk-in drafts have no job yet, so nothing to diff).
+      if (jobId) {
+        try {
+          const fresh = await scFetchChecklist(jobId, garmentOrderId);
+          const before = new Set(baselineMetricIds ?? []);
+          const after = new Set<string>();
+          for (const g of fresh.garments) {
+            if (g.garment_order_id !== garmentOrderId) continue;
+            for (const s of g.sections)
+              for (const m of s.metrics) after.add(m.id);
+          }
+          let added = 0;
+          let removed = 0;
+          for (const id of after) if (!before.has(id)) added++;
+          for (const id of before) if (!after.has(id)) removed++;
+          setDelta({ added, removed });
+        } catch {
+          setDelta({ added: 0, removed: 0 });
         }
-        let added = 0;
-        let removed = 0;
-        for (const id of after) if (!before.has(id)) added++;
-        for (const id of before) if (!after.has(id)) removed++;
-        setDelta({ added, removed });
-      } catch {
-        setDelta({ added: 0, removed: 0 });
       }
+      setSaved(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save changes");
     } finally {
@@ -837,7 +846,7 @@ export function SelectionSheet({
   }
 
   return (
-    <BottomSheet open={true} title="Edit selections" onClose={delta ? onDone : onClose}>
+    <BottomSheet open={true} title="Edit selections" onClose={saved ? onDone : onClose}>
       <div className="space-y-4">
         {variationSels.map((sel) => {
           const p = pending[sel.item_id];
@@ -1256,20 +1265,25 @@ export function SelectionSheet({
           </div>
         )}
 
-        {delta && (
+        {saved && (
           <div className="rounded-card border border-success-border bg-success-bg px-4 py-3 text-caption text-success-text">
-            ✓ Selections updated — checklist{" "}
-            {delta.added > 0 && `${delta.added} measurement${delta.added === 1 ? "" : "s"} added`}
-            {delta.added > 0 && delta.removed > 0 && " · "}
-            {delta.removed > 0 &&
-              `${delta.removed} removed`}
-            {delta.added === 0 && delta.removed === 0 && "unchanged"}
-            .
+            ✓ Selections saved
+            {delta && (
+              <>
+                {" "}— checklist{" "}
+                {delta.added > 0 && `${delta.added} measurement${delta.added === 1 ? "" : "s"} added`}
+                {delta.added > 0 && delta.removed > 0 && " · "}
+                {delta.removed > 0 &&
+                  `${delta.removed} removed`}
+                {delta.added === 0 && delta.removed === 0 && "unchanged"}
+                .
+              </>
+            )}
           </div>
         )}
 
         <div className="flex gap-2 pt-1">
-          {delta ? (
+          {saved ? (
             <button
               onClick={onDone}
               className="tap flex-1 rounded-pill bg-ink-navy px-4 py-3 text-body font-semibold text-chalk-white"

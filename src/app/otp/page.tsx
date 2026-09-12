@@ -6,7 +6,7 @@
  * Flow:
  *   1. User enters phone number (pre-filled from contact form if available)
  *   2. OTP is sent — via the MSG91 widget when configured (lib/msg91.ts),
- *      else the legacy test-mode endpoint (constant 123456)
+ *      else the legacy test-mode endpoint (constant 1221)
  *   3. User enters the OTP
  *   4. Verification upgrades the anonymous session → user session
  *      (widget: POST /auth/otp/widget/verify with MSG91's one-time token;
@@ -253,7 +253,7 @@ function OtpContent() {
           </div>
           {!msg91Enabled && (
             <p className="text-center text-caption text-muted">
-              Test mode: use OTP <span className="font-mono font-semibold">123456</span>
+              Test mode: use OTP <span className="font-mono font-semibold">1221</span>
             </p>
           )}
         </div>

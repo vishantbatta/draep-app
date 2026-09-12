@@ -16,7 +16,7 @@
  * never "soon!".
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { ScreenShell } from "@/components/layout/ScreenShell";
@@ -24,6 +24,7 @@ import { Check, HomeVisit, Sparkle, Calendar } from "@/components/ui/icons";
 import { MonoNumber } from "@/components/ui/MonoNumber";
 import { useBookingStore } from "@/lib/booking-store";
 import { strings } from "@/lib/strings";
+import { getOrderDocuments } from "@/lib/api/orders";
 
 export default function ConfirmedPage() {
   const draft = useBookingStore((s) => s.draft);
@@ -32,6 +33,25 @@ export default function ConfirmedPage() {
   const orderId = draft?.orderId;
   const paymentOrderId = draft?.payment?.orderId;
   const booking = draft?.booking;
+
+  // Invoice issued for the payment that just succeeded (F5.1 — the immediate
+  // "your money produced a real document" win). Fetched quietly; COD or a
+  // not-yet-captured payment returns nothing and the card never renders.
+  const [invoiceNumber, setInvoiceNumber] = useState<string | null>(null);
+  const docsOrderId = paymentOrderId ?? orderId ?? null;
+  useEffect(() => {
+    if (!docsOrderId) return;
+    let cancelled = false;
+    getOrderDocuments(docsOrderId)
+      .then((docs) => {
+        const latest = docs.invoices[docs.invoices.length - 1];
+        if (!cancelled && latest) setInvoiceNumber(latest.number);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [docsOrderId]);
 
   const displayOrderId = paymentOrderId
     ? paymentOrderId.slice(0, 8)
@@ -93,6 +113,31 @@ export default function ConfirmedPage() {
           </MonoNumber>
         </div>
       </div>
+
+      {/* Invoice issued — visible only when a payment actually captured
+          (F5.1). COD / pending payments return nothing and render nothing. */}
+      {invoiceNumber && docsOrderId && (
+        <Link
+          href={`/invoice/${docsOrderId}`}
+          className="mt-4 flex items-center justify-between gap-3 rounded-card border border-hairline bg-chalk-white p-4 shadow-card transition hover:border-navy-interactive/40"
+        >
+          <div className="flex items-center gap-3">
+            <span
+              aria-hidden
+              className="flex h-9 w-9 flex-none items-center justify-center rounded-pill bg-success/10 text-success"
+            >
+              <Check size={18} strokeWidth={3} />
+            </span>
+            <div>
+              <p className="text-body font-medium text-ink">Tax invoice issued</p>
+              <p className="mt-0.5 font-mono text-caption text-muted">{invoiceNumber}</p>
+            </div>
+          </div>
+          <span className="text-caption text-navy-interactive underline">
+            View documents →
+          </span>
+        </Link>
+      )}
 
       {/* Booking summary — only if we have the booking captured from /schedule */}
       {booking && (

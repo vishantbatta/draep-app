@@ -11,3 +11,11 @@ export function normalizePhoneInput(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
+
+// Indian mobile numbers are 10 digits after the country code.
+export const PHONE_DIGIT_COUNT = 10;
+
+/** A national number is complete exactly when it has all its digits. */
+export function isValidNationalPhone(digits: string): boolean {
+  return digits.length === PHONE_DIGIT_COUNT;
+}

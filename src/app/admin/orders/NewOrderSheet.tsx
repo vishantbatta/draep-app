@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BottomSheet } from "@/components/ui/BottomSheet";
-import { MapPinPicker } from "@/components/contact/MapPinPicker";
 import {
-  searchAddresses,
-  reverseGeocode,
-  type GeocodeAddressResult,
-} from "@/lib/api/geocode";
+  PhoneLookupField,
+} from "@/components/shared/PhoneLookupField";
+import { UserLookupResultPanel } from "@/components/shared/UserLookupResultPanel";
+import {
+  AddressPicker,
+  type NewAddressFields,
+} from "@/components/shared/AddressPicker";
+import { normalizePhoneInput, PHONE_DIGIT_COUNT } from "@/lib/phone";
 import {
   createOrder,
   createTableRow,
@@ -65,34 +68,6 @@ interface NewOrderSheetProps {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STEPS = ["Customer", "Garments & Style", "Address", "Measurement Job"] as const;
-
-// ─── Country codes (dialing prefixes) ──────────────────────────────────────
-// India is the default market — +91 first, the rest alphabetical by label.
-const COUNTRY_CODES = [
-  { code: "+91", label: "🇮🇳 +91" },
-  { code: "+1", label: "🇺🇸 +1" },
-  { code: "+44", label: "🇬🇧 +44" },
-  { code: "+61", label: "🇦🇺 +61" },
-  { code: "+971", label: "🇦🇪 +971" },
-  { code: "+65", label: "🇸🇬 +65" },
-] as const;
-
-// Indian mobile numbers are 10 digits after the country code.
-const PHONE_DIGIT_COUNT = 10;
-
-/**
- * Sanitize a raw phone input down to the digits we want to store/search:
- *  - strip every non-digit char (letters, +, dashes, spaces, brackets, dots…)
- *  - drop a single leading 0 (e.g. "0987654321" → "9876543210")
- * Trims to the first PHONE_DIGIT_COUNT digits so over-long pastes don't overflow.
- */
-function sanitizePhone(raw: string): string {
-  const digits = raw.replace(/\D+/g, "");
-  const withoutLeadingZero = digits.startsWith("0")
-    ? digits.slice(1)
-    : digits;
-  return withoutLeadingZero.slice(0, PHONE_DIGIT_COUNT);
-}
 
 function formatPrice(v: number | null | undefined): string {
   if (v === null || v === undefined) return "—";
@@ -164,24 +139,16 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
   // Like the Measurement Job step's "Skip for now" — the order is created
   // with no address (added later from the order page).
   const [skipAddress, setSkipAddress] = useState(false);
-  const [newAddr, setNewAddr] = useState({
+  const [newAddr, setNewAddr] = useState<NewAddressFields>({
     address_line_1: "",
     address_line_2: "",
     city: "",
     state: "",
     pincode: "",
   });
-
-  // Address autocomplete search
-  const [addrSearch, setAddrSearch] = useState("");
-  const [addrResults, setAddrResults] = useState<GeocodeAddressResult[]>([]);
-  const [addrDropdownOpen, setAddrDropdownOpen] = useState(false);
-  const [addrSearching, setAddrSearching] = useState(false);
+  // Autocomplete search, map fly-to and reverse-geocode internals live inside
+  // the shared AddressPicker; only the submitted state is kept here.
   const [pinCoords, setPinCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; nonce: number } | undefined>(undefined);
-  const [reverseLookupLoading, setReverseLookupLoading] = useState(false);
-  const addrSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flyNonceRef = useRef(0);
 
   // ── Step 4: Measurement Job ───────────────────────────────────────────────
   const [existingJobs, setExistingJobs] = useState<MeasurementJobRow[]>([]);
@@ -211,12 +178,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
     setShowNewAddressForm(false);
     setSkipAddress(false);
     setNewAddr({ address_line_1: "", address_line_2: "", city: "", state: "", pincode: "" });
-    setAddrSearch("");
-    setAddrResults([]);
-    setAddrDropdownOpen(false);
     setPinCoords(null);
-    setFlyTo(undefined);
-    setReverseLookupLoading(false);
     setExistingJobs([]);
     setHasPreviousMeasurements(false);
     setJobChoice("schedule");
@@ -237,8 +199,8 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
   }
 
   // ── Phone search (debounced) ──────────────────────────────────────────────
-  // phoneInput is already sanitized to digits only (see sanitizePhone on the
-  // input's onChange). We only hit the DB once we have a full, valid
+  // phoneInput is already sanitized to digits only (see normalizePhoneInput
+  // inside PhoneLookupField). We only hit the DB once we have a full, valid
   // PHONE_DIGIT_COUNT-digit number — no search on partial keystrokes.
   useEffect(() => {
     if (phoneTimer.current) clearTimeout(phoneTimer.current);
@@ -862,91 +824,26 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
       {/* ── Step 1: Customer ───────────────────────────────────────────────── */}
       {step === 0 && (
         <div className="space-y-4 pb-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted">
-              Phone number <span className="text-red-500">*</span>
-            </label>
-            <div className="flex gap-2">
-              {/* Country code dropdown */}
-              <select
-                value={countryCode}
-                onChange={(e) => setCountryCode(e.target.value)}
-                className="shrink-0 rounded-lg border border-hairline-strong bg-chalk-white px-2.5 py-2.5 text-sm focus:border-ink-navy focus:outline-none"
-                aria-label="Country code"
-              >
-                {COUNTRY_CODES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-              {/* Phone number (sanitized to digits only) */}
-              <input
-                type="tel"
-                inputMode="numeric"
-                value={phoneInput}
-                onChange={(e) => setPhoneInput(sanitizePhone(e.target.value))}
-                onBlur={() => setPhoneTouched(true)}
-                placeholder="10-digit mobile number"
-                className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2.5 text-sm focus:border-ink-navy focus:outline-none"
-                autoFocus
-              />
-            </div>
-            {/* Validation only on blur (focus out) — not on every keystroke. */}
-            {phoneTouched &&
-              phoneInput.length > 0 &&
-              phoneInput.length !== PHONE_DIGIT_COUNT && (
-                <div className="mt-1 text-[11px] text-red-500">
-                  Enter a valid {PHONE_DIGIT_COUNT}-digit mobile number.
-                </div>
-              )}
-            {searchingUser && (
-              <div className="mt-1 text-[11px] text-muted">Searching…</div>
-            )}
-          </div>
+          <PhoneLookupField
+            countryCode={countryCode}
+            onCountryCodeChange={setCountryCode}
+            phone={phoneInput}
+            onPhoneChange={setPhoneInput}
+            touched={phoneTouched}
+            onBlur={() => setPhoneTouched(true)}
+            searching={searchingUser}
+            autoFocus
+          />
 
-          {/* Found user */}
-          {userSearched && foundUser && (
-            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-              <div className="text-xs font-medium text-green-800">✓ Existing user found</div>
-              <div className="mt-1 text-sm font-medium text-ink">{foundUser.name ?? "Unnamed"}</div>
-              <div className="text-[11px] text-muted">
-                {foundUser.country_code ?? countryCode} {foundUser.phone}
-                {foundUser.email ? ` • ${foundUser.email}` : ""}
-              </div>
-            </div>
-          )}
-
-          {/* Found but not a customer */}
-          {userSearched && !foundUser && nonCustomerRole && !searchingUser && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800">
-              <div className="font-medium">This phone number belongs to a {nonCustomerRole.replace("_", " ")}, not a customer.</div>
-              <div className="mt-0.5 opacity-80">
-                Orders can only be created for customers. Please use a different phone number.
-              </div>
-            </div>
-          )}
-
-          {/* Not found → ask for name */}
-          {userSearched && !foundUser && !nonCustomerRole && !searchingUser && (
-            <div className="space-y-2">
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
-                No user found with this phone number. Enter a name to create a new customer.
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted">
-                  Customer name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={newUserName}
-                  onChange={(e) => setNewUserName(e.target.value)}
-                  placeholder="Full name"
-                  className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2.5 text-sm focus:border-ink-navy focus:outline-none"
-                />
-              </div>
-            </div>
-          )}
+          <UserLookupResultPanel
+            searched={userSearched}
+            foundUser={foundUser}
+            nonCustomerRole={nonCustomerRole}
+            searching={searchingUser}
+            newUserName={newUserName}
+            onNewUserNameChange={setNewUserName}
+            fallbackCountryCode={countryCode}
+          />
 
           {/* Acquisition source — drives THIS ORDER's attribution.
               For a new customer it is also mirrored onto the user (first-touch). */}
@@ -1096,275 +993,22 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
 
       {/* ── Step 3: Address ───────────────────────────────────────────────── */}
       {step === 2 && (
-        <div className="space-y-3 pb-4">
-          {/* ── Toggle: "Select existing" vs "Add new" ───────────────────── */}
-          {foundUser && addresses.length > 0 && (
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setShowNewAddressForm(false);
-                  setSkipAddress(false);
-                  setNewAddr({ address_line_1: "", address_line_2: "", city: "", state: "", pincode: "" });
-                  setAddrSearch("");
-                  setPinCoords(null);
-                  setFlyTo(undefined);
-                }}
-                className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition ${
-                  !showNewAddressForm
-                    ? "border-ink-navy bg-ink-navy text-chalk-white"
-                    : "border-hairline-strong bg-chalk-white text-ink-navy hover:bg-mist-navy/30"
-                }`}
-              >
-                Saved addresses ({addresses.length})
-              </button>
-              <button
-                onClick={() => {
-                  setShowNewAddressForm(true);
-                  setSkipAddress(false);
-                  setSelectedAddressId("");
-                }}
-                className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition ${
-                  showNewAddressForm
-                    ? "border-ink-navy bg-ink-navy text-chalk-white"
-                    : "border-hairline-strong bg-chalk-white text-ink-navy hover:bg-mist-navy/30"
-                }`}
-              >
-                + Add new address
-              </button>
-            </div>
-          )}
-
-          {/* ── Existing user addresses ──────────────────────────────────── */}
-          {foundUser && addresses.length > 0 && !showNewAddressForm && (
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-muted">
-                Select an address for {foundUser.name ?? "this customer"}
-              </label>
-              {addressesLoading && <div className="text-xs text-muted">Loading addresses…</div>}
-              {addresses.map((addr) => (
-                <label
-                  key={addr.id}
-                  className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition ${
-                    selectedAddressId === addr.id
-                      ? "border-ink-navy bg-mist-navy/20"
-                      : "border-hairline-strong bg-chalk-white hover:bg-mist-navy/10"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="address"
-                    value={addr.id}
-                    checked={selectedAddressId === addr.id}
-                    onChange={(e) => {
-                      setSkipAddress(false);
-                      setSelectedAddressId(e.target.value);
-                    }}
-                    className="mt-0.5"
-                  />
-                  <div className="text-xs text-ink">
-                    <div className="font-medium">{addr.address_line_1 ?? "—"}</div>
-                    {addr.address_line_2 && <div>{addr.address_line_2}</div>}
-                    <div className="text-muted">
-                      {[addr.city, addr.state, addr.pincode].filter(Boolean).join(", ") || "—"}
-                    </div>
-                  </div>
-                </label>
-              ))}
-            </div>
-          )}
-
-          {/* ── New address form (for new users or when toggled) ─────────── */}
-          {(showNewAddressForm || !foundUser || addresses.length === 0) && (
-            <div className="space-y-3 rounded-lg border border-hairline bg-mist-navy/10 p-3">
-              <div className="text-xs font-semibold text-ink-navy">New Address</div>
-
-              {/* ── Address autocomplete search ────────────────────────────── */}
-              <div className="relative">
-                <label className="mb-1 block text-[11px] font-medium text-muted">
-                  Search address <span className="text-muted">(type like Google Maps)</span>
-                </label>
-                <input
-                  type="text"
-                  value={addrSearch}
-                  onChange={(e) => {
-                    setAddrSearch(e.target.value);
-                    if (addrSearchTimer.current) clearTimeout(addrSearchTimer.current);
-                    if (e.target.value.trim().length < 3) {
-                      setAddrResults([]);
-                      setAddrDropdownOpen(false);
-                      return;
-                    }
-                    setAddrSearching(true);
-                    addrSearchTimer.current = setTimeout(async () => {
-                      const results = await searchAddresses(e.target.value);
-                      setAddrResults(results);
-                      setAddrDropdownOpen(results.length > 0);
-                      setAddrSearching(false);
-                    }, 400);
-                  }}
-                  onFocus={() => addrResults.length > 0 && setAddrDropdownOpen(true)}
-                  onBlur={() => setTimeout(() => setAddrDropdownOpen(false), 250)}
-                  placeholder="e.g. 5th Avenue, HSR Layout, Bangalore"
-                  className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
-                />
-                {addrSearching && (
-                  <div className="mt-0.5 text-[10px] text-muted">Searching…</div>
-                )}
-                {addrDropdownOpen && addrResults.length > 0 && (
-                  <div className="absolute z-10 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-hairline-strong bg-chalk-white shadow-lg">
-                    {addrResults.map((r, i) => (
-                      <button
-                        key={`${r.lat},${r.lng}-${i}`}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          setAddrSearch(r.label);
-                          setAddrDropdownOpen(false);
-                          setAddrResults([]);
-                          // Autofill address fields
-                          setNewAddr({
-                            address_line_1: r.addressLine1 ?? "",
-                            address_line_2: r.addressLine2 ?? "",
-                            city: r.city ?? "",
-                            state: r.state ?? "",
-                            pincode: r.pincode ?? "",
-                          });
-                          // Set pin + fly to location
-                          setPinCoords({ lat: r.lat, lng: r.lng });
-                          flyNonceRef.current += 1;
-                          setFlyTo({ lat: r.lat, lng: r.lng, nonce: flyNonceRef.current });
-                        }}
-                        className="block w-full px-3 py-2 text-left text-xs transition hover:bg-mist-navy/30"
-                      >
-                        <div className="font-medium text-ink">{r.label.split(",")[0]}</div>
-                        <div className="text-muted text-[10px] truncate">
-                          {r.label.split(",").slice(1).join(",").trim()}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* ── Map pin picker ─────────────────────────────────────────── */}
-              <MapPinPicker
-                lat={pinCoords?.lat}
-                lng={pinCoords?.lng}
-                onPinChange={(lat, lng) => {
-                  setPinCoords({ lat, lng });
-                  // Reverse geocode to autofill (debounced via quick check)
-                  setReverseLookupLoading(true);
-                  reverseGeocode(lat, lng)
-                    .then((result) => {
-                      if (result) {
-                        setNewAddr({
-                          address_line_1: result.addressLine1 ?? newAddr.address_line_1,
-                          address_line_2: result.addressLine2 ?? newAddr.address_line_2,
-                          city: result.city ?? newAddr.city,
-                          state: result.state ?? newAddr.state,
-                          pincode: result.pincode ?? newAddr.pincode,
-                        });
-                      }
-                    })
-                    .finally(() => setReverseLookupLoading(false));
-                }}
-                flyTo={flyTo}
-              />
-              {reverseLookupLoading && (
-                <div className="text-[10px] text-muted">Updating address from pin…</div>
-              )}
-
-              {/* ── Editable address fields (autofilled, but editable) ─────── */}
-              <div className="grid grid-cols-1 gap-3">
-                <div>
-                  <label className="mb-1 block text-[11px] font-medium text-muted">
-                    Address Line 1 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={newAddr.address_line_1}
-                    onChange={(e) => setNewAddr({ ...newAddr, address_line_1: e.target.value })}
-                    placeholder="House no, building, street"
-                    className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] font-medium text-muted">Address Line 2</label>
-                  <input
-                    type="text"
-                    value={newAddr.address_line_2}
-                    onChange={(e) => setNewAddr({ ...newAddr, address_line_2: e.target.value })}
-                    placeholder="Area, landmark (optional)"
-                    className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-muted">
-                      City <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={newAddr.city}
-                      onChange={(e) => setNewAddr({ ...newAddr, city: e.target.value })}
-                      placeholder="Bangalore"
-                      className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-muted">
-                      State <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={newAddr.state}
-                      onChange={(e) => setNewAddr({ ...newAddr, state: e.target.value })}
-                      placeholder="Karnataka"
-                      className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] font-medium text-muted">
-                    Pincode <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={newAddr.pincode}
-                    onChange={(e) => setNewAddr({ ...newAddr, pincode: e.target.value })}
-                    placeholder="560102"
-                    className="w-full rounded-lg border border-hairline-strong bg-chalk-white px-3 py-2 text-sm focus:border-ink-navy focus:outline-none"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {foundUser && addressesLoading && addresses.length === 0 && (
-            <div className="text-center text-xs text-muted py-2">Loading addresses…</div>
-          )}
-
-          {/* ── Skip (like the Measurement Job step) ─────────────────────── */}
-          <label className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition ${
-            skipAddress
-              ? "border-ink-navy bg-mist-navy/20"
-              : "border-hairline-strong bg-chalk-white hover:bg-mist-navy/10"
-          }`}>
-            <input
-              type="radio"
-              name="addressChoice"
-              value="skip"
-              checked={skipAddress}
-              onChange={() => setSkipAddress(true)}
-              className="mt-0.5"
-            />
-            <div>
-              <div className="text-sm font-medium text-ink-navy">Skip for now</div>
-              <div className="text-[11px] text-muted">
-                Create the order without an address — add it later from the order page.
-              </div>
-            </div>
-          </label>
-        </div>
+        <AddressPicker
+          customerName={foundUser?.name}
+          hasExistingCustomer={!!foundUser}
+          addresses={addresses}
+          addressesLoading={addressesLoading}
+          selectedId={selectedAddressId}
+          onSelect={setSelectedAddressId}
+          showNewForm={showNewAddressForm}
+          onShowNewFormChange={setShowNewAddressForm}
+          newAddress={newAddr}
+          onNewAddressChange={setNewAddr}
+          pinCoords={pinCoords}
+          onPinCoordsChange={setPinCoords}
+          skipChecked={skipAddress}
+          onSkipChange={setSkipAddress}
+        />
       )}
 
       {/* ── Step 4: Measurement Job ──────────────────────────────────────── */}

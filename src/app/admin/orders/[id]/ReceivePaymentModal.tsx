@@ -152,7 +152,7 @@ export function ReceivePaymentModal({
 
   // ── Handlers ─────────────────────────────────────────────────────────
 
-  async function handleReceive() {
+  async function handleReceive(test: boolean = false) {
     setBusy(true);
     setError(null);
     setCfResult(null);
@@ -166,10 +166,14 @@ export function ReceivePaymentModal({
           : undefined,
         note: note.trim() || undefined,
         customer_phone: mode === "cashfree" && phone.trim() ? phone.trim() : undefined,
+        test_mode: mode === "cashfree" ? test : undefined,
       });
       if (mode === "cashfree") {
-        // For Cashfree, show the link/session for the admin to share.
+        // For Cashfree, show the link/session for the admin to share. A
+        // "created" transaction just hit the ledger — refresh the parent so
+        // the Transactions table picks it up without a manual reload.
         setCfResult(result);
+        onSuccess();
       } else {
         // Offline — done, refresh + close.
         onSuccess();
@@ -221,13 +225,25 @@ export function ReceivePaymentModal({
             )}
           </div>
           {tab === "receive" ? (
-            <button
-              onClick={handleReceive}
-              disabled={!canSubmitReceive}
-              className="rounded-md bg-ink-navy px-4 py-2 text-sm font-medium text-chalk-white hover:bg-ink-navy/90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {busy ? "Processing…" : mode === "cashfree" ? "Create payment link" : "Record payment"}
-            </button>
+            <div className="flex items-center gap-2">
+              {mode === "cashfree" && (
+                <button
+                  onClick={() => handleReceive(true)}
+                  disabled={!canSubmitReceive}
+                  title="Create the link on Cashfree's sandbox (test keys) — no real money moves"
+                  className="rounded-md border border-hairline px-4 py-2 text-sm font-medium text-ink hover:bg-mist-navy disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {busy ? "Processing…" : "Create test link"}
+                </button>
+              )}
+              <button
+                onClick={() => handleReceive(false)}
+                disabled={!canSubmitReceive}
+                className="rounded-md bg-ink-navy px-4 py-2 text-sm font-medium text-chalk-white hover:bg-ink-navy/90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {busy ? "Processing…" : mode === "cashfree" ? "Create payment link" : "Record payment"}
+              </button>
+            </div>
           ) : (
             <button
               onClick={handleRefund}
@@ -278,9 +294,14 @@ export function ReceivePaymentModal({
             <div className="rounded-md border border-green-200 bg-green-50 p-3">
               <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-green-800">
                 <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 0 010-1.414 1 1 0 011.414 0L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
                 Payment link created{cfResult.sms_sent ? " • SMS sent to customer" : ""}
+                {cfResult.environment === "TEST" && (
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                    Test
+                  </span>
+                )}
               </div>
               <div className="space-y-2">
                 {cfResult.link_url && (
@@ -312,9 +333,11 @@ export function ReceivePaymentModal({
                   </a>
                 )}
                 <p className="text-[11px] text-muted">
-                  {cfResult.sms_sent
-                    ? "An SMS with the payment link has been sent to the customer's phone. The payment will be captured automatically via webhook once paid."
-                    : "Share this link with the customer. The payment will be captured automatically via webhook once paid."}
+                  {cfResult.environment === "TEST"
+                    ? "This is a sandbox link (test environment) — no real money will move. Paying it is verified against the sandbox gateway and the transaction captures like a live one, so the flow can be exercised end-to-end."
+                    : cfResult.sms_sent
+                      ? "An SMS with the payment link has been sent to the customer's phone. The payment will be captured automatically via webhook once paid."
+                      : "Share this link with the customer. The payment will be captured automatically via webhook once paid."}
                 </p>
               </div>
             </div>

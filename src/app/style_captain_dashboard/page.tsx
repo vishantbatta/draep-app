@@ -6,9 +6,11 @@ import {
   scFetchJobs,
   scFetchMe,
   scFetchScheduleOverview,
+  scWalkInOrders,
   type SCJob,
-  type SCUser,
   type SCScheduleOverview,
+  type SCUser,
+  type SCWalkInOrderListItem,
 } from "@/lib/style-captain-api";
 import {
   formatAddress,
@@ -30,7 +32,12 @@ export default function StyleCaptainDashboardPage() {
   const [user, setUser] = useState<SCUser | null>(null);
   const [activeJobs, setActiveJobs] = useState<SCJob[]>([]);
   const [recentJobs, setRecentJobs] = useState<SCJob[]>([]);
-  const [tab, setTab] = useState<"active" | "missed" | "completed">("active");
+  // This captain's in-store draft orders (§4.8) — jobless walk-ins only;
+  // once measurement starts they graduate to the job tabs above.
+  const [walkInOrders, setWalkInOrders] = useState<SCWalkInOrderListItem[]>([]);
+  const [tab, setTab] = useState<"active" | "missed" | "completed" | "walkins">(
+    "active",
+  );
   const [search, setSearch] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleOverview, setScheduleOverview] =
@@ -40,15 +47,18 @@ export default function StyleCaptainDashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const [me, active, completed, overview] = await Promise.all([
+      const [me, active, completed, overview, walkIns] = await Promise.all([
         scFetchMe().catch(() => null),
         scFetchJobs("scheduled,in_progress"),
         scFetchJobs("completed,cancelled"),
         scFetchScheduleOverview().catch(() => null),
+        // Tolerant: an older backend without §4.8 shouldn't sink the page.
+        scWalkInOrders().catch(() => []),
       ]);
       if (me) setUser(me);
       setActiveJobs(active);
       setRecentJobs(completed);
+      setWalkInOrders(walkIns);
       if (overview) setScheduleOverview(overview);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load jobs");
@@ -60,6 +70,17 @@ export default function StyleCaptainDashboardPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Stage/payment can move while the captain is elsewhere (customer pays in
+  // the app), so tapping the Walk-ins tab quietly refetches just that list —
+  // no full-page loading flicker, no background polling.
+  const refreshWalkIns = useCallback(async () => {
+    try {
+      setWalkInOrders(await scWalkInOrders());
+    } catch {
+      // keep the stale list; a hard failure surfaces via load()
+    }
+  }, []);
 
   // Split the live jobs into upcoming vs missed.
   // "Missed" = this captain's jobs whose visit time has passed:
@@ -98,13 +119,24 @@ export default function StyleCaptainDashboardPage() {
     const bTime = b.performed_at ?? b.created_at ?? "";
     return bTime.localeCompare(aTime);
   });
+  // Same name/phone search applied to walk-ins, newest first.
+  const matchesWalkInSearch = (o: SCWalkInOrderListItem): boolean =>
+    q === "" ||
+    (o.customer_name ?? "").toLowerCase().includes(q) ||
+    (qDigits !== "" &&
+      (o.customer_phone ?? "").replace(/\D/g, "").includes(qDigits));
+  const filteredWalkIns = walkInOrders
+    .filter(matchesWalkInSearch)
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 
   const visibleJobs =
     tab === "active"
       ? filteredUpcoming
       : tab === "missed"
         ? filteredMissed
-        : filteredRecent;
+        : tab === "completed"
+          ? filteredRecent
+          : [];
 
   return (
     <div className="space-y-4">
@@ -131,17 +163,17 @@ export default function StyleCaptainDashboardPage() {
         </div>
       </section>
 
-      {/* ─── Start measurement CTA ──────────────────────────────────────── */}
+      {/* ─── Start walk-in CTA ──────────────────────────────────────────── */}
       <button
-        onClick={() => router.push("/style_captain_dashboard/measure/start")}
+        onClick={() => router.push("/style_captain_dashboard/walk-in")}
         className="tap flex w-full items-center justify-between rounded-card bg-tape px-5 py-4 text-chalk-white shadow-primary"
       >
         <span className="text-left">
           <span className="block font-heading text-body font-semibold">
-            Start a Measurement
+            Start a Walk-in Order
           </span>
           <span className="block text-caption text-chalk-white/80">
-            Pick a job &amp; capture step-by-step
+            Look up the customer &amp; build their order in-store
           </span>
         </span>
         <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none">
@@ -205,19 +237,30 @@ export default function StyleCaptainDashboardPage() {
 
       {/* ─── Tabs ───────────────────────────────────────────────────────── */}
       <div className="flex gap-1 rounded-pill border border-hairline bg-chalk-white p-1">
-        {(["active", "missed", "completed"] as const).map((t) => {
+        {(["active", "missed", "completed", "walkins"] as const).map((t) => {
           const count =
             t === "active"
               ? filteredUpcoming.length
               : t === "missed"
                 ? filteredMissed.length
-                : filteredRecent.length;
+                : t === "completed"
+                  ? filteredRecent.length
+                  : filteredWalkIns.length;
           const label =
-            t === "active" ? "Active" : t === "missed" ? "Missed" : "Recent";
+            t === "active"
+              ? "Active"
+              : t === "missed"
+                ? "Missed"
+                : t === "completed"
+                  ? "Recent"
+                  : "Walk-ins";
           return (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => {
+                setTab(t);
+                if (t === "walkins") void refreshWalkIns();
+              }}
               className={`tap flex flex-1 items-center justify-center gap-1.5 rounded-pill px-3 py-2 text-caption font-medium transition ${
                 tab === t
                   ? "bg-ink-navy text-chalk-white"
@@ -255,6 +298,27 @@ export default function StyleCaptainDashboardPage() {
         <div className="py-12 text-center text-caption text-muted">
           Loading jobs…
         </div>
+      ) : tab === "walkins" ? (
+        filteredWalkIns.length === 0 ? (
+          <div className="rounded-card border border-dashed border-hairline-strong bg-chalk-white/50 px-6 py-12 text-center">
+            <p className="text-body font-medium text-ink-navy">
+              {q
+                ? `No walk-ins match “${search.trim()}”`
+                : "No walk-in orders"}
+            </p>
+            <p className="mt-1 text-caption text-muted">
+              {q
+                ? "Try a different name or phone number."
+                : "In-store orders you start from the Walk-in screen will show up here until measurement begins."}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filteredWalkIns.map((o) => (
+              <WalkInOrderCard key={o.order_id} order={o} />
+            ))}
+          </div>
+        )
       ) : visibleJobs.length === 0 ? (
         <div className="rounded-card border border-dashed border-hairline-strong bg-chalk-white/50 px-6 py-12 text-center">
           <p className="text-body font-medium text-ink-navy">
@@ -575,6 +639,128 @@ function JobCard({ job }: { job: SCJob }) {
             {job.status === "in_progress" ? "Continue →" : "Start →"}
           </span>
         )}
+      </div>
+    </article>
+  );
+}
+
+// ─── Walk-in order card ─────────────────────────────────────────────────────
+
+/** Chip copy/colour for the server stage. The server never reports
+ *  awaiting_customer (it's FE-only on the wizard's wait screen), so a
+ *  configuring order that already has garments reads as "Awaiting customer" —
+ *  garments are in, the blocker is the customer's payment. */
+function walkInStageChip(
+  order: SCWalkInOrderListItem,
+): { label: string; cls: string } {
+  if (order.stage === "cancelled")
+    return {
+      label: "Cancelled",
+      cls: "bg-error-bg text-error-text border border-error-border",
+    };
+  if (order.stage === "measuring")
+    return {
+      label: "Measuring",
+      cls: "bg-mist-navy text-ink-navy border border-navy-interactive/30",
+    };
+  if (order.stage === "ready")
+    return {
+      label: "Ready",
+      cls: "bg-success-bg text-success-text border border-success-border",
+    };
+  return order.garment_count > 0
+    ? {
+        label: "Awaiting customer",
+        cls: "bg-orange-badge-bg text-accent-text border border-orange-highlight/40",
+      }
+    : {
+        label: "Configuring",
+        cls: "bg-mist-navy text-muted border border-hairline",
+      };
+}
+
+function WalkInOrderCard({ order }: { order: SCWalkInOrderListItem }) {
+  const router = useRouter();
+  const chip = walkInStageChip(order);
+  const phoneDisplay = order.customer_phone
+    ? `+91 ${order.customer_phone}`
+    : null;
+  const paymentText = order.cod_selected
+    ? "COD selected"
+    : order.payment_status
+      ? order.payment_status
+          .split("_")
+          .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+          .join(" ")
+      : "—";
+
+  function navigate() {
+    router.push(
+      `/style_captain_dashboard/walk-in?order=${encodeURIComponent(order.order_id)}`,
+    );
+  }
+
+  return (
+    <article
+      onClick={navigate}
+      className="tap cursor-pointer rounded-card border border-hairline bg-chalk-white p-4 shadow-card transition hover:border-hairline-strong"
+    >
+      {/* Header row: stage chip + order # */}
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex rounded-pill px-2.5 py-0.5 text-[11px] font-semibold ${chip.cls}`}
+            >
+              {chip.label}
+            </span>
+            {order.order_number && (
+              <span className="truncate font-mono text-[11px] text-muted">
+                #{order.order_number}
+              </span>
+            )}
+          </div>
+          <h3 className="mt-1.5 font-heading text-body font-semibold text-ink-navy">
+            {order.customer_name ?? "Walk-in customer"}
+          </h3>
+          {phoneDisplay && (
+            <p className="mt-0.5 text-caption text-muted">{phoneDisplay}</p>
+          )}
+        </div>
+        <svg
+          className="mt-1 h-4 w-4 shrink-0 text-muted"
+          viewBox="0 0 20 20"
+          fill="none"
+        >
+          <path
+            d="M7 5l5 5-5 5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+
+      {/* Detail rows */}
+      <dl className="space-y-1.5 text-caption">
+        <DetailRow
+          label="Garments"
+          value={
+            order.garment_count > 0 ? String(order.garment_count) : "None yet"
+          }
+        />
+        <DetailRow label="Payment" value={paymentText} />
+        {order.created_at && (
+          <DetailRow label="Started" value={formatDateTime(order.created_at)} />
+        )}
+      </dl>
+
+      {/* Resume affordance — cancelled drafts still open for reference */}
+      <div className="mt-3 flex items-center justify-end border-t border-hairline pt-3">
+        <span className="text-caption font-medium text-accent-text">
+          {order.stage === "cancelled" ? "View →" : "Resume →"}
+        </span>
       </div>
     </article>
   );

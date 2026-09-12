@@ -262,7 +262,7 @@ export const strings = {
     resendCodeIn: (seconds: number) => `Resend code in ${seconds}s`,
     codeResent: "We've sent you a new code.",
     useDifferentNumber: "Use a different number",
-    demoHint: "Demo mode: any phone works with code 123456.",
+    demoHint: "Demo mode: any phone works with code 1221.",
     loginError: "Could not verify. Please try again.",
     profileTitle: "One last stitch",
     profileBody: "Tell us your name and gender — your orders and fittings will know it's you.",

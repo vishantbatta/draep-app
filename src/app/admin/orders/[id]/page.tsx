@@ -35,6 +35,7 @@ import {
   resyncOrderPromos,
   applyOrderCoupon,
   getPromoSettings,
+  syncOrderPayments,
   fetchGarmentTree,
   catalogLabel,
   formatOrderSlot,
@@ -74,7 +75,7 @@ import {
   type StyleSelectionGroup,
   type StyleItemDetail,
 } from "@/lib/job-pdf";
-import { generateInvoicePdf, type InvoiceInput } from "@/lib/invoice-pdf";
+import type { InvoiceInput } from "@/lib/invoice-pdf";
 import type { MaterialsRequiredSourceItem } from "@/lib/materials-required";
 import { GarmentSelectionSheet } from "@/components/admin/GarmentSelectionSheet";
 import { BottomSheet } from "@/components/ui/BottomSheet";
@@ -86,6 +87,8 @@ import {
 } from "./DesignFromImage";
 import type { AISelection, AIAddon } from "@/lib/admin-api";
 import { ReceivePaymentModal } from "./ReceivePaymentModal";
+import { DocumentsSection } from "./DocumentsSection";
+import { ReversePaymentModal } from "./ReversePaymentModal";
 import { VoicePlayer } from "@/components/style-captain/VoicePlayer";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -1012,17 +1015,6 @@ export default function OrderDetailPage() {
   // ── PDF download state ─────────────────────────────────────────────────────
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<string | null>(null);
-  // ── Invoice generation state (single client-side PDF, tax-inclusive total) ─
-  const [invoiceLoading, setInvoiceLoading] = useState(false);
-  // Download sheet: date printed on the invoice, pre-filled with today's LOCAL
-  // date (not toISOString — that's UTC and yields yesterday near midnight IST).
-  const [invoiceSheetOpen, setInvoiceSheetOpen] = useState(false);
-  const [invoiceDate, setInvoiceDate] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-      d.getDate(),
-    ).padStart(2, "0")}`;
-  });
   // Copy-quote image builder (canvas render + clipboard write).
   const [quoteBusy, setQuoteBusy] = useState(false);
   // Customization sheet (section toggles). Defaults to all-on so the first
@@ -1074,6 +1066,11 @@ export default function OrderDetailPage() {
   // Receive-payment / refund modal.
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentModalTab, setPaymentModalTab] = useState<"receive" | "refund">("receive");
+
+  // Reverse-payment modal (payment recorded in error) + documents refresh
+  // key — any ledger change may mint an invoice / credit note.
+  const [reverseTxn, setReverseTxn] = useState<TransactionRow | null>(null);
+  const [docsRefreshKey, setDocsRefreshKey] = useState(0);
 
   // Copy-login-link busy flag (mirrors the admin user page CTA).
   const [loginLinkBusy, setLoginLinkBusy] = useState(false);
@@ -1192,6 +1189,28 @@ export default function OrderDetailPage() {
       setJobs(mj);
       setTransactions(tx);
       setAdjustments(adj);
+
+      // Paid payment links confirm on the gateway, not locally — sandbox
+      // webhooks can't reach a dev backend, so a link the customer already
+      // paid stays "created" until someone re-checks. If any Cashfree txn is
+      // still open, sweep once in the background and re-render the ledger
+      // with the result (fire-and-forget: a failed sweep just leaves the
+      // rows as loaded, and the Sync button can retry).
+      if (tx.some((t) => t.provider === "cashfree" && t.status === "created")) {
+        syncOrderPayments(orderId)
+          .then(async () => {
+            const [refreshed, tx2] = await Promise.all([
+              fetchTableRows<OrderRow>("orders", {
+                filters: { id: orderId },
+                perPage: 1,
+              }),
+              fetchTransactionsForOrder(orderId),
+            ]);
+            if (refreshed.rows[0]) setOrder(refreshed.rows[0]);
+            setTransactions(tx2);
+          })
+          .catch(() => {});
+      }
 
       // Catalog price index for the breakdown — one tree per unique garment
       // (public endpoint). Rows without a stamped price (pre-fix MYOD
@@ -1549,6 +1568,28 @@ export default function OrderDetailPage() {
     // Payments/refunds change the ledger → re-fetch transactions so the table
     // and the derived balance/payment-status stay current.
     setTransactions(await fetchTransactionsForOrder(order.id));
+    // Any ledger change may have minted an invoice / credit note — reload
+    // the documents section too.
+    setDocsRefreshKey((k) => k + 1);
+  }
+
+  // ── Gateway sync ────────────────────────────────────────────────────────────
+  const [syncing, setSyncing] = useState(false);
+
+  /** Re-check open Cashfree transactions against the gateway. The webhook is
+   *  the source of truth but can lag or (sandbox links on a dev backend)
+   *  never arrive — this captures paid links/orders and refreshes the ledger. */
+  async function syncGatewayPayments() {
+    if (!order || syncing) return;
+    setSyncing(true);
+    try {
+      await syncOrderPayments(order.id);
+      await refreshOrderTotal();
+    } catch {
+      // A failed sweep leaves the ledger as-is; the button can be retried.
+    } finally {
+      setSyncing(false);
+    }
   }
 
   async function handleCreateAdjustment(
@@ -2238,30 +2279,11 @@ export default function OrderDetailPage() {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // INVOICE — one-click GST tax invoice. Treats order.total_price as
-  // tax-inclusive and back-calculates IGST (5%) inside generateInvoicePdf.
-  // No network: consumes the already-loaded order / garment / adjustment /
-  // transaction state.
+  // INVOICE — replaced by the minted-documents flow (DocumentsSection):
+  // invoices are issued automatically when payments capture, so there is no
+  // client-side generator and no date to pick here anymore. buildInvoiceInput
+  // remains solely for the job-PDF's embedded invoice page below.
   // ──────────────────────────────────────────────────────────────────────────
-  async function handleGenerateInvoice(invoiceDateIso?: string) {
-    if (!order) return;
-    setInvoiceLoading(true);
-    try {
-      // Same builder the PDF's embedded invoice page uses, over the full
-      // (unfiltered) garment list — the standalone invoice and the report's
-      // invoice page can never drift apart. The date comes from the download
-      // sheet (defaults to today).
-      await generateInvoicePdf(
-        buildInvoiceInput(garmentOrders, (id) => itemsByGO.get(id), invoiceDateIso),
-      );
-      flash("Invoice downloaded");
-      setInvoiceSheetOpen(false);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Invoice generation failed");
-    } finally {
-      setInvoiceLoading(false);
-    }
-  }
 
   /** Copy the public invoice link (/invoice/{order id} — the order's random
    *  UUID doubles as the unguessable share token) so it can be sent to the
@@ -3406,14 +3428,6 @@ export default function OrderDetailPage() {
             >
               🔗 Copy Invoice URL
             </button>
-            <button
-              onClick={() => setInvoiceSheetOpen(true)}
-              disabled={invoiceLoading || pdfLoading}
-              title="Pick the invoice date, then generate a GST tax invoice from the order grand total (tax-inclusive)"
-              className="rounded-lg border border-tape bg-tape/10 px-3 py-1.5 text-xs font-medium text-tape transition hover:bg-tape/20 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {invoiceLoading ? "Preparing…" : "⬇ Download Invoice PDF"}
-            </button>
           </div>
         </div>
 
@@ -3695,6 +3709,14 @@ export default function OrderDetailPage() {
           </h2>
           <div className="flex items-center gap-2">
             <button
+              onClick={syncGatewayPayments}
+              disabled={syncing}
+              title="Re-check open Cashfree payments against the gateway (the webhook can lag or be unreachable) and capture any that were paid"
+              className="rounded-md border border-hairline px-3 py-1.5 text-xs font-medium text-muted transition hover:border-ink-navy/30 hover:bg-mist-navy/40 hover:text-ink-navy disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {syncing ? "Syncing…" : "⟳ Sync"}
+            </button>
+            <button
               onClick={() => {
                 setPaymentModalTab("refund");
                 setPaymentModalOpen(true);
@@ -3730,9 +3752,10 @@ export default function OrderDetailPage() {
                   <th className="px-4 py-2 font-medium">Method</th>
                   <th className="px-4 py-2 font-medium">Reference</th>
                   <th className="px-4 py-2 font-medium">Note</th>
-                  <th className="px-4 py-2 text-right font-medium">Amount</th>
-                  <th className="px-4 py-2 font-medium">Date</th>
-                </tr>
+                      <th className="px-4 py-2 text-right font-medium">Amount</th>
+                      <th className="px-4 py-2 font-medium">Date</th>
+                      <th className="px-4 py-2 text-right font-medium">Actions</th>
+                    </tr>
               </thead>
               <tbody>
                 {transactions.map((tx) => {
@@ -3797,6 +3820,17 @@ export default function OrderDetailPage() {
                       <td className="px-4 py-2 text-[12px] text-muted">
                         {formatDate(tx.captured_at ?? tx.refunded_at ?? tx.created_at)}
                       </td>
+                      <td className="px-4 py-2 text-right">
+                        {tx.type === "payment" && tx.status === "captured" && (
+                          <button
+                            onClick={() => setReverseTxn(tx)}
+                            title="This payment was recorded in error — reverse it out of the ledger (a credit note is issued; no money moves)"
+                            className="rounded-md border border-hairline px-2 py-1 text-[11px] font-medium text-muted transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                          >
+                            Reverse
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -3805,6 +3839,9 @@ export default function OrderDetailPage() {
           </div>
         )}
       </section>
+
+      {/* ─── Minted GST documents (invoices & credit notes) ─────────────────── */}
+      {order && <DocumentsSection orderId={order.id} refreshKey={docsRefreshKey} />}
 
       {/* ─── Receive payment / refund modal ───────────────────────────────── */}
       {order && (
@@ -3816,6 +3853,26 @@ export default function OrderDetailPage() {
           onSuccess={refreshOrderTotal}
           totalPrice={liveTotal}
           customerPhone={customer?.phone}
+        />
+      )}
+
+      {/* ─── Reverse payment modal (recorded in error) ────────────────────── */}
+      {order && (
+        <ReversePaymentModal
+          open={reverseTxn !== null}
+          onClose={() => setReverseTxn(null)}
+          orderId={order.id}
+          transaction={
+            reverseTxn
+              ? {
+                  id: reverseTxn.id,
+                  amount: reverseTxn.amount,
+                  provider: reverseTxn.provider,
+                  captured_at: reverseTxn.captured_at,
+                }
+              : null
+          }
+          onSuccess={refreshOrderTotal}
         />
       )}
 
@@ -4015,61 +4072,6 @@ export default function OrderDetailPage() {
               )}
             </div>
           </div>
-        </div>
-      </BottomSheet>
-
-      {/* INVOICE DATE SHEET — opens from "⬇ Download Invoice PDF". The only
-          choice is the date printed as Invoice Date / Due Date, pre-filled
-          with today; "Download Invoice" runs the same generator the direct
-          button used to. Opens when "Download Invoice PDF" is clicked. */}
-      <BottomSheet
-        open={invoiceSheetOpen}
-        onClose={() => {
-          if (!invoiceLoading) setInvoiceSheetOpen(false);
-        }}
-        title="Download Invoice"
-        footer={
-          <div className="flex items-center justify-between gap-3">
-            <button
-              onClick={() => setInvoiceSheetOpen(false)}
-              disabled={invoiceLoading}
-              className="rounded-lg border border-hairline bg-chalk-white px-4 py-2 text-sm font-medium text-ink-navy transition hover:bg-mist-navy/40 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => handleGenerateInvoice(invoiceDate)}
-              disabled={invoiceLoading}
-              className="rounded-lg border border-ink-navy bg-ink-navy px-4 py-2 text-sm font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:opacity-50"
-            >
-              {invoiceLoading ? "Preparing…" : "⬇ Download Invoice"}
-            </button>
-          </div>
-        }
-      >
-        <div className="space-y-1 pb-2">
-          <p className="mb-3 text-xs text-muted">
-            The invoice date prints as both Invoice Date and Due Date (&quot;Due
-            on Receipt&quot;). Defaults to today — change it to back-date or
-            pre-date the invoice.
-          </p>
-          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-hairline bg-chalk-white px-3 py-2.5 transition hover:bg-mist-navy/30">
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-ink-navy">
-                Invoice date
-              </span>
-              <span className="block text-xs text-muted">
-                Printed on the GST tax invoice
-              </span>
-            </span>
-            <input
-              type="date"
-              value={invoiceDate}
-              onChange={(e) => setInvoiceDate(e.target.value)}
-              disabled={invoiceLoading}
-              className="shrink-0 rounded-lg border border-hairline-strong bg-chalk-white px-2.5 py-1.5 text-sm font-medium text-ink-navy disabled:opacity-50"
-            />
-          </label>
         </div>
       </BottomSheet>
     </div>

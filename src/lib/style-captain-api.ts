@@ -738,27 +738,195 @@ export async function scLogout(): Promise<void> {
   }
 }
 
-export interface SCWalkInResult {
-  job_id: string;
-  user_id: string;
-  is_new_user: boolean;
+// ─── Walk-in v2 (WALKIN_V2_PLAN.md §4) ──────────────────────────────────────
+
+export interface SCWalkInUser {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  country_code: string | null;
+  is_customer: boolean;
 }
 
-export async function scCreateWalkInJob(
-  name: string,
+export interface SCWalkInAddress {
+  id: string;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  coordinates: { lat?: number; lng?: number } | null;
+}
+
+export interface SCWalkInLookup {
+  found: boolean;
+  user?: SCWalkInUser | null;
+  addresses?: SCWalkInAddress[];
+}
+
+/** §4.1 — does this phone belong to a customer? Saved addresses ride along. */
+export async function scWalkInUserLookup(
   phone: string,
-  garmentId: string,
-  notes?: string,
-): Promise<SCWalkInResult> {
-  return scFetch<SCWalkInResult>("/style-captain/walk-in", {
+  countryCode = "+91",
+): Promise<SCWalkInLookup> {
+  const qs = `phone=${encodeURIComponent(phone)}&country_code=${encodeURIComponent(countryCode)}`;
+  return scFetch<SCWalkInLookup>(`/style-captain/walk-in/user-lookup?${qs}`);
+}
+
+/** §4.2 — send the OTP to the customer (captain scopes it, never sees it). */
+export async function scWalkInOtpSend(
+  phone: string,
+  countryCode = "+91",
+): Promise<{ expires_in_seconds: number }> {
+  return scFetch<{ expires_in_seconds: number }>(
+    "/style-captain/walk-in/otp/send",
+    { method: "POST", body: JSON.stringify({ phone, country_code: countryCode }) },
+  );
+}
+
+/** §4.3 — captain types the customer's OTP; returns the purpose-scoped
+ *  verification token that authorizes exactly one draft-order create. */
+export async function scWalkInOtpVerify(
+  phone: string,
+  otp: string,
+  countryCode = "+91",
+): Promise<{ verified: boolean; verification_token: string; expires_at: string }> {
+  return scFetch<{
+    verified: boolean;
+    verification_token: string;
+    expires_at: string;
+  }>("/style-captain/walk-in/otp/verify", {
     method: "POST",
-    body: JSON.stringify({
-      name,
-      phone,
-      garment_id: garmentId,
-      notes: notes ?? null,
-    }),
+    body: JSON.stringify({ phone, country_code: countryCode, otp }),
   });
+}
+
+export interface SCWalkInCreateOrderInput {
+  verification_token: string;
+  user_id?: string;
+  new_user?: { name: string; phone: string; country_code?: string };
+  address_id?: string;
+  new_address?: {
+    address_line_1: string;
+    address_line_2?: string | null;
+    city: string;
+    state: string;
+    pincode: string;
+    coordinates?: { lat: number; lng: number } | null;
+  };
+}
+
+/** §4.4 — create the empty draft walk-in order (step 3 entry). */
+export async function scWalkInCreateOrder(
+  input: SCWalkInCreateOrderInput,
+): Promise<{ order_id: string; order_number: string; user_id: string; is_new_user: boolean }> {
+  return scFetch<{
+    order_id: string;
+    order_number: string;
+    user_id: string;
+    is_new_user: boolean;
+  }>("/style-captain/walk-in/orders", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** §4.5 — add a garment to the walk-in order (backend seeds defaults). */
+export async function scWalkInAddGarment(
+  orderId: string,
+  garmentId: string,
+): Promise<{ garment_order_id: string }> {
+  return scFetch<{ garment_order_id: string }>(
+    `/style-captain/walk-in/orders/${orderId}/garments`,
+    { method: "POST", body: JSON.stringify({ garment_id: garmentId }) },
+  );
+}
+
+export interface SCWalkInGarmentSnapshot {
+  garment_order_id: string;
+  garment_id: string | null;
+  label: string;
+  /** Same shape the job-detail payload carries — feeds SelectionSheet. */
+  selections: SCSelection[];
+  available_addons: SCAvailableAddon[];
+}
+
+export interface SCWalkInOrderSnapshot {
+  order_id: string;
+  order_number: string | null;
+  user: { id: string; name: string | null; phone: string | null };
+  address: SCWalkInAddress | null;
+  stage: "configuring" | "ready" | "measuring" | "cancelled";
+  payment_status: string | null;
+  fulfillment_status: string | null;
+  cod_selected: boolean;
+  total_price: number | null;
+  garments: SCWalkInGarmentSnapshot[];
+  job_id: string | null;
+}
+
+/** §4.7 — full snapshot: powers resume, the review screen, and drill-ins. */
+export async function scWalkInOrderSnapshot(
+  orderId: string,
+): Promise<SCWalkInOrderSnapshot> {
+  return scFetch<SCWalkInOrderSnapshot>(
+    `/style-captain/walk-in/orders/${orderId}`,
+  );
+}
+
+export interface SCWalkInOrderListItem {
+  order_id: string;
+  order_number: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  garment_count: number;
+  stage: "configuring" | "ready" | "measuring" | "cancelled";
+  payment_status: string | null;
+  cod_selected: boolean;
+  created_at: string | null;
+}
+
+/** §4.8 — the dashboard Walk-ins tab (this captain's jobless walk-ins). */
+export async function scWalkInOrders(): Promise<SCWalkInOrderListItem[]> {
+  const data = await scFetch<{ orders: SCWalkInOrderListItem[] }>(
+    "/style-captain/walk-in/orders",
+  );
+  return data.orders;
+}
+
+export interface SCWalkInStatus {
+  order_id: string;
+  payment_status: string | null;
+  fulfillment_status: string | null;
+  cod_selected: boolean;
+  ready_for_measurement: boolean;
+}
+
+/** §4.9 — Check Now: manual status fetch; no polling anywhere. */
+export async function scWalkInOrderStatus(orderId: string): Promise<SCWalkInStatus> {
+  return scFetch<SCWalkInStatus>(
+    `/style-captain/walk-in/orders/${orderId}/status`,
+  );
+}
+
+/** §4.10 — hard gate: starts the measurement job only once paid/COD. */
+export async function scWalkInStartMeasurement(
+  orderId: string,
+): Promise<{ job_id: string }> {
+  return scFetch<{ job_id: string }>(
+    `/style-captain/walk-in/orders/${orderId}/start-measurement`,
+    { method: "POST" },
+  );
+}
+
+/** §4.11 — drop an unpaid walk-in. 409s once payment is captured. */
+export async function scWalkInCancelOrder(
+  orderId: string,
+): Promise<{ order_id: string; status: string }> {
+  return scFetch<{ order_id: string; status: string }>(
+    `/style-captain/walk-in/orders/${orderId}/cancel`,
+    { method: "POST" },
+  );
 }
 
 // ─── Validation ─────────────────────────────────────────────────────────────

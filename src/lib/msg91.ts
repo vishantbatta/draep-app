@@ -10,7 +10,7 @@
  *
  * Enable with NEXT_PUBLIC_MSG91_WIDGET_ID + NEXT_PUBLIC_MSG91_TOKEN_AUTH
  * (msg91.com → OTP → widget settings). When unset, callers fall back to the
- * legacy test-mode endpoints (/auth/otp/send + /auth/otp/verify, code 123456).
+ * legacy test-mode endpoints (/auth/otp/send + /auth/otp/verify, code 1221).
  *
  * Docs: https://msg91.com/help/sendotp/how-to-integrate-the-new-login-with-otp-widget
  */
@@ -22,10 +22,10 @@ const TOKEN_AUTH = process.env.NEXT_PUBLIC_MSG91_TOKEN_AUTH ?? "";
 export const msg91Enabled = Boolean(WIDGET_ID && TOKEN_AUTH);
 
 /**
- * OTP length the UI accepts. Must match the "OTP length" configured on the
- * MSG91 widget (currently 4). The legacy test-mode code is 6 digits.
+ * OTP length the UI accepts. Real OTPs (MSG91) are always 4 digits, and the
+ * test-mode code (1221) is 4 digits too — so 4 regardless of mode.
  */
-export const otpLength = msg91Enabled ? 4 : 6;
+export const otpLength = 4;
 
 /** Widget callbacks receive a `{ type, message }` envelope. */
 interface Msg91CallbackData {
