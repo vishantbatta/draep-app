@@ -15,15 +15,7 @@ import {
 } from "@/lib/admin-api";
 import { parseRupeesInput, rupeesToInput } from "@/lib/money";
 import { formatPrice } from "@/lib/pricing";
-import {
-  addonNodes,
-  addonVariationNodes,
-  areaNodes,
-  componentNodes,
-  garmentNodes,
-  variationNodes,
-  variationTypeNodes,
-} from "@/lib/promo-pickers";
+import { areaNodes } from "@/lib/promo-pickers";
 import {
   bucketSelection,
   EMPTY_REQUIRE_GROUP,
@@ -33,6 +25,14 @@ import {
   scopeToRequireGroups,
   type RequireGroupDraft,
 } from "@/lib/promo-requires";
+import {
+  bucketTargetRow,
+  EMPTY_TARGET_GROUP,
+  scopeToTargetRows,
+  targetRowsHavePicks,
+  targetRowsToScope,
+  type TargetGroupDraft,
+} from "@/lib/promo-targets";
 import { PickerField } from "./PromoPickerSheet";
 import { PromoSettingsCard } from "./PromoSettingsCard";
 
@@ -123,16 +123,34 @@ function discountLabel(p: Promotion): string {
 function scopeSummary(p: Promotion): string {
   const s = p.scope ?? {};
   const bits: string[] = [];
-  const target = (s.target as string) ?? "order";
-  if (target === "order") bits.push("whole order");
-  else if (target === "garment") bits.push(`garments: ${listToCsv(s.garment_slugs) || "—"}`);
-  else if (target === "component") {
-    bits.push(`components: ${listToCsv(s.component_slugs) || "—"}`);
-    const leaves = [...(s.variation_slugs ?? []), ...(s.variation_type_slugs ?? [])];
-    if (leaves.length) bits.push(`only: ${leaves.join(", ")}`);
-  } else if (target === "addon") {
-    bits.push(`add-ons: ${listToCsv(s.addon_slugs) || "—"}`);
-    if (s.addon_variation_slugs?.length) bits.push(`only: ${s.addon_variation_slugs.join(", ")}`);
+  if (Array.isArray(s.targets) && s.targets.length > 0) {
+    // combo-style applies-to rows — one summary fragment per group
+    const parts = s.targets.map((g) => {
+      if (g.target === "garment")
+        return `garments: ${listToCsv(g.garment_slugs) || "—"}`;
+      if (g.target === "component") {
+        const leaves = [...(g.variation_slugs ?? []), ...(g.variation_type_slugs ?? [])];
+        return `components: ${listToCsv(g.component_slugs) || "—"}${
+          leaves.length ? ` (${leaves.join(", ")})` : ""
+        }`;
+      }
+      return `add-ons: ${listToCsv(g.addon_slugs) || "—"}${
+        g.addon_variation_slugs?.length ? ` (${g.addon_variation_slugs.join(", ")})` : ""
+      }`;
+    });
+    bits.push(parts.join(" + "));
+  } else {
+    const target = (s.target as string) ?? "order";
+    if (target === "order") bits.push("whole order");
+    else if (target === "garment") bits.push(`garments: ${listToCsv(s.garment_slugs) || "—"}`);
+    else if (target === "component") {
+      bits.push(`components: ${listToCsv(s.component_slugs) || "—"}`);
+      const leaves = [...(s.variation_slugs ?? []), ...(s.variation_type_slugs ?? [])];
+      if (leaves.length) bits.push(`only: ${leaves.join(", ")}`);
+    } else if (target === "addon") {
+      bits.push(`add-ons: ${listToCsv(s.addon_slugs) || "—"}`);
+      if (s.addon_variation_slugs?.length) bits.push(`only: ${s.addon_variation_slugs.join(", ")}`);
+    }
   }
   if (s.first_order_only) bits.push("first order only");
   if (s.payment_methods?.length) bits.push(s.payment_methods.join("/") + " only");
@@ -146,7 +164,7 @@ function scopeSummary(p: Promotion): string {
 
 type Kind = "coupon" | "sale";
 type DiscountType = "percent" | "flat" | "price_override";
-type Target = "order" | "garment" | "component" | "addon";
+type TargetMode = "order" | "items";
 
 interface FormDraft {
   kind: Kind;
@@ -156,13 +174,8 @@ interface FormDraft {
   discountType: DiscountType;
   value: string; // percent: "25" · flat/override: rupees
   minSubtotal: string; // rupees
-  target: Target;
-  garmentSlugs: string; // CSV
-  componentSlugs: string; // CSV
-  variationSlugs: string; // CSV — optional component narrow
-  variationTypeSlugs: string; // CSV — optional component narrow
-  addonSlugs: string; // CSV
-  addonVariationSlugs: string; // CSV — optional addon narrow
+  targetMode: TargetMode; // whole order vs combo-style target rows
+  targetRows: TargetGroupDraft[]; // one row per applies-to bundle
   serviceAreaIds: string; // CSV of ids
   pincodes: string; // CSV
   firstOrderOnly: boolean;
@@ -186,13 +199,8 @@ const EMPTY_DRAFT: FormDraft = {
   discountType: "percent",
   value: "10",
   minSubtotal: "",
-  target: "order",
-  garmentSlugs: "",
-  componentSlugs: "",
-  variationSlugs: "",
-  variationTypeSlugs: "",
-  addonSlugs: "",
-  addonVariationSlugs: "",
+  targetMode: "order",
+  targetRows: [],
   serviceAreaIds: "",
   pincodes: "",
   firstOrderOnly: false,
@@ -210,6 +218,7 @@ const EMPTY_DRAFT: FormDraft = {
 
 function draftFromPromotion(p: Promotion): FormDraft {
   const s = (p.scope ?? {}) as PromotionScope;
+  const targetRows = scopeToTargetRows(s);
   return {
     kind: (p.kind === "sale" ? "sale" : "coupon") as Kind,
     code: p.code ?? "",
@@ -223,15 +232,8 @@ function draftFromPromotion(p: Promotion): FormDraft {
         ? String(p.value ?? "")
         : rupeesToInput(p.value),
     minSubtotal: rupeesToInput(p.min_subtotal),
-    target: (["order", "garment", "component", "addon"].includes(String(s.target))
-      ? s.target
-      : "order") as Target,
-    garmentSlugs: listToCsv(s.garment_slugs),
-    componentSlugs: listToCsv(s.component_slugs),
-    variationSlugs: listToCsv(s.variation_slugs),
-    variationTypeSlugs: listToCsv(s.variation_type_slugs),
-    addonSlugs: listToCsv(s.addon_slugs),
-    addonVariationSlugs: listToCsv(s.addon_variation_slugs),
+    targetMode: targetRows.length > 0 ? "items" : "order",
+    targetRows,
     serviceAreaIds: listToCsv(s.service_area_ids),
     pincodes: listToCsv(s.pincodes),
     firstOrderOnly: s.first_order_only === true,
@@ -249,24 +251,12 @@ function draftFromPromotion(p: Promotion): FormDraft {
 }
 
 function buildScope(d: FormDraft): PromotionScope {
-  const scope: PromotionScope = { target: d.target };
-  const gs = csvToList(d.garmentSlugs);
-  const cs = csvToList(d.componentSlugs);
-  const aslugs = csvToList(d.addonSlugs);
+  const scope: PromotionScope =
+    d.targetMode === "items"
+      ? { targets: targetRowsToScope(d.targetRows) }
+      : { target: "order" };
   const areas = csvToList(d.serviceAreaIds);
   const pins = csvToList(d.pincodes);
-  const vs = csvToList(d.variationSlugs);
-  const vts = csvToList(d.variationTypeSlugs);
-  const avs = csvToList(d.addonVariationSlugs);
-  if (gs.length) scope.garment_slugs = gs;
-  if (cs.length) scope.component_slugs = cs;
-  if (aslugs.length) scope.addon_slugs = aslugs;
-  // narrows ride only on their own target, so stale draft fields never leak
-  if (d.target === "component") {
-    if (vs.length) scope.variation_slugs = vs;
-    if (vts.length) scope.variation_type_slugs = vts;
-  }
-  if (d.target === "addon" && avs.length) scope.addon_variation_slugs = avs;
   if (areas.length) scope.service_area_ids = areas;
   if (pins.length) scope.pincodes = pins;
   if (d.firstOrderOnly) scope.first_order_only = true;
@@ -287,18 +277,10 @@ function validateDraft(d: FormDraft): string | null {
     return "Sales can't have a code — they apply automatically at checkout.";
   if (!Number.isFinite(valueNum) || valueNum <= 0) return "Discount value must be greater than zero.";
   if (d.discountType === "percent" && valueNum > 100) return "Percent discount can't exceed 100.";
-  if (d.discountType === "price_override" && d.target === "order")
-    return "Price override needs a concrete target (garment, component or add-on).";
-  if (d.target === "garment" && csvToList(d.garmentSlugs).length === 0)
-    return "Garment target needs at least one garment slug.";
-  if (d.target === "component" && csvToList(d.componentSlugs).length === 0)
-    return "Component target needs at least one component slug.";
-  if (d.target === "addon" && csvToList(d.addonSlugs).length === 0)
-    return "Add-on target needs at least one add-on slug.";
-  if (d.target !== "component" && (csvToList(d.variationSlugs).length || csvToList(d.variationTypeSlugs).length))
-    return "Variation filters only apply to the Component target.";
-  if (d.target !== "addon" && csvToList(d.addonVariationSlugs).length)
-    return "Add-on variation filters only apply to the Add-on target.";
+  if (d.discountType === "price_override" && d.targetMode === "order")
+    return "Price override needs specific targets (garment, component or add-on).";
+  if (d.targetMode === "items" && !targetRowsHavePicks(d.targetRows))
+    return "Pick at least one thing this promotion applies to.";
   if (d.startsAt && d.endsAt && new Date(d.endsAt).getTime() <= new Date(d.startsAt).getTime())
     return "End must be after start.";
   return null;
@@ -366,49 +348,6 @@ function PromotionsActionPageInner() {
   }, []);
 
   // ─── Picker node trees (pure builders, memoized per dependency) ──────────
-  const garmentSel = csvToList(draft.garmentSlugs);
-  const componentSel = csvToList(draft.componentSlugs);
-  const addonSel = csvToList(draft.addonSlugs);
-
-  const garmentTree = useMemo(
-    () => (opts ? garmentNodes(opts, garmentSel) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [opts, draft.garmentSlugs],
-  );
-  const componentTree = useMemo(
-    () => (opts ? componentNodes(opts, componentSel) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [opts, draft.componentSlugs],
-  );
-  const variationTree = useMemo(
-    () =>
-      opts
-        ? variationNodes(opts, csvToList(draft.variationSlugs), componentSel)
-        : [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [opts, draft.variationSlugs, draft.componentSlugs],
-  );
-  const variationTypeTree = useMemo(
-    () =>
-      opts
-        ? variationTypeNodes(opts, csvToList(draft.variationTypeSlugs), componentSel)
-        : [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [opts, draft.variationTypeSlugs, draft.componentSlugs],
-  );
-  const addonTree = useMemo(
-    () => (opts ? addonNodes(opts, addonSel) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [opts, draft.addonSlugs],
-  );
-  const addonVariationTree = useMemo(
-    () =>
-      opts
-        ? addonVariationNodes(opts, csvToList(draft.addonVariationSlugs), addonSel)
-        : [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [opts, draft.addonVariationSlugs, draft.addonSlugs],
-  );
   const areaTree = useMemo(
     () => (opts ? areaNodes(opts, csvToList(draft.serviceAreaIds)) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -743,94 +682,74 @@ function PromotionsActionPageInner() {
           <section>
             <label className={labelCls}>Applies to</label>
             <Choice
-              value={draft.target}
+              value={draft.targetMode}
               options={[
                 { v: "order", label: "Whole order" },
-                { v: "garment", label: "Garment type" },
-                { v: "component", label: "Component" },
-                { v: "addon", label: "Add-on" },
+                { v: "items", label: "Specific items" },
               ]}
-              onSelect={(v) => patch("target", v)}
+              onSelect={(v) => patch("targetMode", v)}
             />
+            <p className={hintCls}>
+              Whole order discounts the cart total. Specific items discounts every
+              picked line — garments, selections, add-ons, any mix. Multiple rows
+              just group the picks; entity 1 and entity 2 both get discounted when
+              both are in the cart.
+            </p>
 
-            {draft.target === "garment" && (
-              <div className="mt-3">
-                <PickerField
-                  label="Garments"
-                  hint="Discount every line of the picked garment types."
-                  nodes={garmentTree}
-                  value={garmentSel}
-                  onChange={(next) => patch("garmentSlugs", next.join(", "))}
-                  loading={pickersLoading}
-                  placeholder="Pick garment types"
-                />
+            {draft.targetMode === "items" && (
+              <div className="mt-2 flex flex-col gap-3">
+                {draft.targetRows.map((row, i) => (
+                  <div key={i} className="rounded-2xl border border-hairline-strong p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="font-mono text-eyebrow text-ink-navy">
+                        Target {i + 1}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          patch(
+                            "targetRows",
+                            draft.targetRows.filter((_, j) => j !== i),
+                          )
+                        }
+                        className="text-caption text-muted underline underline-offset-2 hover:text-error-text"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <PickerField
+                      hideLabel
+                      label={`Target ${i + 1}`}
+                      nodes={requirementTree}
+                      value={requireGroupSlugs(row)}
+                      onChange={(next) =>
+                        patch(
+                          "targetRows",
+                          draft.targetRows.map((r, j) =>
+                            j === i ? (opts ? bucketTargetRow(opts, next, r) : r) : r,
+                          ),
+                        )
+                      }
+                      loading={pickersLoading}
+                      placeholder="Any garment / component / variation / add-on…"
+                    />
+                    <p className={hintCls}>
+                      One flat list — every picked garment, selection, variation or
+                      add-on line gets the discount. Nothing filters anything else.
+                    </p>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => patch("targetRows", [...draft.targetRows, { ...EMPTY_TARGET_GROUP }])}
+                  className="self-start rounded-pill border border-hairline-strong bg-chalk-white px-4 py-2 text-caption font-medium text-ink-navy transition hover:border-ink-navy/40"
+                >
+                  + Add target
+                </button>
               </div>
             )}
-            {draft.target === "component" && (
-              <>
-                <div className="mt-3">
-                  <PickerField
-                    label="Components"
-                    hint="Drill garment → component. e.g. “free sleeves” = 100% over the sleeve line."
-                    nodes={componentTree}
-                    value={componentSel}
-                    onChange={(next) => patch("componentSlugs", next.join(", "))}
-                    loading={pickersLoading}
-                    placeholder="Pick components"
-                  />
-                </div>
-                <div className="mt-3">
-                  <PickerField
-                    label="Variations (optional)"
-                    hint="Narrow to specific selections — e.g. only “sweetheart” necklines. Blank = all."
-                    nodes={variationTree}
-                    value={csvToList(draft.variationSlugs)}
-                    onChange={(next) => patch("variationSlugs", next.join(", "))}
-                    loading={pickersLoading}
-                    placeholder="All variations"
-                  />
-                </div>
-                <div className="mt-3">
-                  <PickerField
-                    label="Variation types (optional)"
-                    hint="Sub-types under a variation — a line matches if its variation OR its type is listed."
-                    nodes={variationTypeTree}
-                    value={csvToList(draft.variationTypeSlugs)}
-                    onChange={(next) => patch("variationTypeSlugs", next.join(", "))}
-                    loading={pickersLoading}
-                    placeholder="All types"
-                  />
-                </div>
-              </>
-            )}
-            {draft.target === "addon" && (
-              <>
-                <div className="mt-3">
-                  <PickerField
-                    label="Add-ons"
-                    hint="e.g. “free latkan” = 100% over the add-on."
-                    nodes={addonTree}
-                    value={addonSel}
-                    onChange={(next) => patch("addonSlugs", next.join(", "))}
-                    loading={pickersLoading}
-                    placeholder="Pick add-ons"
-                  />
-                </div>
-                <div className="mt-3">
-                  <PickerField
-                    label="Add-on variations (optional)"
-                    hint="Narrow to specific add-on variations (e.g. only “light” latkan)."
-                    nodes={addonVariationTree}
-                    value={csvToList(draft.addonVariationSlugs)}
-                    onChange={(next) => patch("addonVariationSlugs", next.join(", "))}
-                    loading={pickersLoading}
-                    placeholder="All add-on variations"
-                  />
-                </div>
-              </>
-            )}
 
-            {draft.target !== "order" && (
+            {draft.targetMode === "items" && (
               <div className="mt-3 max-w-[220px]">
                 <label className={labelCls}>
                   Max quantity <span className="text-muted">(optional)</span>
@@ -843,7 +762,7 @@ function PromotionsActionPageInner() {
                   placeholder="All matches"
                   className={inputCls}
                 />
-                <p className={hintCls}>Discount at most this many matched items.</p>
+                <p className={hintCls}>Discount at most this many matches per target.</p>
               </div>
             )}
           </section>

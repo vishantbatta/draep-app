@@ -2641,6 +2641,18 @@ export async function deleteShortLink(id: string): Promise<void> {
 // ─── Promotions (Configure → Promotions admin sub-tab) ──────────────────────
 
 /** Mirror of the backend's JSONB `scope` (unknown keys pass through). */
+/** One applies-to group inside scope.targets — each discounts
+ * independently (combo-style rows on the promo form). */
+export interface PromoTargetGroup {
+  target: "garment" | "component" | "addon";
+  garment_slugs?: string[];
+  component_slugs?: string[];
+  variation_slugs?: string[];
+  variation_type_slugs?: string[];
+  addon_slugs?: string[];
+  addon_variation_slugs?: string[];
+}
+
 export interface PromotionScope {
   target?: "order" | "garment" | "component" | "addon";
   garment_slugs?: string[];
@@ -2650,6 +2662,8 @@ export interface PromotionScope {
   variation_slugs?: string[];
   variation_type_slugs?: string[];
   addon_variation_slugs?: string[];
+  /** Combo-style applies-to rows — see PromoTargetGroup. */
+  targets?: PromoTargetGroup[];
   service_area_ids?: string[];
   pincodes?: string[];
   first_order_only?: boolean;

@@ -76,8 +76,9 @@ function join(list: string[]): string {
   return list.join(", ");
 }
 
-/** Every slug in the group across tiers — the sheet's selection + chips. */
-export function requireGroupSlugs(g: RequireGroupDraft): string[] {
+/** Every slug in the group across tiers — the sheet's selection + chips.
+ * Accepts the bucket subset so applies-to target rows (no minQty) share it. */
+export function requireGroupSlugs(g: Pick<RequireGroupDraft, Bucket>): string[] {
   return BUCKETS.flatMap((b) => csv(g[b]));
 }
 
