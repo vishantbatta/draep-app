@@ -388,8 +388,17 @@ async function scFetch<T>(
     headers: buildHeaders(),
   });
 
-  // 401 on an authed request → refresh (single-flight) and retry exactly once.
+  // 401 on an authed request → SESSION 401 only (code "unauthenticated").
+  // Domain 401s (otp_invalid, invalid_credentials, …) are normal API errors —
+  // refreshing or logging the captain out over them would nuke a perfectly
+  // good session (e.g. a mistyped customer OTP must not log the captain out).
   if (res.status === 401 && auth) {
+    const body = await res.clone().json().catch(() => null);
+    const code = (body as { error?: { code?: string } } | null)?.error?.code;
+    if (code !== "unauthenticated") {
+      const message = await readErrorMessage(res, "Request failed");
+      throw new Error(message);
+    }
     const ok = await doRefresh();
     if (!ok) {
       signalSessionDead();
@@ -435,6 +444,13 @@ async function withRefresh<T>(
   let res = await run(token!);
 
   if (res.status === 401) {
+    // Session 401s only — domain 401s surface as errors, never a logout.
+    const body = await res.clone().json().catch(() => null);
+    const code = (body as { error?: { code?: string } } | null)?.error?.code;
+    if (code !== "unauthenticated") {
+      const message = await readErrorMessage(res, "Upload failed");
+      throw new Error(message);
+    }
     const ok = await doRefresh();
     if (!ok) {
       signalSessionDead();
@@ -790,6 +806,7 @@ export async function scWalkInOtpVerify(
   phone: string,
   otp: string,
   countryCode = "+91",
+  otpToken?: string,
 ): Promise<{ verified: boolean; verification_token: string; expires_at: string }> {
   return scFetch<{
     verified: boolean;
@@ -797,11 +814,16 @@ export async function scWalkInOtpVerify(
     expires_at: string;
   }>("/style-captain/walk-in/otp/verify", {
     method: "POST",
-    body: JSON.stringify({ phone, country_code: countryCode, otp }),
+    body: JSON.stringify({
+      phone,
+      country_code: countryCode,
+      otp,
+      ...(otpToken ? { otp_token: otpToken } : {}),
+    }),
   });
 }
 
-export interface SCWalkInCreateOrderInput {
+export interface SCWalkInUserInput {
   verification_token: string;
   user_id?: string;
   new_user?: { name: string; phone: string; country_code?: string };
@@ -816,29 +838,93 @@ export interface SCWalkInCreateOrderInput {
   };
 }
 
-/** §4.4 — create the empty draft walk-in order (step 3 entry). */
-export async function scWalkInCreateOrder(
-  input: SCWalkInCreateOrderInput,
-): Promise<{ order_id: string; order_number: string; user_id: string; is_new_user: boolean }> {
+/**
+ * Confirm the customer after OTP — user (+ address, + walk-in UTM) ONLY.
+ * No order exists until the first garment (scWalkInOrderWithGarment).
+ */
+export async function scWalkInUser(
+  input: SCWalkInUserInput,
+): Promise<{ user_id: string; is_new_user: boolean; address_id: string | null }> {
+  return scFetch<{ user_id: string; is_new_user: boolean; address_id: string | null }>(
+    "/style-captain/walk-in/user",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+/**
+ * Edit a walk-in order's address (the go-back-and-edit path once the order
+ * exists): saved id XOR new fields.
+ */
+export async function scWalkInUpdateAddress(
+  orderId: string,
+  input: { address_id?: string; new_address?: SCWalkInUserInput["new_address"] },
+): Promise<{ address_id: string }> {
+  return scFetch<{ address_id: string }>(
+    `/style-captain/walk-in/orders/${orderId}/address`,
+    { method: "PUT", body: JSON.stringify(input) },
+  );
+}
+
+/**
+ * Create the walk-in order (pending) TOGETHER with its first garment —
+ * one transaction; selections carry the reviewed design when present.
+ */
+export async function scWalkInOrderWithGarment(input: {
+  user_id: string;
+  address_id?: string | null;
+  new_address?: SCWalkInUserInput["new_address"];
+  garment_id: string;
+  selections?: SCWalkInSelectionsPayload;
+}): Promise<{
+  order_id: string;
+  order_number: string;
+  garment_order_id: string;
+  user_id: string;
+}> {
   return scFetch<{
     order_id: string;
     order_number: string;
+    garment_order_id: string;
     user_id: string;
-    is_new_user: boolean;
-  }>("/style-captain/walk-in/orders", {
+  }>("/style-captain/walk-in/orders/with-garment", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
 /** §4.5 — add a garment to the walk-in order (backend seeds defaults). */
+/**
+ * MYOD-style selections payload (component/addon id → pick), serialized
+ * exactly like the /create "add to order" path.
+ */
+export type SCWalkInSelectionsPayload = Record<
+  string,
+  {
+    variation_id: string;
+    variation_type_id?: string;
+    placement?: string;
+    picks?: {
+      variation_id: string;
+      variation_type_id?: string;
+      placement?: string;
+    }[];
+  }
+>;
+
 export async function scWalkInAddGarment(
   orderId: string,
   garmentId: string,
+  selections?: SCWalkInSelectionsPayload,
 ): Promise<{ garment_order_id: string }> {
   return scFetch<{ garment_order_id: string }>(
     `/style-captain/walk-in/orders/${orderId}/garments`,
-    { method: "POST", body: JSON.stringify({ garment_id: garmentId }) },
+    {
+      method: "POST",
+      body: JSON.stringify({
+        garment_id: garmentId,
+        ...(selections ? { selections } : {}),
+      }),
+    },
   );
 }
 
@@ -849,6 +935,13 @@ export interface SCWalkInGarmentSnapshot {
   /** Same shape the job-detail payload carries — feeds SelectionSheet. */
   selections: SCSelection[];
   available_addons: SCAvailableAddon[];
+}
+
+export interface SCWalkInJobBrief {
+  id: string;
+  status: string | null;
+  scheduled_at: string | null;
+  captain_name: string | null;
 }
 
 export interface SCWalkInOrderSnapshot {
@@ -863,6 +956,10 @@ export interface SCWalkInOrderSnapshot {
   total_price: number | null;
   garments: SCWalkInGarmentSnapshot[];
   job_id: string | null;
+  /** Active visit (booked slot / started measurement), when one exists. */
+  job: SCWalkInJobBrief | null;
+  /** Payment (or COD) confirmed — powers the review CTA gating. */
+  payment_ready: boolean;
 }
 
 /** §4.7 — full snapshot: powers resume, the review screen, and drill-ins. */
@@ -871,6 +968,32 @@ export async function scWalkInOrderSnapshot(
 ): Promise<SCWalkInOrderSnapshot> {
   return scFetch<SCWalkInOrderSnapshot>(
     `/style-captain/walk-in/orders/${orderId}`,
+  );
+}
+
+/** §paid-screen — the captain's own open visit times (customer slot shape). */
+export async function scWalkInListSlots(
+  orderId: string,
+  from?: string,
+  to?: string,
+): Promise<{ days: { date: string; slots: { label: string; start_at: string }[] }[] }> {
+  const qs = new URLSearchParams();
+  if (from) qs.set("from_date", from);
+  if (to) qs.set("to_date", to);
+  const q = qs.toString();
+  return scFetch(
+    `/style-captain/walk-in/orders/${orderId}/slots${q ? `?${q}` : ""}`,
+  );
+}
+
+/** Book the walk-in's visit with THIS captain at the chosen time. */
+export async function scWalkInBookSlot(
+  orderId: string,
+  startAt: string,
+): Promise<SCWalkInJobBrief> {
+  return scFetch<SCWalkInJobBrief>(
+    `/style-captain/walk-in/orders/${orderId}/slot`,
+    { method: "POST", body: JSON.stringify({ start_at: startAt }) },
   );
 }
 
@@ -909,12 +1032,16 @@ export async function scWalkInOrderStatus(orderId: string): Promise<SCWalkInStat
   );
 }
 
-/** §4.10 — hard gate: starts the measurement job only once paid/COD. */
-export async function scWalkInStartMeasurement(
+/**
+ * Measure Now — DRAFT an immediate slot (right now). Nothing is booked and
+ * payment is not checked; Check for Payment books it (opens the job when
+ * the time is now, books the visit when it's later).
+ */
+export async function scWalkInMeasureNow(
   orderId: string,
-): Promise<{ job_id: string }> {
-  return scFetch<{ job_id: string }>(
-    `/style-captain/walk-in/orders/${orderId}/start-measurement`,
+): Promise<SCWalkInJobBrief> {
+  return scFetch<SCWalkInJobBrief>(
+    `/style-captain/walk-in/orders/${orderId}/measure-now`,
     { method: "POST" },
   );
 }

@@ -15,6 +15,7 @@ import { useEffect, type ReactNode } from "react";
 import { clsx } from "clsx";
 
 import { Close } from "@/components/ui/icons";
+import { lockBodyScroll } from "@/lib/body-scroll-lock";
 
 interface BottomSheetProps {
   open: boolean;
@@ -39,11 +40,10 @@ export function BottomSheet({
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlock = lockBodyScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      unlock();
     };
   }, [open, onClose]);
 

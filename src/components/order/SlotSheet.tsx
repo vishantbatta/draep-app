@@ -38,6 +38,14 @@ interface SlotSheetProps {
   onBooked: (booking: Booking) => void;
   /** 409 order_already_booked — someone booked elsewhere; parent refreshes. */
   onAlreadyBooked?: () => void;
+  /**
+   * API adapters — override to reuse this sheet with non-customer auth
+   * (the style-captain walk-in flow passes its own slot endpoints).
+   */
+  getSlotsFn?: typeof bookingApi.getSlots;
+  bookFn?: (orderId: string, startAt: string) => Promise<Booking>;
+  /** Skip the customer-side "notify me" demand capture (captain context). */
+  suppressNotify?: boolean;
 }
 
 /** Local yyyy-mm-dd key, matching the BE's date keys (Asia/Kolkata days). */
@@ -68,6 +76,9 @@ export function SlotSheet({
   currentBooking,
   onBooked,
   onAlreadyBooked,
+  getSlotsFn = bookingApi.getSlots,
+  bookFn,
+  suppressNotify = false,
 }: SlotSheetProps) {
   const [days, setDays] = useState<DaySlots[]>([]);
   const [loading, setLoading] = useState(false);
@@ -95,7 +106,7 @@ export function SlotSheet({
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await bookingApi.getSlots(
+      const res = await getSlotsFn(
         orderId,
         strip[0].key,
         strip[strip.length - 1].key,
@@ -103,7 +114,7 @@ export function SlotSheet({
       setDays(res.days);
       setSelectedSlot(null);
       setWindowEmpty(res.days.length === 0);
-      if (res.days.length === 0) {
+      if (res.days.length === 0 && !suppressNotify) {
         // Fire-and-forget demand capture — one POST per empty fetch.
         void serviceAreaApi.notifyMe({ order_id: orderId }).catch(() => {});
       }
@@ -123,7 +134,7 @@ export function SlotSheet({
     } finally {
       setLoading(false);
     }
-  }, [orderId, strip, currentBooking]);
+  }, [orderId, strip, currentBooking, getSlotsFn, suppressNotify]);
 
   useEffect(() => {
     if (open) void loadSlots();
@@ -144,7 +155,9 @@ export function SlotSheet({
     try {
       const result = currentBooking
         ? await bookingApi.rescheduleBooking(orderId, selectedSlot.start_at)
-        : await bookingApi.createBooking(orderId, selectedSlot.start_at);
+        : await (bookFn
+            ? bookFn(orderId, selectedSlot.start_at)
+            : bookingApi.createBooking(orderId, selectedSlot.start_at));
       onBooked(result);
     } catch (err) {
       if (
@@ -162,7 +175,7 @@ export function SlotSheet({
       // sheet doesn't keep offering a dead slot.
       if (err instanceof ApiError && err.code === "slot_taken") {
         try {
-          const res = await bookingApi.getSlots(
+          const res = await getSlotsFn(
             orderId,
             strip[0].key,
             strip[strip.length - 1].key,

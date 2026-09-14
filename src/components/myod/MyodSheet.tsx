@@ -1046,7 +1046,7 @@ function PriceBreakdownSheet({
  *    selects its default variation, falling back to the first variation when
  *    admin hasn't named one (being ON requires a concrete pick).
  */
-function extrasDefaults(steps: DesignStep[]): Selections {
+export function extrasDefaults(steps: DesignStep[]): Selections {
   const out: Selections = {};
   for (const step of steps) {
     if (!step.isExtras) continue;
@@ -1430,7 +1430,9 @@ function RegenerateSheet({
 /*  Step option cards (same as before)                         */
 /* ============================================================ */
 
-function StepCards({
+// Also mounted by the style-captain walk-in configurator — same step-by-step
+// photo cards, different save machinery behind them.
+export function StepCards({
   step,
   selections,
   disabled,

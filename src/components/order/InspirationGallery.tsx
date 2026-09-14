@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { lockBodyScroll } from "@/lib/body-scroll-lock";
 import { ordersApi } from "@/lib/api";
 import { strings } from "@/lib/strings";
 import { Plus } from "@/components/ui/icons";
@@ -117,11 +118,10 @@ export function InspirationGallery({
       if (e.key === "Escape") setLightbox(null);
     }
     window.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlock = lockBodyScroll();
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
+      unlock();
     };
   }, [lightbox]);
 

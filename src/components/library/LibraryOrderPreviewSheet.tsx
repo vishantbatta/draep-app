@@ -62,6 +62,28 @@ interface Props {
    * Failures are swallowed by this sheet; extras are best-effort.
    */
   onCreated?: (orderId: string, garmentOrderId: string | null) => void;
+  /**
+   * WALK-IN append mode: instead of creating a customer order, the apply CTA
+   * adds the reviewed design to the walk-in order through the captain API
+   * (no open-orders choice, no redirect — the caller owns what happens next).
+   * orderId targets an existing walk-in order; createIfMissing (with a null
+   * orderId) creates the pending order together with this first design.
+   */
+  appendToOrder?: {
+    orderId: string | null;
+    createIfMissing?: {
+      userId: string;
+      address: { addressId: string } | { newAddress: unknown } | null;
+    };
+    onAdded: (r: {
+      orderId: string;
+      orderNumber: string | null;
+      garmentOrderId: string;
+      createdOrder: boolean;
+    }) => void;
+  };
+  /** Overrides the apply CTA label (walk-in: "Add to walk-in order"). */
+  applyLabel?: string;
 }
 
 export function LibraryOrderPreviewSheet({
@@ -70,6 +92,8 @@ export function LibraryOrderPreviewSheet({
   libraryId,
   initialDetail,
   onCreated,
+  appendToOrder,
+  applyLabel,
 }: Props) {
   const router = useRouter();
   const sessionType = useAuthStore((s) => s.sessionType);
@@ -288,6 +312,63 @@ export function LibraryOrderPreviewSheet({
     if (desired) void createNewOrder(desired);
   }, [createNewOrder]);
 
+  /** WALK-IN: add the reviewed design to the walk-in order (captain API) —
+      one call, then the caller takes over (refresh + close). */
+  const applyAppend = useCallback(
+    async (desired: DraftItem[]) => {
+      const append = appendToOrder;
+      if (!append || !detail?.garment_id || creatingRef.current) return;
+      creatingRef.current = true;
+      lastDesiredRef.current = desired;
+      lastAddTargetRef.current = append.orderId;
+      setCreating(true);
+      setCreateError(null);
+      try {
+        const { scWalkInAddLibraryDesign, scWalkInOrderWithLibraryDesign } =
+          await import("@/lib/walkin-library");
+        if (append.orderId) {
+          const res = await scWalkInAddLibraryDesign(
+            append.orderId,
+            detail.garment_id,
+            desired,
+          );
+          creatingRef.current = false;
+          setCreating(false);
+          append.onAdded({
+            orderId: append.orderId,
+            orderNumber: null,
+            garmentOrderId: res.garment_order_id,
+            createdOrder: false,
+          });
+        } else if (append.createIfMissing) {
+          const res = await scWalkInOrderWithLibraryDesign({
+            userId: append.createIfMissing.userId,
+            address: append.createIfMissing.address,
+            garmentId: detail.garment_id,
+            items: desired,
+          });
+          creatingRef.current = false;
+          setCreating(false);
+          append.onAdded({
+            orderId: res.order_id,
+            orderNumber: res.order_number,
+            garmentOrderId: res.garment_order_id,
+            createdOrder: true,
+          });
+        }
+      } catch (err) {
+        setCreateError(
+          err instanceof Error && err.message
+            ? err.message
+            : strings.existingOrders.addError,
+        );
+        creatingRef.current = false;
+        setCreating(false);
+      }
+    },
+    [appendToOrder, detail],
+  );
+
   /** Close only when idle — during creation the sheet stays put. */
   const handleSheetClose = useCallback(() => {
     if (creatingRef.current) return;
@@ -351,9 +432,13 @@ export function LibraryOrderPreviewSheet({
           draftSaving={creating}
           title={strings.libraryOrder.previewSheetTitle}
           titleClassName="text-h2"
-          draftApplyLabel={strings.libraryOrder.cta}
+          draftApplyLabel={applyLabel ?? strings.libraryOrder.cta}
           onClose={handleSheetClose}
-          onDraftChange={(items) => void createOrder(items)}
+          onDraftChange={(items) =>
+            appendToOrder
+              ? void applyAppend(items)
+              : void createOrder(items)
+          }
         />
       )}
 
@@ -377,6 +462,11 @@ export function LibraryOrderPreviewSheet({
             type="button"
             onClick={() => {
               const target = lastAddTargetRef.current;
+              if (appendToOrder) {
+                const desired = lastDesiredRef.current;
+                if (desired) void applyAppend(desired);
+                return;
+              }
               if (target) {
                 void handleAddToOrder(target);
                 return;

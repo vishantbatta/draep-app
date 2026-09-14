@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { SCMetric } from "@/lib/style-captain-api";
 import { pickLabel } from "@/lib/sc-helpers";
+import { lockBodyScroll } from "@/lib/body-scroll-lock";
 import type { MetricDraft } from "@/components/style-captain/MetricCard";
 
 const LANG_ORDER = ["en", "hi", "kn", "ta", "te"];
@@ -37,14 +38,10 @@ export function EditMetricSheet({
   const activeLangs = LANG_ORDER.filter((l) => labels[l] || descriptions[l]);
   const [activeLang, setActiveLang] = useState("en");
 
-  // Lock body scroll while sheet is open
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
+  // Lock body scroll while sheet is open (shared counted lock — a naive
+  // save/restore here leaked "hidden" into other pages when it interleaved
+  // with sheet locks).
+  useEffect(() => lockBodyScroll(), []);
 
   // Close on Escape
   useEffect(() => {

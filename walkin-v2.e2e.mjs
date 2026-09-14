@@ -3,7 +3,8 @@
  *
  * Cases:
  *   A-1  Happy path — captain login → wizard → existing customer (7986147238)
- *        → OTP → saved address → order → garment → review QR → wait → COD →
+ *        → OTP → saved address → order → garment (created at configurator
+ *        Done, with selections) → review QR + Check now (one screen) → COD →
  *        Check now → Start measurement → dashboard Active shows the job.
  *   A-2  Customer QR landing — gate shows anonymously; session seeded via the
  *        legacy test-mode OTP API (MSG91 widget can't complete headless);
@@ -136,11 +137,13 @@ async function captainLogin(page) {
   ok("captain signed in, on dashboard");
 }
 
-/** Drive the wizard from step 1 through the wait step. Returns order ids. */
-async function runWizardToWait(page, { phone, existing }) {
+/** Drive the wizard from step 1 through the review/QR screen (real routes:
+ * /walk-in → /walk-in/otp → /walk-in/address → /walk-in/garments →
+ * /walk-in/review?order=…). Returns order ids. */
+async function runWizardToReview(page, { phone, existing }) {
   await page.goto(`${BASE}/style_captain_dashboard/walk-in`);
 
-  // Step 1 — phone lookup (debounced; Send OTP enables once searched).
+  // Route 1 — phone lookup (debounced; Send OTP enables once searched).
   // New users must also give a name in the lookup panel first.
   await page.locator('input[placeholder="10-digit mobile number"]').fill(phone);
   if (!existing) {
@@ -148,16 +151,10 @@ async function runWizardToWait(page, { phone, existing }) {
   }
   await page.getByRole("button", { name: "Send OTP" }).click({ timeout: 15_000 });
 
-  // Step 1.1 — OTP typed by the captain
+  // Route 2 — OTP typed by the captain (user created on verify)
+  await page.waitForURL("**/walk-in/otp", { timeout: 15_000 });
   await page.locator('input[autocomplete="one-time-code"]').fill(OTP);
   await page.getByRole("button", { name: "Verify code" }).click();
-
-  // New customers hit the wizard's own name confirm step next.
-  if (!existing) {
-    await page.getByRole("button", { name: "Continue" }).waitFor({ timeout: 10_000 });
-    await page.locator('input[placeholder="Full name"]').fill("E2E Throwaway");
-    await page.getByRole("button", { name: "Continue" }).click();
-  }
 
   // Step 2 — address
   if (existing) {
@@ -171,40 +168,58 @@ async function runWizardToWait(page, { phone, existing }) {
     await page.locator('input[placeholder="560102"]').fill("560102");
   }
 
-  // Step 3 entry — capture order_id off the create POST response
-  const createDone = page
-    .waitForResponse(
-      (r) =>
-        r.url().includes("/style-captain/walk-in/orders") &&
-        r.request().method() === "POST" &&
-        (r.status() === 200 || r.status() === 201),
-      { timeout: 20_000 },
-    )
-    .then((r) => r.json());
-  await page.getByRole("button", { name: "Create walk-in order" }).click();
-  const created = await createDone;
-  await page.getByRole("button", { name: "Add garments" }).waitFor({ timeout: 10_000 });
-  ok(`order ${created.order_number} (${created.order_id}) created`);
-
-  // Step 3a — add first catalogue garment, keep server defaults (Cancel)
-  await page.getByRole("button", { name: "Add garments" }).click();
+  // Route 3 — address (local only) → Route 4 garments
+  await page.waitForURL("**/walk-in/address", { timeout: 15_000 });
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.waitForURL("**/walk-in/garments", { timeout: 15_000 });
   const firstGarment = page.locator("div.grid.grid-cols-2 > button").first();
   await firstGarment.waitFor({ state: "visible", timeout: 15_000 });
   await firstGarment.click();
-  await page.getByRole("button", { name: "Cancel", exact: true }).waitFor({ timeout: 15_000 });
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  ok("garment added, SelectionSheet cancelled — server defaults kept");
 
-  // Step 3c — review + QR (closing the sheet auto-advances to review)
+  // Step 3b — the configurator lives in a bottom sheet now: tap the first
+  // option card each step (tapping advances), then Done in the sheet footer.
+  // Done is when the garment is actually created — capture that POST.
+  // Done on the FIRST garment fires the order-with-garment POST — the order
+  // is created (pending) together with the garment. Capture it for the ids.
+  const garmentPost = page
+    .waitForResponse(
+      (r) =>
+        r.url().includes("/style-captain/walk-in/orders/with-garment") &&
+        r.request().method() === "POST" &&
+        (r.status() === 200 || r.status() === 201),
+      { timeout: 30_000 },
+    )
+    .then((r) => r.json());
+  const stepCounter = page.getByTestId("wi-step-counter");
+  for (let i = 0; i < 15; i++) {
+    await stepCounter.waitFor({ timeout: 15_000 });
+    const doneBtn = page.getByTestId("wi-config-done");
+    if (await doneBtn.count()) {
+      await doneBtn.click();
+      break;
+    }
+    const before = (await stepCounter.textContent()) ?? "";
+    // First option card inside the sheet (rounded-card buttons; the Back
+    // pill is rounded-pill).
+    await page
+      .locator('div[role="dialog"] div.overflow-y-auto button.rounded-card')
+      .first()
+      .click();
+    await stepCounter
+      .filter({ hasText: new RegExp(`^(?!${before.trim()}$)`) })
+      .waitFor({ timeout: 10_000 });
+  }
+  const created = await garmentPost;
+  // First garment Done creates the order and navigates to /walk-in/review.
+  await page.waitForURL((u) => u.pathname.endsWith("/walk-in/review"), { timeout: 15_000 });
+  ok(`order ${created.order_number} (${created.order_id}) created pending with the first garment`);
+
+  // Step 3c/4 — review + QR + payment, one screen
   await page
     .locator('img[alt="QR code to open the order payment page"]')
     .waitFor({ timeout: 15_000 });
-  ok("review shows house-styled QR");
-
-  // Step 4 — wait
-  await page.getByRole("button", { name: "Continue — wait for payment" }).click();
   await page.getByRole("button", { name: "Check now" }).waitFor({ timeout: 10_000 });
-  ok("wait step reached");
+  ok("review shows QR + inline Check now");
 
   return { orderId: created.order_id, orderNumber: created.order_number };
 }
@@ -217,41 +232,38 @@ async function main() {
   const captainCtx = await browser.newContext();
   const captain = await captainCtx.newPage();
   attachCollectors(captain);
+  // The wizard's OTP is REAL when the MSG91 widget env vars are set. Stub the
+  // widget's methods before any app script runs: send succeeds, verify
+  // returns the test code as the one-time token (test mode accepts it).
+  await captain.addInitScript((code) => {
+    window.sendOtp = (id, ok) => ok && ok({ type: "success" });
+    window.verifyOtp = (otp, ok) =>
+      ok && ok({ type: "success", message: otp.length === 4 ? code : "wrong" });
+  }, OTP);
+  // Dev runs the REAL widget + a real BE authkey, so the stubbed token above
+  // would fail real MSG91 verification. Rewrite the verify call to the plain
+  // test-code path (OTP_MODE=test accepts it server-side).
+  await captain.route("**/style-captain/walk-in/otp/verify", async (route) => {
+    const body = JSON.parse(route.request().postData() ?? "{}");
+    delete body.otp_token;
+    body.otp = OTP;
+    await route.continue({ postData: JSON.stringify(body) });
+  });
   await captainLogin(captain);
 
-  step("A-1 wizard → wait step (existing customer)");
-  const a1 = await runWizardToWait(captain, { phone: CUSTOMER_PHONE, existing: true });
+  step("A-1 wizard → review screen (existing customer)");
+  const a1 = await runWizardToReview(captain, { phone: CUSTOMER_PHONE, existing: true });
 
-  // ── A-7 · hard block, no polling ─────────────────────────────────────────
-  step("A-7 hard block — Start disabled, Drop only escape, no auto-check");
-  const startBtn = captain.getByRole("button", { name: "Start measurement" });
-  if (!(await startBtn.isDisabled())) {
-    throw new Error("Start measurement should be disabled while unpaid");
+  // ── A-7 · slot-first CTA: choose-slot phase (no slot yet) ───────────
+  step("A-7 choose-slot phase — Measure Now | Schedule Later sticky CTA");
+  await captain.getByRole("button", { name: "Measure Now" }).waitFor({ timeout: 15_000 });
+  await captain.getByRole("button", { name: "Schedule Later" }).waitFor();
+  if ((await captain.getByRole("button", { name: "Check for Payment" }).count()) > 0) {
+    throw new Error("Check for Payment must not appear before a slot exists");
   }
-  ok("Start measurement disabled while unpaid");
-  await captain.getByRole("button", { name: "Drop this walk-in" }).waitFor();
-  ok("Drop this walk-in present (the only escape)");
-  const payish = await captain
-    .locator("button")
-    .filter({
-      hasText: /^(?!.*(?:Check now|Start measurement|Drop this walk-in)).*(?:pay|skip|continue|proceed)/i,
-    })
-    .count();
-  if (payish > 0) throw new Error(`unexpected escape controls on wait step: ${payish}`);
-  ok("no pay/skip/continue escape controls");
-  await captain.waitForTimeout(3_500); // longer than any plausible poll tick
-  if ((await captain.getByText(/^Last checked/).count()) > 0) {
-    throw new Error("wait step auto-checked — polling is not allowed");
-  }
-  ok("no auto status check (no polling)");
+  ok("sticky CTA offers Measure Now | Schedule Later");
 
-  step("A-7 Check now (unpaid) — stays blocked, stamps Last checked");
-  await captain.getByRole("button", { name: "Check now" }).click();
-  await captain.getByText(/^Last checked/).waitFor({ timeout: 10_000 });
-  if (!(await startBtn.isDisabled())) throw new Error("Start measurement enabled before payment");
-  ok("still unpaid; Last checked stamped");
-
-  // ── A-4 + A-6 · Walk-ins tab → resume ───────────────────────────────────
+  // ── A-4 + A-6 · Walk-ins tab → resume ───────────────────────────────
   step("A-6 dashboard Walk-ins tab lists the draft");
   await captain.goto(`${BASE}/style_captain_dashboard`);
   await switchDashboardTab(captain, "Walk-ins");
@@ -261,16 +273,14 @@ async function main() {
   await card.getByText("Awaiting customer", { exact: true }).waitFor();
   ok(`card for order ${a1.orderNumber} visible, chip "Awaiting customer"`);
 
-  step("A-4 resume via card → wizard back at review");
+  step("A-4 resume via card → front door redirects to review (slot CTA)");
   await card.getByText("Resume →").click();
-  await captain.waitForURL((u) => u.searchParams.get("order") === a1.orderId, { timeout: 15_000 });
-  await captain
-    .getByRole("button", { name: "Continue — wait for payment" })
-    .waitFor({ timeout: 15_000 });
-  ok("resumed with garments → review step");
-  await captain.getByRole("button", { name: "Continue — wait for payment" }).click();
-  await captain.getByRole("button", { name: "Check now" }).waitFor({ timeout: 10_000 });
-  ok("back on wait step");
+  await captain.waitForURL(
+    (u) => u.pathname.endsWith("/walk-in/review") && u.searchParams.get("order") === a1.orderId,
+    { timeout: 20_000 },
+  );
+  await captain.getByRole("button", { name: "Measure Now" }).waitFor({ timeout: 15_000 });
+  ok("resumed with garments → review route, slot-first CTA");
 
   // ── A-2 · customer QR landing ────────────────────────────────────────────
   step("A-2 anonymous QR landing shows the login gate");
@@ -303,50 +313,87 @@ async function main() {
   }
   ok("COD applied (Cashfree online payment is a manual sandbox pass)");
 
-  // ── A-1 · captain closes the loop ────────────────────────────────────────
-  step("A-1 captain Check now → payment confirmed → Start measurement");
-  await captain.getByRole("button", { name: "Check now" }).click();
-  await captain
-    .getByText("✓ Payment confirmed (Cash on delivery)")
-    .waitFor({ timeout: 10_000 });
-  ok("paid banner shows COD");
-  await startBtn.click();
-  await captain.getByText("✓ Measurement started.").waitFor({ timeout: 20_000 });
-  ok("measurement started");
+  // ── Schedule Later → draft slot → Check for Payment → confirmation ─────
+  step("A-1 Schedule Later drafts a non-blocking slot (same as /app)");
+  await captain.goto(
+    `${BASE}/style_captain_dashboard/walk-in/review?order=${a1.orderId}`,
+  );
+  await captain.getByRole("button", { name: "Schedule Later" }).waitFor({ timeout: 15_000 });
+  await captain.getByRole("button", { name: "Schedule Later" }).click();
+  const slotPost = captain.waitForResponse(
+    (r) =>
+      r.url().includes("/style-captain/walk-in/orders/") &&
+      r.url().endsWith("/slot") &&
+      r.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  // Same bottom sheet as /app: pick the first offered time, then Select.
+  const sheet = captain.locator('div[role="dialog"]');
+  await sheet.waitFor({ timeout: 15_000 });
+  const timeBtn = sheet.locator("button", { hasText: /\d{1,2}:\d{2}\s?(AM|PM)/ }).first();
+  await timeBtn.waitFor({ state: "visible", timeout: 10_000 });
+  await timeBtn.click();
+  await sheet.getByRole("button", { name: "Select" }).click();
+  await slotPost;
+  ok("slot drafted via the /app sheet");
 
-  step("A-1 dashboard Active tab shows the measurement job");
+  step("A-1 Check for Payment → order confirmation (visit for later)");
+  await captain
+    .getByRole("button", { name: "Check for Payment" })
+    .waitFor({ timeout: 15_000 });
+  await captain.getByRole("button", { name: "Check for Payment" }).click();
+  await captain
+    .getByText(/Order ${a1.orderNumber} confirmed/)
+    .waitFor({ timeout: 20_000 });
+  ok("confirmation view shows the booked visit");
+
+  step("A-1 dashboard back");
   await captain.getByRole("button", { name: "Back to dashboard" }).click();
   await captain.waitForURL("**/style_captain_dashboard");
-  await captain.getByText(a1.orderNumber).first().waitFor({ timeout: 30_000 });
-  ok("job card for the walk-in order on Active");
-
-  step("A-1 Walk-ins tab no longer lists the converted order");
-  const listRefetch = captain.waitForResponse(
-    (r) => r.url().includes("/style-captain/walk-in/orders"),
-    { timeout: 30_000 },
-  );
-  await switchDashboardTab(captain, "Walk-ins"); // fires refreshWalkIns
-  await listRefetch;
-  await captain.waitForTimeout(500); // refetched list commits
-  if ((await captain.getByText(a1.orderNumber).count()) > 0) {
-    throw new Error("converted walk-in still listed in Walk-ins tab");
-  }
-  ok("gone from Walk-ins (job exists now)");
+  await captain.waitForTimeout(500);
+  ok("back on dashboard");
 
   // ── A-3 · drop journey (new throwaway customer) ─────────────────────────
-  step("A-3 new customer walk-in → wait → Drop → cancelled");
-  const a3 = await runWizardToWait(captain, { phone: THROWAWAY_PHONE, existing: false });
+  step("A-3 new customer walk-in → Measure Now → COD → Check → job opened");
+  const a3 = await runWizardToReview(captain, { phone: THROWAWAY_PHONE, existing: false });
+  await captain.getByRole("button", { name: "Measure Now" }).waitFor({ timeout: 15_000 });
+  await captain.getByRole("button", { name: "Measure Now" }).click();
+  await captain
+    .getByRole("button", { name: "Check for Payment" })
+    .waitFor({ timeout: 20_000 });
+  ok("measured now — job exists, payment check gates opening it");
+  // Customer pays COD for the throwaway order (owner session minted fresh).
+  const a3Session = await mintUserSession(THROWAWAY_PHONE);
+  const a3Cod = await captain.request.post(`${API}/orders/${a3.orderId}/pay-method`, {
+    headers: { Authorization: `Bearer ${a3Session.session_token}` },
+    data: { method: "cod" },
+  });
+  if (!a3Cod.ok()) {
+    throw new Error(`pay-method failed: ${a3Cod.status()} ${await a3Cod.text()}`);
+  }
+  await captain.getByRole("button", { name: "Check for Payment" }).click();
+  // Paid + measured-now → auto-navigates into the measurement wizard.
+  await captain.waitForURL(/\/style_captain_dashboard\/measure\//, { timeout: 20_000 });
+  ok("paid → auto-navigated into the measurement wizard");
+
+  step("A-1 dashboard Active tab shows the measurement job");
+  await captain.goto(`${BASE}/style_captain_dashboard`);
+  await captain.getByText(a3.orderNumber).first().waitFor({ timeout: 30_000 });
+  ok("job card for the walk-in order on Active");
+
+  step("A-3 drop journey — a fresh unpaid walk-in can still be dropped");
+  const a3b = await runWizardToReview(captain, { phone: "9" + String(Date.now()).slice(-9), existing: false });
   captain.once("dialog", (d) => d.accept());
   await captain.getByRole("button", { name: "Drop this walk-in" }).click();
   await captain
     .getByText("This walk-in was dropped. The draft order stays cancelled.")
     .waitFor({ timeout: 15_000 });
-  ok(`walk-in ${a3.orderNumber} dropped`);
+  ok(`walk-in ${a3b.orderNumber} dropped`);
 
   step("A-3 Walk-ins tab shows it as Cancelled");
   await captain.goto(`${BASE}/style_captain_dashboard`);
   await switchDashboardTab(captain, "Walk-ins");
-  const cancelledCard = captain.locator("article").filter({ hasText: a3.orderNumber }).first();
+  const cancelledCard = captain.locator("article").filter({ hasText: a3b.orderNumber }).first();
   await cancelledCard.waitFor({ timeout: 30_000 });
   await cancelledCard.getByText("Cancelled", { exact: true }).waitFor();
   await cancelledCard.getByText("View →").waitFor();

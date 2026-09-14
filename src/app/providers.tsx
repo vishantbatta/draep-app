@@ -17,14 +17,17 @@
  */
 
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 
 import { useAuthStore } from "@/lib/auth-store";
+import { healBodyScroll } from "@/lib/body-scroll-lock";
 
 import { InstallPrompt } from "@/components/layout/InstallPrompt";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const authHydrated = useAuthStore((s) => s.hydrated);
   const bootstrap = useAuthStore((s) => s.bootstrap);
+  const pathname = usePathname();
 
   // Bootstrap auth session on mount (after hydration)
   const authBootstrapped = useRef(false);
@@ -36,6 +39,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
       });
     }
   }, [authHydrated, bootstrap]);
+
+  // Self-heal the body scroll lock: a leaked overflow="hidden" (stale inline
+  // style from an earlier bug, or any unknown locker) would freeze scrolling
+  // forever. On mount and after EVERY route change, if no overlay legitimately
+  // holds the lock, the leaked value is cleared.
+  useEffect(() => {
+    healBodyScroll();
+  }, [pathname]);
 
   // InstallPrompt wraps children so its banner renders at the very top and
   // the page contracts into the remaining viewport instead of being pushed

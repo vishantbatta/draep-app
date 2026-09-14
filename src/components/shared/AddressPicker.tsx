@@ -7,7 +7,9 @@
  * style-captain walk-in flow. The picker owns the interactive internals
  * (Nominatim autocomplete, map pin + fly-to, reverse geocode); the consumer
  * owns the submitted state (selected id, new-address fields, pin coords,
- * skip flag, show-new toggle) so it can validate and persist on submit.
+ * show-new toggle) so it can validate and persist on submit. The "skip"
+ * option is opt-in: pass onSkipChange (and skipChecked) to render it — the
+ * walk-in flow requires an address, the admin sheet doesn't.
  */
 
 import { useRef, useState } from "react";
@@ -59,8 +61,9 @@ interface AddressPickerProps {
   onNewAddressChange: (fields: NewAddressFields) => void;
   pinCoords: { lat: number; lng: number } | null;
   onPinCoordsChange: (coords: { lat: number; lng: number } | null) => void;
-  skipChecked: boolean;
-  onSkipChange: (skip: boolean) => void;
+  /** Provide both to show the "Skip for now" option (admin sheet only). */
+  skipChecked?: boolean;
+  onSkipChange?: (skip: boolean) => void;
 }
 
 const inputCls =
@@ -102,7 +105,7 @@ export function AddressPicker({
           <button
             onClick={() => {
               onShowNewFormChange(false);
-              onSkipChange(false);
+              onSkipChange?.(false);
               onNewAddressChange(EMPTY_NEW_ADDRESS);
               setAddrSearch("");
               onPinCoordsChange(null);
@@ -119,7 +122,7 @@ export function AddressPicker({
           <button
             onClick={() => {
               onShowNewFormChange(true);
-              onSkipChange(false);
+              onSkipChange?.(false);
               onSelect("");
             }}
             className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition ${
@@ -155,7 +158,7 @@ export function AddressPicker({
                 value={addr.id}
                 checked={selectedId === addr.id}
                 onChange={(e) => {
-                  onSkipChange(false);
+                  onSkipChange?.(false);
                   onSelect(e.target.value);
                 }}
                 className="mt-0.5"
@@ -343,27 +346,29 @@ export function AddressPicker({
         <div className="text-center text-xs text-muted py-2">Loading addresses…</div>
       )}
 
-      {/* ── Skip (like the Measurement Job step) ─────────────────────── */}
-      <label className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition ${
-        skipChecked
-          ? "border-ink-navy bg-mist-navy/20"
-          : "border-hairline-strong bg-chalk-white hover:bg-mist-navy/10"
-      }`}>
-        <input
-          type="radio"
-          name="addressChoice"
-          value="skip"
-          checked={skipChecked}
-          onChange={() => onSkipChange(true)}
-          className="mt-0.5"
-        />
-        <div>
-          <div className="text-sm font-medium text-ink-navy">Skip for now</div>
-          <div className="text-[11px] text-muted">
-            Create the order without an address — add it later from the order page.
+      {/* ── Skip (admin sheet only — opt-in via onSkipChange) ─────────── */}
+      {onSkipChange && (
+        <label className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition ${
+          skipChecked
+            ? "border-ink-navy bg-mist-navy/20"
+            : "border-hairline-strong bg-chalk-white hover:bg-mist-navy/10"
+        }`}>
+          <input
+            type="radio"
+            name="addressChoice"
+            value="skip"
+            checked={skipChecked}
+            onChange={() => onSkipChange(true)}
+            className="mt-0.5"
+          />
+          <div>
+            <div className="text-sm font-medium text-ink-navy">Skip for now</div>
+            <div className="text-[11px] text-muted">
+              Create the order without an address — add it later from the order page.
+            </div>
           </div>
-        </div>
-      </label>
+        </label>
+      )}
     </div>
   );
 }
