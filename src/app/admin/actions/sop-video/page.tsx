@@ -22,6 +22,7 @@ const ACTION_TABS = [
   { key: "measurements", label: "Measurements", href: "/admin/measurements" },
   { key: "validation-rules", label: "Validation Rules", href: "/admin/catalogue/validation-rules" },
   { key: "sop-video", label: "SOP Video Generator", href: "/admin/actions/sop-video" },
+  { key: "ops-flow", label: "Ops Flow", href: "/admin/actions/ops-flow" },
 ] as const;
 
 type ActionTabKey = (typeof ACTION_TABS)[number]["key"];
@@ -38,6 +39,7 @@ type Phase = "form" | "working" | "results";
 
 const LANG_LABEL: Record<SopVideoLang, string> = {
   english: "English",
+  hinglish: "Hinglish",
   hindi: "Hindi",
   kannada: "Kannada",
 };
@@ -84,6 +86,7 @@ function SopVideoActionPageInner() {
   const [mode, setMode] = useState<"generate" | "detect">("generate");
   const [languages, setLanguages] = useState<SopVideoLang[]>(["english"]);
   const [subtitles, setSubtitles] = useState(true);
+  const [promptNote, setPromptNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -137,6 +140,7 @@ function SopVideoActionPageInner() {
         mode: effectiveMode as "generate" | "detect",
         languages,
         subtitles,
+        promptNote,
       });
       setJob({ job_id, status: "pending", step: "starting", total_slides: 0, subtitles, languages: {}, error: null });
       setPhase("working");
@@ -155,6 +159,7 @@ function SopVideoActionPageInner() {
     setLanguages(["english"]);
     setMode("generate");
     setSubtitles(true);
+    setPromptNote("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -256,12 +261,31 @@ function SopVideoActionPageInner() {
             </div>
             <p className="mt-1 text-[11px] text-muted">
               {isPptx
-                ? "Detect reads [ENGLISH]/[HINDI]/[KANNADA] sections from the PPTX notes; missing languages are AI-generated."
+                ? "Detect reads [ENGLISH]/[HINGLISH]/[HINDI]/[KANNADA] sections from the PPTX notes; missing languages are AI-generated."
                 : "PDFs have no embedded notes — narration is always AI-generated."}
             </p>
           </div>
 
-          {/* 3. Languages */}
+          {/* 3. Prompt note (appended to the AI notes prompt) */}
+          <div className="mb-6">
+            <label className="mb-1.5 block font-mono text-eyebrow text-ink-navy">
+              Prompt Note (optional)
+            </label>
+            <textarea
+              value={promptNote}
+              onChange={(e) => setPromptNote(e.target.value)}
+              rows={3}
+              maxLength={1000}
+              placeholder={'Extra instructions for the AI narrator, e.g. "Keep the tone warm and formal" or "Spell out cm measurements slowly"…'}
+              className="w-full resize-none rounded-card border border-hairline-strong bg-chalk-white px-4 py-3 text-data text-ink outline-none placeholder:text-muted focus:border-accent-text"
+            />
+            <p className="mt-1 text-[11px] text-muted">
+              Appended to the speaker-notes prompt whenever narration is AI-generated — including
+              gaps left by Detect mode.
+            </p>
+          </div>
+
+          {/* 4. Languages */}
           <div className="mb-6">
             <label className="mb-1.5 block font-mono text-eyebrow text-ink-navy">
               Languages
@@ -281,7 +305,7 @@ function SopVideoActionPageInner() {
             </div>
           </div>
 
-          {/* 4. Subtitles */}
+          {/* 5. Subtitles */}
           <div className="mb-6">
             <label className="mb-1.5 block font-mono text-eyebrow text-ink-navy">
               Subtitles
@@ -309,7 +333,7 @@ function SopVideoActionPageInner() {
             </p>
           </div>
 
-          {/* 5. Generate */}
+          {/* 6. Generate */}
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -328,7 +352,7 @@ function SopVideoActionPageInner() {
         </div>
       )}
 
-      {/* 6. Loading state */}
+      {/* 7. Loading state */}
       {phase === "working" && job && (
         <div className="max-w-2xl rounded-card border border-hairline bg-chalk-white p-4 shadow-card md:p-6">
           <div className="mb-4 flex items-center gap-3">
@@ -371,7 +395,7 @@ function SopVideoActionPageInner() {
         </div>
       )}
 
-      {/* 7. Results */}
+      {/* 8. Results */}
       {phase === "results" && job && (
         <div>
           {job.status === "failed" && (

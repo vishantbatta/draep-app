@@ -2916,9 +2916,10 @@ export async function aiGenerateInspiration(input: {
 
 // ─── SOP Video Generator ──────────────────────────────────────────────────────
 
-export type SopVideoLang = "english" | "hindi" | "kannada";
+export type SopVideoLang = "english" | "hinglish" | "hindi" | "kannada";
 export const SOP_VIDEO_LANGUAGES: { key: SopVideoLang; label: string }[] = [
   { key: "english", label: "English" },
+  { key: "hinglish", label: "Hinglish" },
   { key: "hindi", label: "Hindi" },
   { key: "kannada", label: "Kannada" },
 ];
@@ -2953,6 +2954,8 @@ export async function createSopVideoJob(input: {
   mode: "generate" | "detect";
   languages: SopVideoLang[];
   subtitles: boolean;
+  /** Optional operator comment appended to the AI speaker-notes prompt. */
+  promptNote?: string;
 }): Promise<{ job_id: string }> {
   const token = getAdminToken();
   if (!token) throw new Error("No admin token");
@@ -2962,6 +2965,7 @@ export async function createSopVideoJob(input: {
   formData.append("mode", input.mode);
   formData.append("languages", input.languages.join(","));
   formData.append("subtitles", input.subtitles ? "true" : "false");
+  if (input.promptNote?.trim()) formData.append("prompt_note", input.promptNote.trim());
 
   const res = await fetch(`${API_URL}/admin/sop-video/jobs`, {
     method: "POST",
