@@ -3,7 +3,7 @@
 /**
  * SlotSheet — visit-slot picker in a bottom sheet for the order page.
  *
- * Shows the next 7 days (today first) as a horizontally scrollable date
+ * Shows the next 21 days (today first) as a horizontally scrollable date
  * strip, the day's available times grouped Morning / Afternoon / Evening,
  * and a sticky Select CTA. Selecting books (or reschedules) the order's
  * measurement visit:
@@ -91,11 +91,11 @@ export function SlotSheet({
   // order's address or nothing is open — capture demand for the notify list.
   const [windowEmpty, setWindowEmpty] = useState(false);
 
-  // The strip is generated client-side so all 7 days always render; the BE
+  // The strip is generated client-side so all 21 days always render; the BE
   // only returns days that still have open slots.
   const strip = useMemo(() => {
     const today = new Date();
-    return Array.from({ length: 7 }, (_, i) => {
+    return Array.from({ length: 21 }, (_, i) => {
       const d = new Date(today);
       d.setDate(d.getDate() + i);
       return { date: d, key: dayKey(d) };
@@ -219,7 +219,7 @@ export function SlotSheet({
         {strings.orderDetail.slotSheetHint}
       </p>
 
-      {/* Date strip — next 7 days, today first, sold-out days disabled */}
+      {/* Date strip — next 21 days, today first, sold-out days disabled */}
       <div className="flex gap-2 overflow-x-auto pb-3">
         {strip.map(({ date, key }, i) => {
           const count = slotsByDay.get(key)?.length ?? 0;
