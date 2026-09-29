@@ -24,6 +24,7 @@ import {
   garmentLabel,
   fetchJobReadings,
   adminCreateBooking,
+  adminUploadItemImages,
   type UserRow,
   type AddressRow,
   type GarmentRow,
@@ -33,6 +34,7 @@ import {
   type AdminSlotOption,
 } from "@/lib/admin-api";
 import { SlotPicker } from "@/components/admin/SlotPicker";
+import { stashKeyForRow } from "@/components/item-images/PhotoGateSheet";
 import {
   GarmentSelectionSheet,
   type DraftItem,
@@ -58,6 +60,12 @@ interface GarmentDraft {
    * shows up on the order detail page and in the measurement-job PDF.
    */
   assetsShared: string[];
+  /**
+   * Reference photos captured at pick time in the selection sheet
+   * (core/item_images), keyed by future-row identity (see PhotoGateSheet).
+   * Uploaded to their item rows right after the rows are created.
+   */
+  photoStash: Record<string, File[]>;
 }
 
 interface NewOrderSheetProps {
@@ -380,6 +388,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
         draftItems: [],
         computedTotal: 0,
         assetsShared: [],
+        photoStash: {},
       },
     ]);
   }
@@ -388,6 +397,28 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
     setGarmentDrafts((prev) =>
       prev.map((g) => (g.id === id ? { ...g, ...patch } : g)),
     );
+  }
+
+  /** Attach a draft's stashed reference photos to its item rows
+   *  (core/item_images) — keys agree by construction (PhotoGateSheet). */
+  async function uploadDraftPhotos(goId: string, draft: GarmentDraft) {
+    const stash = draft.photoStash;
+    if (Object.keys(stash).length === 0) return;
+    try {
+      const items = await fetchGarmentOrderItems(goId);
+      for (const it of items) {
+        const files = stash[stashKeyForRow(it)];
+        if (!files?.length) continue;
+        try {
+          await adminUploadItemImages(goId, it.id, files);
+        } catch {
+          // One failed row must not fail the submit — the order page's
+          // pending chips remain the fallback.
+        }
+      }
+    } catch {
+      // best-effort — rows exist; photos can still be added from the order page
+    }
   }
 
   function removeGarmentDraft(id: string) {
@@ -556,6 +587,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
               label_snapshot: item.label_snapshot,
             });
           }
+          await uploadDraftPhotos(existingGoId, draft);
         } else {
           const go = await createTableRow<{ id: string }>("garment_orders", {
             order_id: orderId,
@@ -578,6 +610,7 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
               label_snapshot: item.label_snapshot,
             });
           }
+          await uploadDraftPhotos(go.id, draft);
         }
       }
 
@@ -969,6 +1002,9 @@ export function NewOrderSheet({ open, onClose }: NewOrderSheetProps) {
                     }
                     onComputedTotalChange={(total) =>
                       updateGarmentDraft(draft.id, { computedTotal: total })
+                    }
+                    onDraftPhotos={(photos) =>
+                      updateGarmentDraft(draft.id, { photoStash: photos })
                     }
                   />
                 </div>

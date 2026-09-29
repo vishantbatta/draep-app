@@ -620,6 +620,23 @@ function styleSelectionRow(
   const choiceNative = nativeNames(chLabels);
   const choiceDescs = descLines(detail?.choiceDescriptions ?? null);
 
+  // Reference photos captured for THIS choice (core/item_images) — shown
+  // under the placement so the tailor sees exactly what to copy. Same
+  // data-pdf-src → pre-rasterized canvas pipeline as every other photo.
+  const photos = Array.isArray(it.images) ? it.images : [];
+  const photosHtml = photos.length
+    ? `<div class="gs-item-photos">
+         ${photos
+           .map(
+             (u) =>
+               `<img src="${absUrl(u)}"
+                      data-pdf-src="${esc(u)}"
+                      alt="${esc(choiceEn || compEn || "selection")} reference photo" />`,
+           )
+           .join("")}
+       </div>`
+    : "";
+
   return `
     <tr>
       <td class="gs-td gs-td-title">
@@ -632,6 +649,7 @@ function styleSelectionRow(
         <div class="gs-choice">${esc(choiceEn || "—")}</div>
         ${choiceNative ? `<div class="gs-native">${esc(choiceNative)}</div>` : ""}
         ${placement ? `<div class="gs-placement">${upper("Placement")}: ${esc(placement)}</div>` : ""}
+        ${photosHtml}
       </td>
       <td class="gs-td gs-td-desc">
         ${choiceDescs.map((d) => `<div class="gs-desc-line">${esc(d)}</div>`).join("")}
@@ -2651,6 +2669,25 @@ const PRINT_CSS = `
     color: #64748b;
     font-style: italic;
     margin-top: 2pt;
+  }
+  /* Reference photos attached to this choice (core/item_images) — rendered
+     "slightly big" under the placement so the tailor sees what to copy.
+     Explicit px sizes (html2canvas constraint, same as .photo-grid). */
+  .gs-item-photos {
+    margin-top: 6pt;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6pt;
+  }
+  .gs-item-photos img,
+  .gs-item-photos canvas {
+    width: 150px;
+    height: auto;
+    max-height: 180px;
+    object-fit: contain;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    background: #ffffff;
   }
 
   /* One description line per language (English first) — the script itself

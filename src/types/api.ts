@@ -86,6 +86,11 @@ export interface VariationTypeOut {
   not_ideal_for: string[] | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Reference-photo requirement (be/app/core/item_images.py): picking
+   *  this option asks for min..max photos. min null/0 = no requirement. */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
 }
 
 export interface VariationOut {
@@ -99,6 +104,11 @@ export interface VariationOut {
   price: number | null;
   default_type_id: string | null;
   is_material_needed: boolean | null;
+  /** Reference-photo requirement (be/app/core/item_images.py): picking
+   *  this option asks for min..max photos. min null/0 = no requirement. */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
   variation_types: VariationTypeOut[];
 }
 
@@ -129,6 +139,11 @@ export interface AddonVariationOut {
   placement: string | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Reference-photo requirement (be/app/core/item_images.py): picking
+   *  this option asks for min..max photos. min null/0 = no requirement. */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
 }
 
 export interface AddonOut {
@@ -144,6 +159,11 @@ export interface AddonOut {
   default_variation_id: string | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Reference-photo requirement (be/app/core/item_images.py): picking
+   *  this option asks for min..max photos. min null/0 = no requirement. */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
   variations: AddonVariationOut[];
 }
 
@@ -198,7 +218,16 @@ export interface SelectionOut {
    *   - `custom`           added by the from-scratch configurator (default)
    */
   source: "library_default" | "user_modified" | "custom" | null;
+  /** Reference photos captured for THIS item (core/item_images). */
+  item_id?: string | null;
+  images?: string[];
+  images_required?: boolean;
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
+  images_pending?: boolean;
 }
+
 
 export interface AddOnStateOut {
   add_on_id: string;
@@ -213,6 +242,14 @@ export interface AddOnStateOut {
   label: Record<string, string> | null;
   price: number | null;
   source: "library_default" | "user_modified" | "custom" | null;
+  item_id?: string | null;
+  /** Reference photos captured for THIS item (core/item_images). */
+  images?: string[];
+  images_required?: boolean;
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
+  images_pending?: boolean;
 }
 
 export interface OrderOut {
@@ -328,6 +365,13 @@ export interface OrderDetailItem {
   variation_type_id: string | null;
   addon_id: string | null;
   addon_variation_id: string | null;
+  /** Reference photos captured for THIS item (core/item_images). */
+  images?: string[];
+  images_required?: boolean;
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
+  images_pending?: boolean;
 }
 
 export interface OrderDetailGarmentOrder {

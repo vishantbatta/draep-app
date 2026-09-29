@@ -1103,6 +1103,22 @@ function CatalogueFormModal({
   const [type, setType] = useState<string>((d?.type as string) ?? "");
   const [isDefaultOn, setIsDefaultOn] = useState<boolean>((d?.is_default_on as boolean) ?? false);
   const [isMaterialNeeded, setIsMaterialNeeded] = useState<boolean>(toMaterialChecked(d?.is_material_needed));
+  // ── Reference-photo requirement (core/item_images) ──
+  const [minImages, setMinImages] = useState<string>(
+    d?.min_images != null ? String(d!.min_images) : ""
+  );
+  const [maxImages, setMaxImages] = useState<string>(
+    d?.max_images != null ? String(d!.max_images) : ""
+  );
+  const [imageNoteEn, setImageNoteEn] = useState<string>(
+    ((d?.image_note as Record<string, string> | null)?.en) ?? ""
+  );
+  /** Empty min → no requirement (nulls); note wraps into {"en": …}. */
+  const imagesRequirementPayload = () => ({
+    min_images: minImages.trim() === "" ? null : Number(minImages),
+    max_images: maxImages.trim() === "" ? null : Number(maxImages),
+    image_note: imageNoteEn.trim() === "" ? null : { en: imageNoteEn.trim() },
+  });
   const [placementsList, setPlacementsList] = useState<string[]>(
     () => (Array.isArray(d?.placements) ? (d!.placements as string[]) : []),
   );
@@ -1435,6 +1451,7 @@ function CatalogueFormModal({
               priority_order: priorityNum,
               default_type_id: defaultTypeId || null,
               is_material_needed: isMaterialNeeded,
+              ...imagesRequirementPayload(),
             });
           } else {
             const id = d!.id as string;
@@ -1447,6 +1464,7 @@ function CatalogueFormModal({
               priority_order: priorityNum,
               default_type_id: defaultTypeId || null,
               is_material_needed: isMaterialNeeded,
+              ...imagesRequirementPayload(),
             } as VariationUpdateInput);
           }
           break;
@@ -1464,6 +1482,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              ...imagesRequirementPayload(),
             });
           } else {
             const id = d!.id as string;
@@ -1475,6 +1494,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              ...imagesRequirementPayload(),
             } as VariationTypeUpdateInput);
           }
           break;
@@ -1508,6 +1528,7 @@ function CatalogueFormModal({
             is_material_needed: isMaterialNeeded,
             default_variation_id: defaultAddonVariationId || null,
             priority_order: priorityNum,
+            ...imagesRequirementPayload(),
           };
 
           if (target.mode === "create") {
@@ -1537,6 +1558,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              ...imagesRequirementPayload(),
             });
           } else {
             const id = d!.id as string;
@@ -1554,6 +1576,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              ...imagesRequirementPayload(),
             } as AddonVariationUpdateInput);
           }
           break;
@@ -1712,6 +1735,47 @@ function CatalogueFormModal({
                 <MaterialToggle checked={isMaterialNeeded} onChange={setIsMaterialNeeded} />
               </div>
             </Field>
+          </div>
+        )}
+
+        {/* Reference-photo requirement (core/item_images) — ask whoever picks
+            this option for min..max photos; they attach to the order item. */}
+        {["variation", "variationType", "addon", "addonVariation"].includes(target.kind) && (
+          <div className="grid grid-cols-2 gap-3 rounded-lg bg-amber-50/60 p-3 ring-1 ring-amber-200">
+            <div className="col-span-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+                Reference photos
+              </p>
+              <p className="mt-0.5 text-[11px] text-amber-700">
+                Choosing this option asks the customer / captain to upload
+                photos of their reference before payment.
+              </p>
+            </div>
+            <Field label="Min photos">
+              <TextInput
+                value={minImages}
+                onChange={setMinImages}
+                type="number"
+                placeholder="0 = optional"
+              />
+            </Field>
+            <Field label="Max photos">
+              <TextInput
+                value={maxImages}
+                onChange={setMaxImages}
+                type="number"
+                placeholder="blank = no cap"
+              />
+            </Field>
+            <div className="col-span-2">
+              <Field label="What to photograph (hint)">
+                <TextInput
+                  value={imageNoteEn}
+                  onChange={setImageNoteEn}
+                  placeholder="e.g. Front, back, close-up of the neckline"
+                />
+              </Field>
+            </div>
           </div>
         )}
 

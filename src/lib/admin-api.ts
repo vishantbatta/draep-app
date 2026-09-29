@@ -305,6 +305,10 @@ export interface Variation {
   price: number | null;
   default_type_id: string | null;
   is_material_needed: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images: number | null;
+  max_images: number | null;
+  image_note: Record<string, string> | null;
 }
 
 export interface VariationCreateInput {
@@ -319,6 +323,10 @@ export interface VariationCreateInput {
   price?: number | null;
   default_type_id?: string | null;
   is_material_needed?: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
 }
 
 export interface VariationUpdateInput {
@@ -333,6 +341,10 @@ export interface VariationUpdateInput {
   price?: number | null;
   default_type_id?: string | null;
   is_material_needed?: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
 }
 
 export async function createVariation(input: VariationCreateInput): Promise<Variation> {
@@ -367,6 +379,10 @@ export interface VariationType {
   not_ideal_for: string[] | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images: number | null;
+  max_images: number | null;
+  image_note: Record<string, string> | null;
 }
 
 export interface VariationTypeCreateInput {
@@ -380,6 +396,10 @@ export interface VariationTypeCreateInput {
   not_ideal_for?: string[] | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
 }
 
 export interface VariationTypeUpdateInput {
@@ -393,6 +413,10 @@ export interface VariationTypeUpdateInput {
   not_ideal_for?: string[] | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
 }
 
 export async function createVariationType(input: VariationTypeCreateInput): Promise<VariationType> {
@@ -430,6 +454,10 @@ export interface Addon {
   is_default_on: boolean | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images: number | null;
+  max_images: number | null;
+  image_note: Record<string, string> | null;
 }
 
 export interface AddonCreateInput {
@@ -446,6 +474,10 @@ export interface AddonCreateInput {
   is_default_on?: boolean | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
 }
 
 export interface AddonUpdateInput {
@@ -462,6 +494,10 @@ export interface AddonUpdateInput {
   is_default_on?: boolean | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
 }
 
 export async function createAddon(input: AddonCreateInput): Promise<Addon> {
@@ -501,6 +537,10 @@ export interface AddonVariation {
   placement: string | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images: number | null;
+  max_images: number | null;
+  image_note: Record<string, string> | null;
 }
 
 export interface AddonVariationCreateInput {
@@ -518,6 +558,10 @@ export interface AddonVariationCreateInput {
   placement?: string | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
 }
 
 export interface AddonVariationUpdateInput {
@@ -535,6 +579,10 @@ export interface AddonVariationUpdateInput {
   placement?: string | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
 }
 
 export async function createAddonVariation(input: AddonVariationCreateInput): Promise<AddonVariation> {
@@ -871,6 +919,9 @@ export interface GarmentOrderItemRow {
   custom_input: string | null;
   // JSONB column — the generic tables API returns it as an object, e.g. {en: "…"}
   label_snapshot: string | Record<string, string> | null;
+  /** Reference photos captured for THIS item (core/item_images). JSONB
+   *  array of hosted URLs; null on legacy rows = none uploaded. */
+  images?: string[] | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -1330,6 +1381,10 @@ export interface CatalogVariationType {
   not_ideal_for: string[] | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images: number | null;
+  max_images: number | null;
+  image_note: Record<string, string> | null;
 }
 
 export interface CatalogVariation {
@@ -1344,6 +1399,10 @@ export interface CatalogVariation {
   is_material_needed: boolean | null;
   default_type_id: string | null;
   variation_types: CatalogVariationType[];
+  /** Reference-photo requirement (core/item_images). */
+  min_images: number | null;
+  max_images: number | null;
+  image_note: Record<string, string> | null;
 }
 
 export interface CatalogComponent {
@@ -1372,6 +1431,10 @@ export interface CatalogAddonVariation {
   placement: string | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Reference-photo requirement (core/item_images). */
+  min_images: number | null;
+  max_images: number | null;
+  image_note: Record<string, string> | null;
 }
 
 export interface CatalogAddon {
@@ -1388,6 +1451,10 @@ export interface CatalogAddon {
   default_variation_id: string | null;
   price: number | null;
   variations: CatalogAddonVariation[];
+  /** Reference-photo requirement (core/item_images). */
+  min_images: number | null;
+  max_images: number | null;
+  image_note: Record<string, string> | null;
 }
 
 export interface GarmentTree {
@@ -3024,4 +3091,52 @@ export async function confirmOrderSlot(
   orderId: string,
 ): Promise<{ order_id: string; promoted: PromotedSlot[] }> {
   return adminFetch(`/admin/orders/${orderId}/confirm-slot`, { method: "POST" });
+}
+
+
+// ─── Item reference photos (core/item_images) ────────────────────────────────
+
+/** POST /admin/garment-orders/{go_id}/items/{item_id}/images — upload
+ *  reference photos for one garment_orders_item (admin path, no status
+ *  gate — admins fix things). Append semantics; backend enforces min/max. */
+export async function adminUploadItemImages(
+  garmentOrderId: string,
+  itemId: string,
+  files: File[],
+): Promise<{ id: string; images: string[] }> {
+  const token = getAdminToken();
+  if (!token) throw new Error("No admin token");
+
+  const form = new FormData();
+  for (const f of files) form.append("images", f);
+
+  const res = await fetch(
+    `${API_URL}/admin/garment-orders/${garmentOrderId}/items/${itemId}/images`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: { message?: string } })?.error?.message ??
+        `Upload failed (${res.status})`,
+    );
+  }
+  return res.json() as Promise<{ id: string; images: string[] }>;
+}
+
+/** DELETE /admin/garment-orders/{go_id}/items/{item_id}/images/{filename} —
+ *  remove ONE reference photo (admin re-take flow). */
+export function adminRemoveItemImage(
+  garmentOrderId: string,
+  itemId: string,
+  filename: string,
+): Promise<{ id: string; images: string[] }> {
+  return adminFetch<{ id: string; images: string[] }>(
+    `/admin/garment-orders/${garmentOrderId}/items/${itemId}/images/${encodeURIComponent(filename)}`,
+    { method: "DELETE" },
+  );
 }

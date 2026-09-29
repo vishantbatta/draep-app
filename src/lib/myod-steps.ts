@@ -138,9 +138,17 @@ export interface StepOption {
     assetUrl?: string;
     /** ADDITIVE price on top of the variation's own price (variation_type.price). */
     price?: number;
+    /** Reference-photo requirement carried by this sub-type. */
+    minImages?: number;
+    maxImages?: number;
   }[];
   /** Pre-selected sub-option id (variation.default_type_id), if any. */
   defaultSubOptionId?: string;
+  /** Reference-photo requirement (core/item_images) — choosing this option
+   *  asks for min..max photos on the order page after the order is created. */
+  minImages?: number;
+  maxImages?: number;
+  imageNote?: string | null;
 }
 
 /** How a component is chosen. Style components are always single-choice;
@@ -185,6 +193,9 @@ export interface StepComponent {
   section?: string;
   /** Additive price of a toggle add-on (addon.price when it has no variations). */
   price?: number;
+  /** Reference-photo requirement on a toggle add-on (core/item_images). */
+  minImages?: number;
+  maxImages?: number;
 }
 
 /** A design step in the guided flow. */
@@ -338,6 +349,12 @@ function variationToStepOption(v: VariationOut): StepOption {
     description: descText(v.descriptions) || undefined,
     assetUrl: v.asset_urls?.[0] || undefined,
     ...(v.price != null ? { price: v.price } : {}),
+    // Reference-photo requirement (core/item_images): the variation's own
+    // numbers; a sub-type that defines its own wins when chosen (the order
+    // page resolves the effective pair server-side).
+    ...(v.min_images ? { minImages: v.min_images } : {}),
+    ...(v.max_images != null ? { maxImages: v.max_images } : {}),
+    ...(v.image_note?.en ? { imageNote: v.image_note.en } : {}),
     ...(types.length > 0
       ? {
           subOptions: types.map((t) => ({
@@ -346,6 +363,8 @@ function variationToStepOption(v: VariationOut): StepOption {
             description: descText(t.descriptions) || undefined,
             assetUrl: t.asset_urls?.[0] || undefined,
             ...(t.price != null ? { price: t.price } : {}),
+            ...(t.min_images ? { minImages: t.min_images } : {}),
+            ...(t.max_images != null ? { maxImages: t.max_images } : {}),
           })),
           defaultSubOptionId: v.default_type_id ?? types[0]?.id,
         }
@@ -512,6 +531,9 @@ export function addonToStepComponent(a: AddonOut): StepComponent {
     assetUrl: a.asset_urls?.[0] || undefined,
     kind: isToggle ? "toggle" : "choice",
     defaultOn: a.is_default_on ?? undefined,
+    ...(a.min_images
+      ? { minImages: a.min_images, ...(a.max_images != null ? { maxImages: a.max_images } : {}) }
+      : {}),
     defaultOptionId: a.default_variation_id ?? undefined,
     placements: (a.placements ?? undefined)?.filter(Boolean),
     section: "Add-ons",
@@ -526,6 +548,19 @@ export function addonToStepComponent(a: AddonOut): StepComponent {
       // price PLUS the variation's own price (e.g. Latkan ₹80 + Small ₹100).
       price: (a.price ?? 0) + (v.price ?? 0),
       ...(axes.length > 0 ? { axisValues: axisValuesOf(v) } : {}),
+      // Reference-photo requirement (core/item_images): this combination's
+      // numbers when it defines any, else the parent add-on's.
+      ...((v.min_images != null || v.max_images != null || v.image_note != null
+        ? {
+            minImages: v.min_images ?? 0,
+            ...(v.max_images != null ? { maxImages: v.max_images } : {}),
+          }
+        : a.min_images
+          ? {
+              minImages: a.min_images,
+              ...(a.max_images != null ? { maxImages: a.max_images } : {}),
+            }
+          : {}) as Pick<StepOption, "minImages" | "maxImages">),
     })),
   };
 }

@@ -197,6 +197,13 @@ export interface SCSelection {
   price: number | null;
   source: string | null;
   options: SCVariationOption[];
+  /** Reference photos captured for THIS item (core/item_images). */
+  images?: string[];
+  images_required?: boolean;
+  min_images?: number | null;
+  max_images?: number | null;
+  image_note?: Record<string, string> | null;
+  images_pending?: boolean;
 }
 
 export interface SCGarmentOrder {
@@ -562,6 +569,40 @@ export async function scRemoveAddonItem(
 ): Promise<{ ok: boolean; item_id: string }> {
   return scFetch<{ ok: boolean; item_id: string }>(
     `/style-captain/garment-orders/${garmentOrderId}/items/${itemId}`,
+    { method: "DELETE" },
+  );
+}
+
+/** Upload reference photos for ONE item (captain path, core/item_images).
+ *  Append semantics; the backend enforces the option's min/max range.
+ *  Returns the refreshed selection entry (with images + requirement). */
+export async function scUploadItemImages(
+  garmentOrderId: string,
+  itemId: string,
+  files: File[],
+): Promise<SCSelection | null> {
+  const formData = new FormData();
+  for (const f of files) formData.append("images", f);
+  return withRefresh<SCSelection | null>((token) =>
+    fetch(
+      `${API_URL}/style-captain/garment-orders/${garmentOrderId}/items/${itemId}/images`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      },
+    ),
+  );
+}
+
+/** Remove ONE reference photo from an item (captain re-take flow). */
+export async function scRemoveItemImage(
+  garmentOrderId: string,
+  itemId: string,
+  filename: string,
+): Promise<SCSelection | null> {
+  return scFetch<SCSelection | null>(
+    `/style-captain/garment-orders/${garmentOrderId}/items/${itemId}/images/${encodeURIComponent(filename)}`,
     { method: "DELETE" },
   );
 }

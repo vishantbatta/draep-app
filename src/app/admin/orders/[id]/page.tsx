@@ -38,6 +38,7 @@ import {
   syncOrderPayments,
   fetchGarmentTree,
   catalogLabel,
+  adminUploadItemImages,
   formatOrderSlot,
   type OrderRow,
   type GarmentOrderRow,
@@ -75,7 +76,6 @@ import {
   type StyleSelectionGroup,
   type StyleItemDetail,
 } from "@/lib/job-pdf";
-import type { InvoiceInput } from "@/lib/invoice-pdf";
 import type { MaterialsRequiredSourceItem } from "@/lib/materials-required";
 import { GarmentSelectionSheet } from "@/components/admin/GarmentSelectionSheet";
 import { BottomSheet } from "@/components/ui/BottomSheet";
@@ -110,6 +110,12 @@ const PAYMENT_STATUSES: PaymentStatus[] = [
   "partially_refunded",
   "refunded",
   "failed",
+];
+
+// Dynamic: measurement_job statuses from the flow map (GET /flow/meta)
+// + legacy union so pre-flow jobs still display
+const JOB_STATUSES_LEGACY = [
+  "draft", "scheduled", "in_progress", "completed", "cancelled",
 ];
 
 const GARMENT_ORDER_STATUSES: GarmentOrderStatus[] = [
@@ -1918,73 +1924,12 @@ export default function OrderDetailPage() {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // PDF DOWNLOAD — assembles cover + (optional) body + garment + style pages
-  // + the embedded tax-invoice page, gated by the user's section toggles and
-  // garment-order deselection.
+  // PDF DOWNLOAD — assembles cover + (optional) body + garment pages, gated
+  // by the user's section toggles and garment-order deselection. No invoice
+  // page: invoices are minted GST documents (DocumentsSection) issued
+  // automatically when payments capture — the client-derived embedded
+  // invoice was removed as the legacy flow.
   // ──────────────────────────────────────────────────────────────────────────
-
-  /** Build the tax-invoice input from loaded order data — the same
-   *  InvoiceInput the standalone "Download Invoice PDF" button uses, so the
-   *  report's embedded invoice page and the standalone invoice always
-   *  reconcile. `garmentRows` are the (already deselection-filtered) garment
-   *  orders to bill; `getItems` resolves each one's item rows. */
-  function buildInvoiceInput(
-    garmentRows: GarmentOrderRow[],
-    getItems: (goId: string) => GarmentOrderItemRow[] | undefined,
-    invoiceDateIso?: string | null,
-  ): InvoiceInput {
-    // One line per garment order — effective (adjustment-inclusive) total,
-    // the same number the "Order total" card shows for each garment.
-    const garmentLines = garmentRows.map((go) => ({
-      label: garmentDisplayLabel(go.garment_id),
-      total: effectiveGarmentTotal(
-        go,
-        getItems(go.id),
-        garmentMap.get(go.garment_id)?.base_price ?? null,
-        adjustments,
-        priceIndex,
-      ),
-    }));
-
-    // Order-level adjustments (garment_order_id IS NULL) so the subtotal
-    // reconciles to the grand total. Discounts are already negative.
-    const adjustmentLines = adjustments
-      .filter((a) => a.garment_order_id === null)
-      .map((a) => ({
-        label: `${a.type === "discount" ? "Discount" : "Fee"}: ${adjustmentLabel(a.label)}`,
-        total: a.amount ?? 0,
-      }));
-
-    // One "Payment Made" row per captured payment, carrying the note that
-    // was recorded with it (transactions.metadata.note).
-    const payments = transactions
-      .filter((t) => t.type === "payment" && t.status === "captured")
-      .map((t) => ({
-        amount: t.amount ?? 0,
-        note:
-          t.metadata &&
-          typeof t.metadata === "object" &&
-          "note" in t.metadata &&
-          t.metadata.note != null
-            ? String(t.metadata.note)
-            : null,
-      }));
-
-    return {
-      invoiceNumber: order?.order_number
-        ? `INV-${order.order_number}`
-        : `INV-${truncateId(order?.id ?? "")}`,
-      orderNumber: order?.order_number ?? (order ? truncateId(order.id) : null),
-      customer,
-      address,
-      garmentLines,
-      adjustmentLines,
-      payments,
-      // Download sheet's picked date; undefined (embedded report invoice) →
-      // buildInvoiceHtml falls back to today.
-      invoiceDate: invoiceDateIso ?? null,
-    };
-  }
 
   /** Generate the PDF with the user's selected sections. Called from the
    *  customization bottom sheet's "Generate PDF" footer button. */
@@ -2032,12 +1977,12 @@ export default function OrderDetailPage() {
       } catch { /* proceed with empty */ }
 
       // Apply the user's garment deselection (PDF sheet). Everything below —
-      // garment pages, style pages, and the invoice lines — reflects only the
-      // selected garment orders.
+      // garment pages and style pages — reflects only the selected garment
+      // orders.
       const selectedGoList = goList.filter((go) => !pdfExcludedGoIds.has(go.id));
 
-      // Items per garment order (for style pages + invoice lines) — wrapped
-      // per-GO so one failure doesn't block others
+      // Items per garment order (for the style pages) — wrapped per-GO so one
+      // failure doesn't block others
       setPdfProgress("Loading style selections…");
       const itemsByGOId = new Map<string, GarmentOrderItemRow[]>();
       await Promise.all(
@@ -2075,7 +2020,7 @@ export default function OrderDetailPage() {
       // Map the fetched instances to the GarmentOrderRow shape the PDF
       // builders expect (garment_id / assets from the live page state, which
       // stays fresher than the fetched instance rows). One mapping reused by
-      // the garment pages, style pages, and the invoice lines below.
+      // the garment pages and style pages below.
       const pdfGoRows: GarmentOrderRow[] = selectedGoList.map((go) => {
         const liveGO = garmentOrders.find((g) => g.id === go.id);
         return {
@@ -2242,11 +2187,6 @@ export default function OrderDetailPage() {
           }),
       );
 
-      // Invoice input for the embedded invoice page — always built (cheap;
-      // reuses already-loaded adjustments + transactions). The page itself is
-      // gated by the toggle.
-      const invoice = buildInvoiceInput(pdfGoRows, (id) => itemsByGOId.get(id));
-
       await downloadMeasurementJobPdf(
         {
           job: jobForPdf,
@@ -2258,7 +2198,6 @@ export default function OrderDetailPage() {
           styleSelections: styleGroups,
           materialsRequired,
           sections: opts,
-          invoice,
         },
         (current, total, label) => {
           if (total > 1) {
@@ -2280,9 +2219,8 @@ export default function OrderDetailPage() {
 
   // ──────────────────────────────────────────────────────────────────────────
   // INVOICE — replaced by the minted-documents flow (DocumentsSection):
-  // invoices are issued automatically when payments capture, so there is no
-  // client-side generator and no date to pick here anymore. buildInvoiceInput
-  // remains solely for the job-PDF's embedded invoice page below.
+  // invoices are issued automatically when payments capture; there is no
+  // client-side invoice generator and no invoice page in the job PDF.
   // ──────────────────────────────────────────────────────────────────────────
 
   /** Copy the public invoice link (/invoice/{order id} — the order's random
@@ -2469,8 +2407,8 @@ export default function OrderDetailPage() {
   // Computed from the components (Σ garment effective totals + order-level
   // adjustments) rather than read from the stored order.total_price column.
   // The stored column is a backend cache that can drift; deriving the displayed
-  // total from the same components the breakdown uses guarantees the header,
-  // the Order-total card, and the invoice always agree with the line items.
+  // total from the same components the breakdown uses guarantees the header
+  // and the Order-total card always agree with the line items.
   const liveTotal =
     garmentOrders.reduce(
       (s, go) =>
@@ -2655,8 +2593,7 @@ export default function OrderDetailPage() {
                     components (Σ garment effective totals + order-level
                     adjustments), NOT the stored order.total_price column.
                     Deriving it here keeps the header in lockstep with the
-                    Order-total card and the invoice even if the backend
-                    cache drifts. */}
+                    Order-total card even if the backend cache drifts. */}
                 {formatPrice(liveTotal)}
               </div>
               <div className="mt-0.5 text-[10px] text-muted">
@@ -3037,6 +2974,15 @@ export default function OrderDetailPage() {
                         open={editingGOId === go.id}
                         garmentId={go.garment_id}
                         garmentOrderId={go.id}
+                        uploadItemPhotos={async (row, files) => {
+                          const res = await adminUploadItemImages(
+                            row.garment_order_id ?? go.id,
+                            row.id,
+                            files,
+                          );
+                          return res.images;
+                        }}
+                        fetchSavedItems={() => fetchGarmentOrderItems(go.id)}
                         initialItems={goAIPrefill[go.id]?.items ?? items ?? []}
                         sessionId={`${go.id}-${goAIIterations[go.id] ?? 0}-${
                           goAIPrefill[go.id] ? "ai" : "saved"
@@ -3977,11 +3923,6 @@ export default function OrderDetailPage() {
                 title: "Materials Required",
                 desc: "Selections needing material from the customer (flagged in the catalogue)",
               },
-              {
-                key: "invoice" as const,
-                title: "Invoice",
-                desc: "Tax invoice with line items, totals, and UPI payment QR",
-              },
             ]
           ).map(({ key, title, desc }) => (
             <label
@@ -4007,10 +3948,10 @@ export default function OrderDetailPage() {
           ))}
 
           {/* Garment-order deselection: every garment order is included by
-              default; unchecking one drops its fabric/design pages and its
-              line from the invoice. Effective totals are shown next to each
-              garment because an order can hold several of the same garment
-              type, and the price is what tells them apart. */}
+              default; unchecking one drops its fabric/design pages. Effective
+              totals are shown next to each garment because an order can hold
+              several of the same garment type, and the price is what tells
+              them apart. */}
           <div className="mt-4">
             <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
               Garment orders

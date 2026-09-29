@@ -124,6 +124,15 @@ export default function PayPage() {
         track({ event: "slot_lost_at_checkout", orderId: draft.orderId });
         return;
       }
+      if (err instanceof ApiError && err.code === "item_images_pending") {
+        // Items on the order are still waiting for reference photos
+        // (core/item_images) — nothing was charged; send the customer to
+        // the order page, whose chips + capture sheet fix it.
+        setError(err.message);
+        setStatus("failed");
+        router.replace(`/app/orders/${draft.orderId}`);
+        return;
+      }
       setError(
         err instanceof ApiError ? err.message : "Payment initiation failed. Try again.",
       );
@@ -179,7 +188,7 @@ export default function PayPage() {
 
         if (
           verifyResult.payment_status === "paid" ||
-          verifyResult.fulfillment_status === "awaiting_visit"
+          verifyResult.fulfillment_status === "visit_scheduled"
         ) {
           setPayment({ orderId: draft.orderId, status: "paid" });
           track({ event: "payment_succeeded", orderId: draft.orderId, amount: price.total });

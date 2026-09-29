@@ -202,6 +202,38 @@ export function uploadInspiration(
   );
 }
 
+// POST /orders/{order_id}/garments/{go_id}/items/{item_id}/images — upload
+// reference photos for ONE garment_orders_item whose catalog option carries
+// a min_images requirement (core/item_images). Append semantics: existing
+// photos stay; the combined count may never exceed the option's max_images.
+export function uploadItemImages(
+  orderId: string,
+  garmentOrderId: string,
+  itemId: string,
+  files: File[],
+): Promise<OrderOut> {
+  const formData = new FormData();
+  for (const file of files) formData.append("images", file);
+  return apiUpload<OrderOut>(
+    `/orders/${orderId}/garments/${garmentOrderId}/items/${itemId}/images`,
+    formData,
+  );
+}
+
+// DELETE /orders/{order_id}/garments/{go_id}/items/{item_id}/images/{filename}
+// — remove ONE reference photo (re-take flow). Dropping below the minimum is
+// allowed; the item flips back to "waiting for photos" and payment re-blocks.
+export function removeItemImage(
+  orderId: string,
+  garmentOrderId: string,
+  itemId: string,
+  filename: string,
+): Promise<OrderOut> {
+  return apiDelete<OrderOut>(
+    `/orders/${orderId}/garments/${garmentOrderId}/items/${itemId}/images/${encodeURIComponent(filename)}`,
+  );
+}
+
 // PUT /orders/{order_id}/address — attach an existing saved address to the
 // draft order (same address_id set the admin dashboard performs; no new
 // address row is created).

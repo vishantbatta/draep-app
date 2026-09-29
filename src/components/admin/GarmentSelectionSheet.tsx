@@ -48,9 +48,20 @@ import {
   type GarmentTree,
   type CatalogAddon,
   type CatalogAddonVariation,
+  type CatalogVariation,
   type GarmentOrderItemRow,
 } from "@/lib/admin-api";
 import { BottomSheet } from "@/components/ui/BottomSheet";
+import {
+  PHOTO_STASH_MAX,
+  PhotoGateSheet,
+  addonStashKey,
+  compStashKey,
+  stashKeyForRow,
+  toStashedPhotos,
+  type PhotoGateRequest,
+  type StashedPhoto,
+} from "@/components/item-images/PhotoGateSheet";
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -177,6 +188,20 @@ interface GarmentSelectionSheetProps {
   titleClassName?: string;
   /** Draft mode's apply-CTA label (default "Apply selections"). */
   draftApplyLabel?: string;
+  /** Attach stashed reference photos to a saved/created item row (persist
+   *  mode, core/item_images). Returns the row's resulting image URLs (null
+   *  when unknown) so previews reflect the upload without a refetch. */
+  uploadItemPhotos?: (
+    row: GarmentOrderItemRow,
+    files: File[],
+  ) => Promise<string[] | null>;
+  /** Persist mode: fresh saved rows for THIS garment order, fetched when
+   *  the sheet opens — keeps previews + the saved-photo gate correct on
+   *  every reopen even when the host's initialItems are stale. */
+  fetchSavedItems?: () => Promise<GarmentOrderItemRow[]>;
+  /** Draft mode: hand the stashed photos (keyed by future-row identity) to
+   *  the parent so IT can attach them once rows are created. */
+  onDraftPhotos?: (photos: Record<string, File[]>) => void;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────
@@ -364,6 +389,112 @@ function cap(v: string): string {
   return v ? v[0].toUpperCase() + v.slice(1) : v;
 }
 
+// ─── Reference-photo requirements (core/item_images) ───────────────────
+//
+// The catalog defines min/max photos per option; picking such an option in
+// this sheet opens the shared capture gate immediately and the pick only
+// lands once the photos are stashed. Stashed photos attach to their item
+// rows on save (persist) or ride to the parent (draft) — keys must agree
+// between stash time and row time (see PhotoGateSheet module).
+
+function variationPhotoReq(
+  componentId: string,
+  v: CatalogVariation | undefined,
+  typeId: string | null,
+): PhotoGateRequest | null {
+  const vt = typeId ? v?.variation_types.find((t) => t.id === typeId) : undefined;
+  const leafDefines =
+    vt && (vt.min_images != null || vt.max_images != null || vt.image_note != null);
+  const min = leafDefines ? (vt!.min_images ?? 0) : (v?.min_images ?? 0);
+  const max = leafDefines ? (vt!.max_images ?? null) : (v?.max_images ?? null);
+  const note = leafDefines ? vt!.image_note : (v?.image_note ?? null);
+  if (min < 1) return null;
+  return {
+    min,
+    max,
+    note: note?.en ?? null,
+    title: catalogLabel(v?.labels, componentId),
+    key: compStashKey(componentId, v?.id ?? "", typeId),
+  };
+}
+
+function addonPhotoReq(
+  addon: CatalogAddon,
+  avId: string | null,
+  placement: string | null,
+): PhotoGateRequest | null {
+  const av = avId ? addon.variations.find((x) => x.id === avId) : undefined;
+  const avDefines =
+    av && (av.min_images != null || av.max_images != null || av.image_note != null);
+  const min = avDefines ? (av!.min_images ?? 0) : (addon.min_images ?? 0);
+  const max = avDefines ? (av!.max_images ?? null) : (addon.max_images ?? null);
+  const note = avDefines ? av!.image_note : (addon.image_note ?? null);
+  if (min < 1) return null;
+  return {
+    min,
+    max,
+    note: note?.en ?? null,
+    title: catalogLabel((av ?? addon).labels, addon.id),
+    key: addonStashKey(addon.id, avId, placement),
+  };
+}
+
+/** A saved row that already carries enough photos satisfies its option —
+ *  re-tapping the current selection in the edit sheet must not re-demand
+ *  photos for photos that are already on the row. */
+function existingImagesFor(
+  existingItems: GarmentOrderItemRow[],
+  key: string,
+): number {
+  const row = existingItems.find((it) => stashKeyForRow(it) === key);
+  return row && Array.isArray(row.images) ? row.images.length : 0;
+}
+
+/** The photo URLs already SAVED on the row for a stash key (empty when the
+ *  row has none — previews pair these with the session stash). */
+function savedImagesFor(
+  existingItems: GarmentOrderItemRow[],
+  key: string,
+): string[] {
+  const row = existingItems.find((it) => stashKeyForRow(it) === key);
+  return row && Array.isArray(row.images) ? row.images : [];
+}
+
+/** Small thumbnail strip under an option's chips: saved-row photos + photos
+ *  stashed this session, so the user sees what's attached to the choice
+ *  without opening the capture sheet. */
+function PhotoPreviewStrip({
+  saved,
+  stashed,
+}: {
+  saved: string[];
+  stashed: { url: string }[];
+}) {
+  if (saved.length === 0 && stashed.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5">
+      {saved.map((u) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={u}
+          src={u}
+          alt=""
+          className="h-9 w-9 rounded-md object-cover ring-1 ring-hairline"
+        />
+      ))}
+      {stashed.map((p) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={p.url}
+          src={p.url}
+          alt=""
+          className="h-9 w-9 rounded-md object-cover ring-1 ring-accent-text/40"
+        />
+      ))}
+    </div>
+  );
+}
+
 // ─── Component ─────────────────────────────────────────────────────────
 
 export function GarmentSelectionSheet({
@@ -379,6 +510,9 @@ export function GarmentSelectionSheet({
   persistence,
   draftMode = false,
   draftSaving = false,
+  uploadItemPhotos,
+  fetchSavedItems,
+  onDraftPhotos,
   onDraftChange,
   onComputedTotalChange,
   title,
@@ -414,6 +548,46 @@ export function GarmentSelectionSheet({
   // selections rather than changing saved state).
   const [touched, setTouched] = useState(false);
 
+  // ── Reference-photo gate state (core/item_images) ──────────────────────
+  const [photoStash, setPhotoStash] = useState<Record<string, StashedPhoto[]>>({});
+  const [photoGate, setPhotoGate] = useState<
+    (PhotoGateRequest & { onUse: () => void }) | null
+  >(null);
+
+  const gateChain = useCallback(
+    (reqs: PhotoGateRequest[], done: () => void) => {
+      if (reqs.length === 0) {
+        done();
+        return;
+      }
+      const [head, ...rest] = reqs;
+      setPhotoGate({ ...head, onUse: () => gateChain(rest, done) });
+    },
+    [],
+  );
+
+  const stashPhotos = useCallback(
+    (key: string, files: File[], cap: number | null) => {
+      setPhotoStash((cur) => {
+        const limit = Math.min(cap ?? PHOTO_STASH_MAX, PHOTO_STASH_MAX);
+        const next = [
+          ...(cur[key] ?? []),
+          ...toStashedPhotos(files),
+        ].slice(0, limit);
+        return { ...cur, [key]: next };
+      });
+    },
+    [],
+  );
+
+  const unstashPhoto = useCallback((key: string, url: string) => {
+    setPhotoStash((cur) => {
+      const next = (cur[key] ?? []).filter((p) => p.url !== url);
+      URL.revokeObjectURL(url);
+      return { ...cur, [key]: next };
+    });
+  }, []);
+
   // Manual selections vs AI reference (only when aiPanel is provided).
   const [tab, setTab] = useState<"selections" | "reference">("selections");
   // A sessionId bump means the parent reseeded (an AI iteration applied) —
@@ -439,14 +613,30 @@ export function GarmentSelectionSheet({
     const seedRows = toSeedRows(initialItems, garmentOrderId);
     setExistingItems(seedRows);
     fetchGarmentTree(garmentId)
-      .then((t) => {
+      .then(async (t) => {
         if (cancelled) return;
         setTree(t);
+
+        // Server-fresh saved rows (photos included) — the host's
+        // initialItems can be stale after earlier saves/uploads, which
+        // would hide already-saved photo previews on reopen.
+        let rows = seedRows;
+        if (fetchSavedItems && !draftMode) {
+          try {
+            const fresh = await fetchSavedItems();
+            if (!cancelled && fresh.length > 0) {
+              rows = toSeedRows(fresh, garmentOrderId);
+              setExistingItems(rows);
+            }
+          } catch {
+            // fall back to the host-provided rows
+          }
+        }
 
         // Initialise component selections from the seeded items / defaults.
         const nextComps: Record<string, ComponentSelection> = {};
         for (const comp of t.components) {
-          const existing = seedRows.find(
+          const existing = rows.find(
             (it) =>
               it.type === "variation" &&
               it.garment_style_component_id === comp.id,
@@ -484,7 +674,7 @@ export function GarmentSelectionSheet({
         // can appear on several placements, each with its own variation.
         const nextAddons: Record<string, AddonSelection> = {};
         for (const addon of t.addons) {
-          const existing = seedRows.filter(
+          const existing = rows.filter(
             (it) => it.type === "add_on" && it.addon_id === addon.id,
           );
           if (existing.length > 0) {
@@ -496,7 +686,7 @@ export function GarmentSelectionSheet({
                 variationId: it.addon_variation_id ?? null,
               })),
             };
-          } else if (seedRows.length === 0) {
+          } else if (rows.length === 0) {
             // Fresh garment, nothing saved yet — apply catalog defaults.
             const isPlacementBased = effectivePlacements(addon).length > 0;
             nextAddons[addon.id] = {
@@ -691,7 +881,7 @@ export function GarmentSelectionSheet({
 
   // ── Handlers ───────────────────────────────────────────────────────────
 
-  function selectVariation(componentId: string, variationId: string) {
+  function applyVariation(componentId: string, variationId: string) {
     setTouched(true);
     setComponentSelections((prev) => {
       const next = { ...prev };
@@ -709,7 +899,26 @@ export function GarmentSelectionSheet({
     });
   }
 
-  function selectVariationType(
+  function selectVariation(componentId: string, variationId: string) {
+    // Reference-photo gate: the pick lands only once its photos are in
+    // (stashed this session, or already on the saved row).
+    const comp = tree?.components.find((c) => c.id === componentId);
+    const v = comp?.variations.find((x) => x.id === variationId);
+    const firstTypeId =
+      v?.default_type_id ?? v?.variation_types[0]?.id ?? null;
+    const req = variationPhotoReq(componentId, v, firstTypeId);
+    if (
+      req &&
+      (photoStash[req.key]?.length ?? 0) < req.min &&
+      existingImagesFor(existingItems, req.key) < req.min
+    ) {
+      gateChain([req], () => applyVariation(componentId, variationId));
+      return;
+    }
+    applyVariation(componentId, variationId);
+  }
+
+  function applyVariationType(
     componentId: string,
     variationId: string,
     variationTypeId: string,
@@ -723,6 +932,27 @@ export function GarmentSelectionSheet({
         variationTypeId,
       },
     }));
+  }
+
+  function selectVariationType(
+    componentId: string,
+    variationId: string,
+    variationTypeId: string,
+  ) {
+    const comp = tree?.components.find((c) => c.id === componentId);
+    const v = comp?.variations.find((x) => x.id === variationId);
+    const req = variationPhotoReq(componentId, v, variationTypeId);
+    if (
+      req &&
+      (photoStash[req.key]?.length ?? 0) < req.min &&
+      existingImagesFor(existingItems, req.key) < req.min
+    ) {
+      gateChain([req], () =>
+        applyVariationType(componentId, variationId, variationTypeId),
+      );
+      return;
+    }
+    applyVariationType(componentId, variationId, variationTypeId);
   }
 
   /** Default variation for a new slot: the add-on default when it is valid
@@ -740,7 +970,7 @@ export function GarmentSelectionSheet({
     return addon.variations.find(valid)?.id ?? null;
   }
 
-  function toggleAddon(addonId: string, enabled: boolean) {
+  function applyToggleAddon(addonId: string, enabled: boolean) {
     setTouched(true);
     setAddonSelections((prev) => {
       const sel = prev[addonId];
@@ -757,8 +987,39 @@ export function GarmentSelectionSheet({
     });
   }
 
+  function toggleAddon(addonId: string, enabled: boolean) {
+    if (!enabled) {
+      applyToggleAddon(addonId, false);
+      return;
+    }
+    // Enabling must satisfy the requirement of whatever lands: the add-on's
+    // own (no-variation add-ons) or the implicit slot's default variation.
+    const addon = tree?.addons.find((a) => a.id === addonId);
+    if (!addon) {
+      applyToggleAddon(addonId, true);
+      return;
+    }
+    const req =
+      addon.variations.length === 0
+        ? addonPhotoReq(addon, null, null)
+        : addonPhotoReq(
+            addon,
+            defaultVariationFor(addonId, null),
+            effectivePlacements(addon)[0] ?? null,
+          );
+    if (
+      req &&
+      (photoStash[req.key]?.length ?? 0) < req.min &&
+      existingImagesFor(existingItems, req.key) < req.min
+    ) {
+      gateChain([req], () => applyToggleAddon(addonId, true));
+      return;
+    }
+    applyToggleAddon(addonId, true);
+  }
+
   /** Enable/disable a placement slot (no-op for placement-less add-ons). */
-  function togglePlacement(addonId: string, placement: string, on: boolean) {
+  function applyTogglePlacement(addonId: string, placement: string, on: boolean) {
     setTouched(true);
     setAddonSelections((prev) => {
       const sel = prev[addonId];
@@ -778,9 +1039,7 @@ export function GarmentSelectionSheet({
     });
   }
 
-  /** Set the variation of one slot (placement null = the single slot of a
-   * placement-less add-on, creating it if needed). */
-  function selectSlotVariation(
+  function applySlotVariation(
     addonId: string,
     placement: string | null,
     variationId: string | null,
@@ -798,6 +1057,54 @@ export function GarmentSelectionSheet({
       }
       return { ...prev, [addonId]: { ...sel, slots } };
     });
+  }
+
+  function togglePlacement(addonId: string, placement: string, on: boolean) {
+    if (!on) {
+      applyTogglePlacement(addonId, placement, false);
+      return;
+    }
+    // The new slot's default variation carries the requirement (av overrides
+    // the parent add-on) — capture its photos before the slot exists.
+    const addon = tree?.addons.find((a) => a.id === addonId);
+    const req = addon
+      ? addonPhotoReq(addon, defaultVariationFor(addonId, placement), placement)
+      : null;
+    if (
+      req &&
+      (photoStash[req.key]?.length ?? 0) < req.min &&
+      existingImagesFor(existingItems, req.key) < req.min
+    ) {
+      gateChain([req], () => applyTogglePlacement(addonId, placement, true));
+      return;
+    }
+    applyTogglePlacement(addonId, placement, true);
+  }
+
+  /** Set the variation of one slot (placement null = the single slot of a
+   * placement-less add-on, creating it if needed). */
+  function selectSlotVariation(
+    addonId: string,
+    placement: string | null,
+    variationId: string | null,
+  ) {
+    if (variationId === null) {
+      applySlotVariation(addonId, placement, null);
+      return;
+    }
+    const addon = tree?.addons.find((a) => a.id === addonId);
+    const req = addon ? addonPhotoReq(addon, variationId, placement) : null;
+    if (
+      req &&
+      (photoStash[req.key]?.length ?? 0) < req.min &&
+      existingImagesFor(existingItems, req.key) < req.min
+    ) {
+      gateChain([req], () =>
+        applySlotVariation(addonId, placement, variationId),
+      );
+      return;
+    }
+    applySlotVariation(addonId, placement, variationId);
   }
 
   // ── Save: diff against existing items and CRUD ─────────────────────────
@@ -872,6 +1179,30 @@ export function GarmentSelectionSheet({
         }
       }
 
+      // Attach stashed reference photos to their rows (core/item_images).
+      if (uploadItemPhotos && Object.keys(photoStash).length > 0) {
+        for (let ri = 0; ri < updatedItems.length; ri++) {
+          const row = updatedItems[ri];
+          const files = (photoStash[stashKeyForRow(row)] ?? []).map(
+            (p) => p.file,
+          );
+          if (files.length === 0) continue;
+          try {
+            const images = await uploadItemPhotos(row, files);
+            if (images) {
+              updatedItems[ri] = { ...row, images };
+            }
+          } catch {
+            // One failed row must not fail the save — the customer app's
+            // pending chips (and the payment gate) cover any miss.
+          }
+        }
+        for (const list of Object.values(photoStash)) {
+          for (const p of list) URL.revokeObjectURL(p.url);
+        }
+        setPhotoStash({});
+      }
+
       setExistingItems(updatedItems);
       setSavedCount(updatedItems.length);
       onSaveComplete?.(updatedItems);
@@ -880,10 +1211,18 @@ export function GarmentSelectionSheet({
     } finally {
       setSaving(false);
     }
-  }, [tree, desiredItems, existingItems, garmentOrderId, onSaveComplete, persistence]);
+  }, [tree, desiredItems, existingItems, garmentOrderId, onSaveComplete, persistence, uploadItemPhotos, photoStash]);
 
-  /** Draft mode: hand the parent the desired items + total, then close. */
+  /** Draft mode: hand the parent the desired items + total + stashed
+   *  photos (keyed by future-row identity), then close. */
   function applyDraft() {
+    if (onDraftPhotos) {
+      const out: Record<string, File[]> = {};
+      for (const [key, list] of Object.entries(photoStash)) {
+        out[key] = list.map((p) => p.file);
+      }
+      onDraftPhotos(out);
+    }
     onDraftChange?.(desiredItems);
     onComputedTotalChange?.(computedTotal);
     onClose();
@@ -894,11 +1233,12 @@ export function GarmentSelectionSheet({
   const garmentLabel = tree ? catalogLabel(tree.labels, tree.slug ?? garmentId) : "";
 
   return (
-    <BottomSheet
-      open={true}
-      title={title ?? (draftMode ? "Select style" : "Edit selections")}
-      onClose={onClose}
-    >
+    <>
+      <BottomSheet
+        open={true}
+        title={title ?? (draftMode ? "Select style" : "Edit selections")}
+        onClose={onClose}
+      >
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-10 text-caption text-muted">
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-ink-navy border-t-transparent" />
@@ -1007,6 +1347,22 @@ export function GarmentSelectionSheet({
                     </span>
                   )}
                 </div>
+
+                {/* Photos attached to the chosen variation (saved + this
+                    session's stash) — small preview under the chips. */}
+                {sel && selectedVar && (
+                  <PhotoPreviewStrip
+                    saved={savedImagesFor(
+                      existingItems,
+                      compStashKey(comp.id, selectedVar.id, sel.variationTypeId),
+                    )}
+                    stashed={
+                      photoStash[
+                        compStashKey(comp.id, selectedVar.id, sel.variationTypeId)
+                      ] ?? []
+                    }
+                  />
+                )}
 
                 {/* Sub-type pills for the chosen variation (e.g. Deep → U-shape) */}
                 {selectedVar && selectedVar.variation_types.length > 0 && (
@@ -1156,6 +1512,27 @@ export function GarmentSelectionSheet({
                               selectSlotVariation(addon.id, slot.placement, vid)
                             }
                           />
+                          {/* Photos attached to this slot's choice (saved +
+                              this session's stash) — under the chips. */}
+                          <PhotoPreviewStrip
+                            saved={savedImagesFor(
+                              existingItems,
+                              addonStashKey(
+                                addon.id,
+                                slot.variationId,
+                                slot.placement,
+                              ),
+                            )}
+                            stashed={
+                              photoStash[
+                                addonStashKey(
+                                  addon.id,
+                                  slot.variationId,
+                                  slot.placement,
+                                )
+                              ] ?? []
+                            }
+                          />
                         </div>
                       ))}
                   </div>
@@ -1253,7 +1630,27 @@ export function GarmentSelectionSheet({
         )}
         </>
       ) : null}
-    </BottomSheet>
+      </BottomSheet>
+
+      {/* Reference-photo capture gate (core/item_images) — opens the moment
+          a photo-required option is tapped. Rendered AFTER the main sheet
+          (both are z-50) so it stacks above it and its buttons stay
+          clickable. */}
+      {photoGate && (
+        <PhotoGateSheet
+          req={photoGate}
+          photos={photoStash[photoGate.key] ?? []}
+          onAdd={(files) => stashPhotos(photoGate.key, files, photoGate.max)}
+          onRemove={(url) => unstashPhoto(photoGate.key, url)}
+          onCancel={() => setPhotoGate(null)}
+          onUse={() => {
+            const run = photoGate.onUse;
+            setPhotoGate(null);
+            run();
+          }}
+        />
+      )}
+    </>
   );
 }
 

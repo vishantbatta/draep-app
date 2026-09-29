@@ -2,6 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ItemImagesBadge,
+  ItemImagesSheet,
+  itemImagesState,
+} from "@/components/item-images/ItemImagesSheet";
+import {
   scAddAddon,
   scFetchChecklist,
   scRemoveAddonItem,
@@ -9,6 +14,11 @@ import {
   type SCAvailableAddon,
   type SCAddonVariationOption,
   type SCSelection,
+} from "@/lib/style-captain-api";
+// Item reference-photo capture (core/item_images) — captain endpoints.
+import {
+  scRemoveItemImage,
+  scUploadItemImages,
 } from "@/lib/style-captain-api";
 import { formatPrice } from "@/lib/pricing";
 import { BottomSheet } from "@/components/ui/BottomSheet";
@@ -66,6 +76,25 @@ interface AddonPending {
 }
 
 // ── Add-on axis model (port of /myod's addonAxisModel) ─────────────────────
+
+/** Small thumbnail strip of an item's saved reference photos
+ *  (core/item_images) — under the option chips, same as the admin sheet. */
+function ItemPhotoStrip({ images }: { images: string[] | undefined }) {
+  if (!images || images.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {images.map((u) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={u}
+          src={u.startsWith("/") ? u : u}
+          alt=""
+          className="h-9 w-9 rounded-md object-cover ring-1 ring-hairline"
+        />
+      ))}
+    </div>
+  );
+}
 
 const AXIS_FIELDS = [
   { field: "style", label: "Style" },
@@ -203,6 +232,17 @@ export function SelectionSheet({
 }) {
   const variationSels = selections.filter((s) => s.type === "variation");
   const addonSels = selections.filter((s) => s.type === "add_on");
+
+  /* ── Item reference photos (core/item_images) ────────────────────────────
+     Uploads return the refreshed entry; keep a local overlay so the badges
+     update in place without a full job reload. */
+  const [photoPatch, setPhotoPatch] = useState<Record<string, SCSelection>>({});
+  const [photoSel, setPhotoSel] = useState<SCSelection | null>(null);
+  const mergedSelections = useMemo(
+    () => selections.map((s) => photoPatch[s.item_id] ?? s),
+    [selections, photoPatch],
+  );
+  const photoRequired = mergedSelections.filter((s) => s.images_required);
 
   const [pending, setPending] = useState<Record<string, PendingChoice>>(() => {
     const out: Record<string, PendingChoice> = {};
@@ -845,9 +885,42 @@ export function SelectionSheet({
     }
   }
 
+  const livePhotoSel = photoSel
+    ? (mergedSelections.find((s) => s.item_id === photoSel.item_id) ?? null)
+    : null;
+
   return (
     <BottomSheet open={true} title="Edit selections" onClose={saved ? onDone : onClose}>
       <div className="space-y-4">
+        {photoRequired.length > 0 && (
+          <div className="space-y-2 rounded-card border border-hairline bg-chalk-white px-3 py-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+              Reference photos
+            </p>
+            {photoRequired.map((s) => {
+              const st = itemImagesState(null, s, s.images);
+              const label =
+                briefLabel(
+                  (s.type === "variation" ? s.component : s.addon) ?? null,
+                  "en",
+                ) || "Selected option";
+              return (
+                <div
+                  key={s.item_id}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <span className="min-w-0 truncate text-caption text-ink-navy">
+                    {label}
+                  </span>
+                  <ItemImagesBadge
+                    state={st}
+                    onClick={() => setPhotoSel(s)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
         {variationSels.map((sel) => {
           const p = pending[sel.item_id];
           const selectedOpt = sel.options.find((o) => o.id === p?.variationId);
@@ -915,6 +988,10 @@ export function SelectionSheet({
                   </div>
                 </div>
               )}
+
+              {/* Reference photos attached to this item (core/item_images) —
+                  the merged entry repaints after capture-sheet uploads. */}
+              <ItemPhotoStrip images={sel.images} />
             </div>
           );
         })}
@@ -1253,6 +1330,19 @@ export function SelectionSheet({
                       </div>
                     </div>
                   )}
+
+                  {/* Reference photos across this add-on's saved items
+                      (core/item_images) — one strip under the card. */}
+                  {p.selected && (
+                    <ItemPhotoStrip
+                      images={mergedSelections
+                        .filter(
+                          (s) =>
+                            s.type === "add_on" && s.addon?.id === a.addon.id,
+                        )
+                        .flatMap((s) => s.images ?? [])}
+                    />
+                  )}
                 </div>
               );
             })}
@@ -1321,6 +1411,49 @@ export function SelectionSheet({
           )}
         </div>
       </div>
+      {/* Reference-photo capture (core/item_images) — reads the LIVE entry
+          from mergedSelections so uploads/removes repaint in place. */}
+      {livePhotoSel && (
+        <ItemImagesSheet
+          open
+          onClose={() => setPhotoSel(null)}
+          title={
+            briefLabel(
+              (livePhotoSel.type === "variation"
+                ? livePhotoSel.component
+                : livePhotoSel.addon) ?? null,
+              "en",
+            ) || "Selected option"
+          }
+          state={itemImagesState(null, livePhotoSel, livePhotoSel.images)}
+          images={livePhotoSel.images ?? []}
+          upload={async (files) => {
+            // The API returns the refreshed entry — patch it in so the
+            // badges update in place without a full job reload.
+            const fresh = await scUploadItemImages(
+              garmentOrderId,
+              livePhotoSel.item_id,
+              files,
+            );
+            if (fresh) {
+              setPhotoPatch((cur) => ({ ...cur, [fresh.item_id]: fresh }));
+            }
+          }}
+          remove={async (filename) => {
+            const fresh = await scRemoveItemImage(
+              garmentOrderId,
+              livePhotoSel.item_id,
+              filename,
+            );
+            if (fresh) {
+              setPhotoPatch((cur) => ({ ...cur, [fresh.item_id]: fresh }));
+            }
+          }}
+          onChanged={() => {
+            // State already patched by the upload/remove wrappers above.
+          }}
+        />
+      )}
     </BottomSheet>
   );
 }

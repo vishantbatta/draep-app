@@ -34,8 +34,27 @@ import {
   Sparkles,
 } from "@/components/ui/icons";
 import { getGarmentTree, listGarments } from "@/lib/api/catalog";
+import {
+  PHOTO_STASH_MAX,
+  PhotoGateSheet,
+  addonStashKey,
+  compStashKey,
+  stashKeyForRow,
+  toStashedPhotos,
+  type PhotoGateRequest,
+  type StashedPhoto,
+} from "@/components/item-images/PhotoGateSheet";
+import type {
+  CustomerOrderDetail,
+  OrderDetailItem,
+} from "@/types/api";
 import { ApiError } from "@/lib/api/client";
-import { addGarmentToOrder, listOpenOrders } from "@/lib/api/orders";
+import {
+  addGarmentToOrder,
+  getOrderDetail,
+  listOpenOrders,
+  uploadItemImages,
+} from "@/lib/api/orders";
 import {
   collectStepImageUrls,
   prefetchImages,
@@ -88,6 +107,135 @@ export type HostedStep = {
   description?: string;
   image?: string;
 };
+
+// ── Item reference-photo gate (core/item_images) ──────────────────────────────
+//
+// The /create wizard is client-state only — item rows don't exist until the
+// order is created. Photos are therefore STASHED here per chosen option and
+// attached to the matching item rows right after order creation (see
+// uploadStashedPhotos). Until the stash meets the option's min_images the
+// option CANNOT be selected: picking it opens the capture sheet instead
+// (photoGate), and closing it below the minimum leaves the option unselected.
+
+/** Local alias — same shape the shared capture sheet consumes. */
+type PhotoRequirement = PhotoGateRequest;
+
+
+/** ALL photo requirements a would-be selection carries — one per multi-spot
+ *  pick, one for a flat option, one for a toggle — so every required choice
+ *  gets its own capture sheet (chained), never just the first.
+ *  Empty = the choice needs no photos. Sub-type overrides variation (same
+ *  precedence as the backend's core/item_images); toggle add-ons carry
+ *  their own. */
+function requirementsForSelection(
+  steps: DesignStep[],
+  componentId: string,
+  sel: ComponentSelection,
+): PhotoRequirement[] {
+  let comp: StepComponent | undefined;
+  for (const s of steps) {
+    comp = s.components.find((c) => c.id === componentId);
+    if (comp) break;
+  }
+  if (!comp) return [];
+
+  const from = (
+    option: StepOption | undefined,
+    subId: string | undefined,
+    placement: string | undefined,
+  ): PhotoRequirement | null => {
+    const sub = subId
+      ? option?.subOptions?.find((s) => s.id === subId)
+      : undefined;
+    // Leaf (sub-type) numbers win when it defines any; else the option's;
+    // else (toggle) the component's own.
+    const leafMin = sub?.minImages;
+    const leafMax = sub?.maxImages;
+    const optMin = option?.minImages;
+    const optMax = option?.maxImages;
+    const compMin = comp!.minImages;
+    const compMax = comp!.maxImages;
+    let min: number | null;
+    let max: number | null;
+    if (leafMin != null || leafMax != null) {
+      min = leafMin ?? 0;
+      max = leafMax ?? null;
+    } else if (optMin != null || optMax != null) {
+      min = optMin ?? 0;
+      max = optMax ?? null;
+    } else if (compMin != null || compMax != null) {
+      min = compMin ?? 0;
+      max = compMax ?? null;
+    } else {
+      min = null;
+      max = null;
+    }
+    if (min == null || min < 1) return null;
+    return {
+      min,
+      max,
+      note: option?.imageNote ?? null,
+      title: option?.label ?? comp!.label,
+      // Wizard add-ons (section "Add-ons") become add_on rows — keyed by
+      // addon+variation+placement; style components become variation rows.
+      key:
+        comp.section === "Add-ons"
+          ? addonStashKey(
+              componentId,
+              option?.id === "__toggle__" ? undefined : option?.id,
+              placement,
+            )
+          : compStashKey(componentId, option?.id ?? "", subId),
+    };
+  };
+
+  // Multi-spot add-on: EVERY picked spot that requires photos gets its own
+  // requirement (each spot can be a different photo-required variation).
+  if (sel.picks?.length) {
+    const out: PhotoRequirement[] = [];
+    for (const p of sel.picks) {
+      const req = from(
+        comp.options.find((o) => o.id === p.variationId),
+        p.variationTypeId,
+        p.placement,
+      );
+      if (req) out.push(req);
+    }
+    return out;
+  }
+  // Boolean toggle add-on.
+  if (sel.variationId === "__toggle_on__") {
+    const min = comp.minImages ?? 0;
+    if (min < 1) return [];
+    return [
+      {
+        min,
+        max: comp.maxImages ?? null,
+        note: null,
+        title: comp.label,
+        key: addonStashKey(componentId, undefined, sel.placement),
+      },
+    ];
+  }
+  const req = from(
+    comp.options.find((o) => o.id === sel.variationId),
+    sel.variationTypeId,
+    sel.placement,
+  );
+  return req ? [req] : [];
+}
+
+/** The subset of a selection's requirements whose stash hasn't met min yet. */
+function unsatisfiedRequirements(
+  steps: DesignStep[],
+  componentId: string,
+  sel: ComponentSelection,
+  stash: Record<string, StashedPhoto[]>,
+): PhotoRequirement[] {
+  return requirementsForSelection(steps, componentId, sel).filter(
+    (r) => (stash[r.key]?.length ?? 0) < r.min,
+  );
+}
 
 export function MyodSheet({
   garmentId,
@@ -347,7 +495,7 @@ export function MyodSheet({
   // Selections are recorded locally only — no sketch round-trip per tap.
   // The final AI render (Generate Blouse) is specified by the config text
   // built from these selections, so nothing needs to be drawn mid-flow.
-  const handleSelectOption = useCallback(
+  const applySelection = useCallback(
     (componentId: string, sel: ComponentSelection | null) => {
       const next = { ...selections };
       if (sel) next[componentId] = sel;
@@ -374,6 +522,160 @@ export function MyodSheet({
       track({ event: "myod_refined", instruction });
     },
     [selections, steps, activeStepIdx],
+  );
+
+  // ── Reference-photo gate (core/item_images) ──────────────────────────────
+  // Selecting an option whose catalog requirement isn't satisfied yet opens
+  // the capture sheet INSTEAD of selecting; the pick only lands via the
+  // sheet's "Use this option" once the stash meets min. Closing below min
+  // leaves the option unselected — the requirement can't be skipped.
+  const [photoStash, setPhotoStash] = useState<Record<string, StashedPhoto[]>>({});
+  const [photoGate, setPhotoGate] = useState<
+    | (PhotoRequirement & {
+        /** Applies the gated pick once the minimum is met. */
+        onUse: () => void;
+      })
+    | null
+  >(null);
+
+  /** Open capture sheets back-to-back for a list of unsatisfied
+   *  requirements; `done` runs only after the LAST one is satisfied. */
+  const gateChain = useCallback(
+    (reqs: PhotoRequirement[], done: () => void) => {
+      if (reqs.length === 0) {
+        done();
+        return;
+      }
+      const [head, ...rest] = reqs;
+      setPhotoGate({ ...head, onUse: () => gateChain(rest, done) });
+    },
+    [],
+  );
+
+  const handleSelectOption = useCallback(
+    (componentId: string, sel: ComponentSelection | null) => {
+      if (sel) {
+        const reqs = unsatisfiedRequirements(steps, componentId, sel, photoStash);
+        if (reqs.length) {
+          // NOT selected — capture sheets chain; the pick lands after the
+          // last requirement is satisfied.
+          gateChain(reqs, () => applySelection(componentId, sel));
+          return;
+        }
+      }
+      applySelection(componentId, sel);
+    },
+    [steps, photoStash, applySelection, gateChain],
+  );
+
+  /** Stashed-photo preview URLs for a component's option — prefix-matches
+   *  the stash keys so every placement/sub-type variant of the option
+   *  aggregates into one strip under its card. */
+  const stashedPhotosFor = useCallback(
+    (componentId: string, optionId: string): string[] => {
+      const out: string[] = [];
+      for (const key of [
+        `addon:${componentId}:${optionId}:`,
+        `comp:${componentId}:${optionId}:`,
+      ]) {
+        for (const k of Object.keys(photoStash)) {
+          if (k.startsWith(key)) {
+            for (const ph of photoStash[k]) out.push(ph.url);
+          }
+        }
+      }
+      return out;
+    },
+    [photoStash],
+  );
+
+  /** Tap-time guard for the extras picker's local draft: given a would-be
+   *  selection, opens the chained capture sheets and returns true when the
+   *  pick is being gated (adopt runs after the last sheet). */
+  const makePhotoGuard = useCallback(
+    (componentId: string) =>
+      (
+        sel: ComponentSelection,
+        adopt: (sel: ComponentSelection) => void,
+      ): boolean => {
+        const reqs = unsatisfiedRequirements(steps, componentId, sel, photoStash);
+        if (reqs.length === 0) return false;
+        gateChain(reqs, () => adopt(sel));
+        return true;
+      },
+    [steps, photoStash, gateChain],
+  );
+
+  /** EVERY selection still missing photos across the whole design — the
+   *  order CTAs chain a capture sheet for each before submitting. */
+  const unsatisfiedPhotoReqs = useCallback((): PhotoRequirement[] => {
+    const out: PhotoRequirement[] = [];
+    for (const [componentId, sel] of Object.entries(selections)) {
+      out.push(...unsatisfiedRequirements(steps, componentId, sel, photoStash));
+    }
+    return out;
+  }, [selections, steps, photoStash]);
+
+  /** Add validated files to a stash slot (capped at the requirement max). */
+  const stashPhotos = useCallback((key: string, files: File[]) => {
+    setPhotoStash((cur) => {
+      const cap = photoGate?.max ?? PHOTO_STASH_MAX;
+      const existing = cur[key] ?? [];
+      const next = [...existing, ...toStashedPhotos(files)].slice(
+        0,
+        Math.min(cap, PHOTO_STASH_MAX),
+      );
+      return { ...cur, [key]: next };
+    });
+  }, [photoGate]);
+
+  /** Drop one stashed photo (by preview URL) and revoke it. */
+  const unstashPhoto = useCallback((key: string, url: string) => {
+    setPhotoStash((cur) => {
+      const next = (cur[key] ?? []).filter((p) => p.url !== url);
+      URL.revokeObjectURL(url);
+      return { ...cur, [key]: next };
+    });
+  }, []);
+
+  /** Attach stashed photos to the created order's item rows, then clear the
+   *  stash. Best-effort: on any failure the order page's pending chips (and
+   *  the payment gate) remain the fallback — the customer can upload there. */
+  const uploadStashedPhotos = useCallback(
+    async (orderId: string, onlyGarmentOrderId?: string) => {
+      if (Object.keys(photoStash).length === 0) return;
+      try {
+        const detail: CustomerOrderDetail = await getOrderDetail(orderId);
+        for (const g of detail.garment_orders) {
+          if (onlyGarmentOrderId && g.id !== onlyGarmentOrderId) continue;
+          for (const it of g.items) {
+            if (!it.item_id) continue;
+            const photos = photoStash[stashKeyForRow(it)];
+            if (photos?.length) {
+              try {
+                await uploadItemImages(
+                  orderId,
+                  g.id,
+                  it.item_id,
+                  photos.map((p) => p.file),
+                );
+              } catch {
+                // One failed row must not skip the others — the order page's
+                // pending chip (and the payment gate) cover any miss.
+              }
+            }
+          }
+        }
+      } catch {
+        // Anonymous session / transient failure — order page covers it.
+      } finally {
+        for (const list of Object.values(photoStash)) {
+          for (const p of list) URL.revokeObjectURL(p.url);
+        }
+        setPhotoStash({});
+      }
+    },
+    [photoStash],
   );
 
   const retry = useCallback(() => {
@@ -437,8 +739,20 @@ export function MyodSheet({
   // to one of them (one tailor visit for everything) instead of creating
   // yet another order.
 
+  // Latest-invocation refs so the photo gate's "Use this option" can re-run
+  // the interrupted submit once the minimum photos are stashed.
+  const submitRef = useRef<(() => Promise<void>) | null>(null);
+  const addToOrderRef = useRef<((orderId: string) => Promise<void>) | null>(null);
+
   /** Fresh-create path: pending order → track → clear draft → order page. */
   const submitMyodOrder = useCallback(async () => {
+    // Reference-photo gate: every required choice must have its photos
+    // before an order can be created from this design — chained per choice.
+    const unsat = unsatisfiedPhotoReqs();
+    if (unsat.length) {
+      gateChain(unsat, () => void submitRef.current?.());
+      return;
+    }
     if (!tree) return;
     const order = await createMyodOrder({
       garmentId: tree.id,
@@ -447,8 +761,13 @@ export function MyodSheet({
     });
     track({ event: "myod_order_created", order_id: order.id });
     clearMyodDraft();
+    await uploadStashedPhotos(order.id);
     router.push(`/app/orders/${order.id}`);
-  }, [tree, selections, renderViews, router]);
+  }, [tree, selections, renderViews, router, unsatisfiedPhotoReqs, gateChain, uploadStashedPhotos]);
+
+  useEffect(() => {
+    submitRef.current = submitMyodOrder;
+  }, [submitMyodOrder]);
 
   /** Confirm-time open-orders check: opens the choice sheet and returns
       true when the user has merge targets. Fail-open by design — anonymous,
@@ -473,6 +792,13 @@ export function MyodSheet({
   const handleAddToOrder = useCallback(
     async (orderId: string) => {
       if (addingRef.current || !tree) return;
+      // Reference-photo gate — same rule as the fresh-create path,
+      // chained per choice.
+      const unsat = unsatisfiedPhotoReqs();
+      if (unsat.length) {
+        gateChain(unsat, () => void addToOrderRef.current?.(orderId));
+        return;
+      }
       addingRef.current = true;
       setAdding(true);
       setOrderError(null);
@@ -517,6 +843,9 @@ export function MyodSheet({
           selections: serialized,
           assets: renderViews.map((v) => v.url),
         });
+        // Attach the wizard's stashed reference photos to the new garment's
+        // item rows before walking to the order page.
+        await uploadStashedPhotos(res.order_id, res.garment_order_id);
         track({ event: "myod_order_appended", order_id: res.order_id });
         clearMyodDraft();
         router.push(`/app/orders/${res.order_id}`);
@@ -535,8 +864,12 @@ export function MyodSheet({
         setAdding(false);
       }
     },
-    [tree, selections, renderViews, router],
+    [tree, selections, renderViews, router, unsatisfiedPhotoReqs, gateChain, uploadStashedPhotos],
   );
+
+  useEffect(() => {
+    addToOrderRef.current = handleAddToOrder;
+  }, [handleAddToOrder]);
 
   /** The choice sheet's "Create new order" — deliberately skips the
       open-orders check (the user just declined the merge) so it can never
@@ -794,6 +1127,8 @@ export function MyodSheet({
                     : undefined
               }
               onSelect={handleSelectOption}
+              photoGuardFor={makePhotoGuard}
+              stashedPhotosFor={stashedPhotosFor}
             />
           )}
 
@@ -971,9 +1306,29 @@ export function MyodSheet({
         onAdd={(id) => void handleAddToOrder(id)}
         onCreateNew={() => void handleCreateNewOrder()}
       />
+
+      {/* Reference-photo capture gate (core/item_images) — opens the moment
+          a photo-required option is picked (or an order CTA runs with an
+          unsatisfied requirement). The option stays UNSELECTED until the
+          stash meets min; closing below min is a plain cancel. */}
+      {photoGate && (
+        <PhotoGateSheet
+          req={photoGate}
+          photos={photoStash[photoGate.key] ?? []}
+          onAdd={(files) => stashPhotos(photoGate.key, files)}
+          onRemove={(url) => unstashPhoto(photoGate.key, url)}
+          onCancel={() => setPhotoGate(null)}
+          onUse={() => {
+            const run = photoGate.onUse;
+            setPhotoGate(null);
+            run();
+          }}
+        />
+      )}
     </div>
   );
 }
+
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -1439,6 +1794,8 @@ export function StepCards({
   generating,
   onBack,
   onSelect,
+  photoGuardFor,
+  stashedPhotosFor,
 }: {
   step: DesignStep;
   selections: Selections;
@@ -1446,6 +1803,18 @@ export function StepCards({
   generating: boolean;
   onBack?: () => void;
   onSelect: (componentId: string, sel: ComponentSelection | null) => void;
+  /** Tap-time reference-photo guard for pickers that hold a local draft
+   *  (extras). Returns true when a gate took over; `adopt` is invoked by the
+   *  gate once photos are satisfied. */
+  photoGuardFor?: (
+    componentId: string,
+  ) => (
+    sel: ComponentSelection,
+    adopt: (sel: ComponentSelection) => void,
+  ) => boolean;
+  /** Stashed reference-photo preview URLs for a component's option —
+   *  rendered as small thumbnails under the option card. */
+  stashedPhotosFor?: (componentId: string, optionId: string) => string[];
 }) {
   return (
     <div>
@@ -1471,6 +1840,8 @@ export function StepCards({
           disabled={disabled}
           generating={generating}
           onSelect={onSelect}
+          photoGuardFor={photoGuardFor}
+          stashedPhotosFor={stashedPhotosFor}
         />
       ) : (
         <div className="flex flex-col gap-3">
@@ -1483,6 +1854,11 @@ export function StepCards({
               disabled={disabled}
               generating={generating}
               onSelect={(sel) => onSelect(comp.id, sel)}
+              stashedPhotosFor={
+                stashedPhotosFor
+                  ? (optionId: string) => stashedPhotosFor(comp.id, optionId)
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -1500,12 +1876,23 @@ function ExtrasList({
   disabled,
   generating,
   onSelect,
+  photoGuardFor,
+  stashedPhotosFor,
 }: {
   step: DesignStep;
   selections: Selections;
   disabled: boolean;
   generating: boolean;
   onSelect: (componentId: string, sel: ComponentSelection | null) => void;
+  photoGuardFor?: (
+    componentId: string,
+  ) => (
+    sel: ComponentSelection,
+    adopt: (sel: ComponentSelection) => void,
+  ) => boolean;
+  /** Stashed reference-photo preview URLs for a component's option —
+   *  rendered as small thumbnails under the option card. */
+  stashedPhotosFor?: (componentId: string, optionId: string) => string[];
 }) {
   // Which component's picker sheet is open (null = closed).
   const [openCompId, setOpenCompId] = useState<string | null>(null);
@@ -1556,6 +1943,12 @@ function ExtrasList({
             initialSelection={selections[openComp.id]}
             disabled={disabled}
             generating={generating}
+            photoGuard={photoGuardFor?.(openComp.id)}
+            stashedPhotosFor={
+              stashedPhotosFor
+                ? (optionId: string) => stashedPhotosFor(openComp.id, optionId)
+                : undefined
+            }
             onConfirm={(sel) => {
               onSelect(openComp.id, sel);
               setOpenCompId(null);
@@ -1680,6 +2073,13 @@ function ExtrasRow({
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="text-body font-semibold leading-tight text-ink-navy">
           {component.label}
+          {/* Reference-photo requirement (core/item_images) on the chosen
+              option (or the toggle add-on itself) — visible before payment. */}
+          {((chosenOpt?.minImages ?? component.minImages ?? 0) > 0) && (
+            <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 align-middle text-[10px] font-semibold text-amber-800 ring-1 ring-amber-300">
+              📷 {chosenOpt?.minImages ?? component.minImages}
+            </span>
+          )}
         </span>
         <span
           className={
@@ -2044,12 +2444,22 @@ function ExtrasPicker({
   initialSelection,
   disabled,
   generating,
+  photoGuard,
+  stashedPhotosFor,
   onConfirm,
 }: {
   component: StepComponent;
   initialSelection: ComponentSelection | undefined;
   disabled: boolean;
   generating?: boolean;
+  /** Stashed reference-photo preview URLs for an option of this add-on. */
+  stashedPhotosFor?: (optionId: string) => string[];
+  /** Tap-time reference-photo gate (core/item_images): return true when the
+   *  pick is being gated — `adopt` then runs after photos are satisfied. */
+  photoGuard?: (
+    sel: ComponentSelection,
+    adopt: (sel: ComponentSelection) => void,
+  ) => boolean;
   onConfirm: (sel: ComponentSelection | null) => void;
 }) {
   // Draft state — seeded from the current selection, else the catalog default
@@ -2223,13 +2633,19 @@ function ExtrasPicker({
           <button
             type="button"
             disabled={disabled}
-            onClick={() =>
-              setDraft(
-                on
-                  ? null
-                  : { variationId: "__toggle_on__", placement: keepPlacement },
-              )
-            }
+            onClick={() => {
+              if (on) {
+                setDraft(null);
+                return;
+              }
+              // Reference-photo gate fires the moment the add-on is enabled.
+              const sel: ComponentSelection = {
+                variationId: "__toggle_on__",
+                placement: keepPlacement,
+              };
+              if (photoGuard?.(sel, (s) => setDraft(s))) return;
+              setDraft(sel);
+            }}
             className={
               "flex items-center justify-between gap-3 rounded-card border bg-chalk-white p-3 text-left shadow-card transition-all ease-brand active:scale-[0.99] disabled:opacity-50 " +
               (on ? "border-accent-text/40" : "border-hairline")
@@ -2266,7 +2682,16 @@ function ExtrasPicker({
         </div>
         <PickerFooter
           canConfirm
-          onConfirm={() => onConfirm(draft)}
+          onConfirm={() => {
+            // Airtight Done: a default-seeded draft can carry a photo
+            // requirement nobody tapped — gate before committing.
+            if (!draft) {
+              onConfirm(null);
+              return;
+            }
+            if (photoGuard?.(draft, (s) => onConfirm(s))) return;
+            onConfirm(draft);
+          }}
           confirmLabel={on ? strings.myod.done : "Skip"}
           placementProps={
             on && hasPlacement
@@ -2391,7 +2816,15 @@ function ExtrasPicker({
         );
         if (o) picks.push({ variationId: o.id, placement: spot });
       }
-      if (picks.length) onConfirm({ variationId: picks[0].variationId, picks });
+      if (!picks.length) return;
+      const sel: ComponentSelection = {
+        variationId: picks[0].variationId,
+        picks,
+      };
+      // Every photo-required spot gets its own chained capture sheet before
+      // the commit lands.
+      if (photoGuard?.(sel, (s) => onConfirm(s))) return;
+      onConfirm(sel);
     };
     // Drop a spot (and its combo) from the selection entirely.
     const removeSpot = (spot: string) => {
@@ -2422,14 +2855,18 @@ function ExtrasPicker({
         }
         return;
       }
-      // Shared single run (no Where axis): the last tap commits.
+      // Shared single run (no Where axis): the last tap commits — through
+      // the photo gate when the resolved combination requires photos.
       const next = { ...axisSel, [axis.key]: value };
       setAxisSel(next);
       if (wizStep >= allAxes.length - 1) {
         const o = component.options.find((opt) =>
           allAxes.every((a) => opt.axisValues?.[a.key] === next[a.key]),
         );
-        if (o) onConfirm({ ...draft, variationId: o.id });
+        if (!o) return;
+        const sel: ComponentSelection = { ...draft, variationId: o.id };
+        if (photoGuard?.(sel, (s) => onConfirm(s))) return;
+        onConfirm(sel);
       } else {
         setWizStep(wizStep + 1);
       }
@@ -2578,21 +3015,40 @@ function ExtrasPicker({
                   // spot in/out (multi-select; Confirm commits all picked
                   // spots, priced per spot).
                   if (placementFlat) {
-                    setDraft((d) => {
-                      const picks = d?.picks ?? [];
-                      const next = picks.some((p) => p.variationId === opt.id)
-                        ? picks.filter((p) => p.variationId !== opt.id)
-                        : [
-                            ...picks,
-                            {
-                              variationId: opt.id,
-                              placement: whereOf(opt) ?? opt.label,
-                            },
-                          ];
-                      return next.length
-                        ? { variationId: next[0].variationId, picks: next }
-                        : null;
-                    });
+                    const already = (draft?.picks ?? []).some(
+                      (p) => p.variationId === opt.id,
+                    );
+                    if (already) {
+                      // Removing a spot needs no photos.
+                      setDraft((d) => {
+                        const picks = (d?.picks ?? []).filter(
+                          (p) => p.variationId !== opt.id,
+                        );
+                        return picks.length
+                          ? { variationId: picks[0].variationId, picks }
+                          : null;
+                      });
+                      return;
+                    }
+                    const spot = whereOf(opt) ?? opt.label;
+                    const pick: PlacementPick = {
+                      variationId: opt.id,
+                      placement: spot,
+                    };
+                    const sel: ComponentSelection = {
+                      variationId: opt.id,
+                      picks: [...(draft?.picks ?? []), pick],
+                    };
+                    // Photo gate per newly-added spot (chained if the option
+                    // itself carries a requirement); adopt appends the pick.
+                    if (
+                      photoGuard?.(sel, (s) =>
+                        setDraft(s.picks?.length ? s : { variationId: opt.id }),
+                      )
+                    ) {
+                      return;
+                    }
+                    setDraft(sel);
                     return;
                   }
                   // Variations with types (e.g. Shoulder → Strappy) drill
@@ -2601,7 +3057,7 @@ function ExtrasPicker({
                     setTypeOpt(opt);
                     return;
                   }
-                  setDraft({
+                  const sel: ComponentSelection = {
                     variationId: opt.id,
                     // Placement-bearing flat add-ons (Piping): each card IS
                     // a placement, so sync it; others keep the seeded one.
@@ -2609,7 +3065,11 @@ function ExtrasPicker({
                       component.placements?.find(
                         (p) => p.toLowerCase() === opt.label.toLowerCase(),
                       ) ?? draft?.placement,
-                  });
+                  };
+                  // Reference-photo gate fires the moment the option is
+                  // tapped — the card only adopts once photos are in.
+                  if (photoGuard?.(sel, (s) => setDraft(s))) return;
+                  setDraft(sel);
                 }}
                 className="flex w-full flex-row items-stretch text-left active:scale-[0.99]"
               >
@@ -2633,7 +3093,14 @@ function ExtrasPicker({
                 {/* Label + description — right */}
                 <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
                   <span className="flex items-baseline justify-between gap-2 text-body font-semibold leading-tight text-ink-navy">
-                    <span className="min-w-0">{opt.label}</span>
+                    <span className="min-w-0">
+                      {opt.label}
+                      {(opt.minImages ?? 0) > 0 && (
+                        <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 align-middle text-[10px] font-semibold text-amber-800 ring-1 ring-amber-300">
+                          📷 {opt.minImages}
+                        </span>
+                      )}
+                    </span>
                     <OptionPrice price={opt.price} />
                   </span>
                   {opt.description && (
@@ -2649,6 +3116,19 @@ function ExtrasPicker({
                         : ""}
                     </span>
                   )}
+                  {stashedPhotosFor?.(opt.id).length ? (
+                    <span className="mt-1 flex gap-1">
+                      {stashedPhotosFor!(opt.id).map((u) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={u}
+                          src={u}
+                          alt=""
+                          className="h-8 w-8 rounded-md object-cover ring-1 ring-accent-text/40"
+                        />
+                      ))}
+                    </span>
+                  ) : null}
                 </div>
               </button>
             </div>
@@ -2665,21 +3145,37 @@ function ExtrasPicker({
           disabled={disabled}
           onClose={() => setTypeOpt(null)}
           onPick={(subId) => {
-            setDraft({
+            const sel: ComponentSelection = {
               variationId: typeOpt.id,
               variationTypeId: subId,
               placement:
                 component.placements?.find(
                   (p) => p.toLowerCase() === typeOpt.label.toLowerCase(),
                 ) ?? draft?.placement,
-            });
+            };
+            // The sub-type may carry its own requirement (leaf overrides
+            // variation) — gate at pick, adopt the typed draft on Use.
+            if (photoGuard?.(sel, (s) => setDraft(s))) {
+              setTypeOpt(null);
+              return;
+            }
+            setDraft(sel);
             setTypeOpt(null);
           }}
         />
       ) : null}
       <PickerFooter
         canConfirm={canConfirm}
-        onConfirm={() => onConfirm(draft)}
+        onConfirm={() => {
+            // Airtight Done: a default-seeded draft can carry a photo
+            // requirement nobody tapped — gate before committing.
+            if (!draft) {
+              onConfirm(null);
+              return;
+            }
+            if (photoGuard?.(draft, (s) => onConfirm(s))) return;
+            onConfirm(draft);
+          }}
         confirmLabel={strings.myod.done}
       />
     </>
@@ -2820,6 +3316,7 @@ function ComponentCards({
   disabled,
   generating,
   onSelect,
+  stashedPhotosFor,
 }: {
   component: {
     id: string;
@@ -2828,6 +3325,8 @@ function ComponentCards({
     kind?: "choice" | "toggle";
     price?: number;
   };
+  /** Stashed reference-photo preview URLs for an option of this component. */
+  stashedPhotosFor?: (optionId: string) => string[];
   showLabel: boolean;
   selection: ComponentSelection | undefined;
   disabled: boolean;
@@ -2919,7 +3418,14 @@ function ComponentCards({
                 {/* Label + description — right */}
                 <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
                   <span className="flex items-baseline justify-between gap-2 text-body font-semibold leading-tight text-ink-navy">
-                    <span className="min-w-0">{opt.label}</span>
+                    <span className="min-w-0">
+                      {opt.label}
+                      {(opt.minImages ?? 0) > 0 && (
+                        <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 align-middle text-[10px] font-semibold text-amber-800 ring-1 ring-amber-300">
+                          📷 {opt.minImages}
+                        </span>
+                      )}
+                    </span>
                     <OptionPrice price={opt.price} />
                   </span>
                   {opt.description && (
@@ -2935,6 +3441,19 @@ function ComponentCards({
                         : ""}
                     </span>
                   )}
+                  {stashedPhotosFor?.(opt.id).length ? (
+                    <span className="mt-1 flex gap-1">
+                      {stashedPhotosFor!(opt.id).map((u) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={u}
+                          src={u}
+                          alt=""
+                          className="h-8 w-8 rounded-md object-cover ring-1 ring-accent-text/40"
+                        />
+                      ))}
+                    </span>
+                  ) : null}
                 </div>
               </button>
             </div>

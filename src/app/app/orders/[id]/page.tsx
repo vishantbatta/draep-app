@@ -95,6 +95,11 @@ import { AddressForm } from "@/components/contact/AddressForm";
 import { SlotSheet } from "@/components/order/SlotSheet";
 import { InspirationGallery } from "@/components/order/InspirationGallery";
 import {
+  ItemImagesBadge,
+  ItemImagesSheet,
+  itemImagesState,
+} from "@/components/item-images/ItemImagesSheet";
+import {
   GarmentSelectionSheet,
   type SelectionRowPersistence,
   type SelectionSeedItem,
@@ -106,19 +111,30 @@ import type {
   CustomerOrderDetail,
   OrderDetailGarmentOrder,
   OrderDetailItem,
+  OrderOut,
   PromoDroppedDecision,
 } from "@/types/api";
 
 /* ─── Row renderers ───────────────────────────────────────────────────────── */
 
-/** One selection/add-on: label on the left, choice (+ price) on the right. */
-function ItemRow({ item }: { item: OrderDetailItem }) {
+/** One selection/add-on: label on the left, choice (+ price) on the right.
+ *  When the item's catalog option requires reference photos
+ *  (core/item_images), a status chip rides along — tapping it opens the
+ *  capture sheet. */
+function ItemRow({
+  item,
+  onImages,
+}: {
+  item: OrderDetailItem;
+  onImages?: () => void;
+}) {
   const placement = item.placement?.length ? ` · ${item.placement.join(" · ")}` : "";
   // Same fallbacks the admin breakdown uses — a stray unlabeled row still
   // reads, and a label-only row shows its price rather than an empty "—".
   const label = item.label ?? (item.type === "add_on" ? "Add-on" : "Selection");
   const value =
     item.value ?? ((item.price ?? 0) !== 0 ? `+ ${formatPrice(item.price ?? 0)}` : null);
+  const images = itemImagesState(null, item, item.images);
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-hairline py-2.5 last:border-b-0">
       <span className="flex-none text-caption text-muted">{label}</span>
@@ -127,11 +143,14 @@ function ItemRow({ item }: { item: OrderDetailItem }) {
           {value ?? "—"}
           {placement}
         </span>
-        {item.value != null && (item.price ?? 0) !== 0 && (
-          <span className="block text-caption text-muted">
-            + {formatPrice(item.price ?? 0)}
-          </span>
-        )}
+        <span className="mt-0.5 flex items-center justify-end gap-2">
+          {item.value != null && (item.price ?? 0) !== 0 && (
+            <span className="text-caption text-muted">
+              + {formatPrice(item.price ?? 0)}
+            </span>
+          )}
+          <ItemImagesBadge state={images} onClick={onImages} />
+        </span>
       </span>
     </div>
   );
@@ -378,8 +397,28 @@ function makeCustomerPersistence(
     existing: GarmentOrderItemRow | undefined,
     payload: Record<string, unknown>,
   ): Promise<GarmentOrderItemRow> => {
+    // The written row's REAL id (needed for item-photo uploads) is resolved
+    // from the endpoint's OrderOut — selections/add_on_states carry item_id.
+    const resolveId = (res: OrderOut): string | null => {
+      if (payload.type === "add_on") {
+        const placement =
+          ((payload.placement as string[] | null) ?? [])[0] ?? null;
+        const st = (res.add_on_states ?? []).find(
+          (s) =>
+            s.add_on_id === payload.addon_id &&
+            (s.placement?.[0] ?? null) === placement,
+        );
+        return st?.item_id ?? null;
+      }
+      const sel = (res.selections ?? []).find(
+        (s) => s.component_id === payload.garment_style_component_id,
+      );
+      return sel?.item_id ?? null;
+    };
+
+    let res: OrderOut;
     if (payload.type === "add_on") {
-      await ordersApi.upsertAddon(
+      res = await ordersApi.upsertAddon(
         orderId,
         payload.addon_id as string,
         (payload.addon_variation_id as string | null) ?? null,
@@ -387,7 +426,7 @@ function makeCustomerPersistence(
         garmentOrderId,
       );
     } else {
-      await ordersApi.updateSelection(
+      res = await ordersApi.updateSelection(
         orderId,
         payload.garment_style_component_id as string,
         payload.variation_id as string,
@@ -395,7 +434,13 @@ function makeCustomerPersistence(
         garmentOrderId,
       );
     }
-    return { ...(existing ?? {}), ...payload } as GarmentOrderItemRow;
+    const id = resolveId(res) ?? existing?.id ?? null;
+    return {
+      ...(existing ?? {}),
+      ...payload,
+      ...(id ? { id } : {}),
+      garment_order_id: garmentOrderId,
+    } as GarmentOrderItemRow;
   };
 
   return {
@@ -655,6 +700,13 @@ function OrderDetailContent() {
      then the Pay-to-Book CTA once a visit is booked ────────────────────── */
   const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
   const [placeError, setPlaceError] = useState<string | null>(null);
+  /* ── Item reference photos (core/item_images) — the open capture sheet's
+     target {garmentOrderId, item}. Payment CTAs short-circuit onto this
+     sheet while any item is still waiting for photos. ── */
+  const [imageSheet, setImageSheet] = useState<{
+    garmentOrderId: string;
+    item: OrderDetailItem;
+  } | null>(null);
   const [slotOpen, setSlotOpen] = useState(false);
   const [paying, setPaying] = useState(false);
 
@@ -1034,13 +1086,22 @@ function OrderDetailContent() {
 
   /* ── Booked visit — drives the slot sheet mode and the Pay CTA ───────── */
   // 'draft' is a held (unconfirmed) time — it preselects the sheet in PATCH
-  // mode and shows the Pay CTA; the captain is assigned at payment.
+  // mode and shows the Pay CTA; the captain is assigned at payment. The
+  // day-of statuses (en_route/at_location/otp_pending) and
+  // awaiting_approval are still a LIVE visit — the bar must never offer
+  // "Select Slot" while the captain is on the way or at the door. Only
+  // missed/cancelled fall out of the set (re-pick) and completed is
+  // handled by measuredDone below. 'needs_reassignment' is a legacy value.
   const activeJob =
     detail.measurement_jobs.find(
       (j) =>
         j.status === "draft" ||
         j.status === "scheduled" ||
+        j.status === "en_route" ||
+        j.status === "at_location" ||
+        j.status === "otp_pending" ||
         j.status === "in_progress" ||
+        j.status === "awaiting_approval" ||
         j.status === "needs_reassignment",
     ) ?? null;
   // A COMPLETED measurement means the visit happened — the order moves on
@@ -1078,6 +1139,15 @@ function OrderDetailContent() {
   const isDelivered = detail.fulfillment_status === "delivered";
   // Advance CTA: pay the total minus the fee while it can still be waived.
   const advanceAmount = Math.max(payAmount - codFee, 0);
+
+  /* ── Item reference photos (core/item_images) — items still waiting for
+     photos, in garment order. Pay / COD short-circuit onto the capture
+     sheet while this is non-empty (the server gate is the authority). ── */
+  const pendingImageItems = detail.garment_orders.flatMap((g) =>
+    g.items
+      .filter((i) => i.images_pending && i.item_id)
+      .map((i) => ({ garmentOrderId: g.id, item: i })),
+  );
 
   /* ── Bottom-bar state machine, priority order ────────────────────────────
      Driven by concrete facts (attached address → visit held or measured →
@@ -1140,6 +1210,18 @@ function OrderDetailContent() {
   /* ── Pay ₹X to Book — Cashfree drop-in, then the paying page verifies ──── */
   const handlePay = async () => {
     if (paying) return;
+    // Reference-photo gate (core/item_images): the server blocks payment
+    // while items wait for photos — surface the capture sheet up front
+    // instead of letting the request fail.
+    if (pendingImageItems.length > 0) {
+      setImageSheet(pendingImageItems[0]);
+      setPlaceError(
+        `${pendingImageItems.length} item${
+          pendingImageItems.length !== 1 ? "s" : ""
+        } waiting for photos — payment unlocks once they're uploaded.`,
+      );
+      return;
+    }
     setPaying(true);
     setPlaceError(null);
     try {
@@ -1174,6 +1256,12 @@ function OrderDetailContent() {
       if (err instanceof ApiError && err.code === "slot_taken") {
         await refreshDetail();
       }
+      // Photos went missing between render and tap (deleted elsewhere) —
+      // refetch so the chips above re-arm, then open the capture sheet.
+      if (err instanceof ApiError && err.code === "item_images_pending") {
+        await refreshDetail();
+        setImageSheet((cur) => cur ?? pendingImageItems[0] ?? null);
+      }
     } finally {
       setPaying(false);
     }
@@ -1184,6 +1272,19 @@ function OrderDetailContent() {
      refreshed totals, so the CTA becomes "Pay ₹<advance> in Advance" ───── */
   const handleChooseCod = async () => {
     if (choosingCod) return;
+    // Same reference-photo gate as Pay — COD books the visit, so photos
+    // must be in first (core/item_images).
+    if (pendingImageItems.length > 0) {
+      setImageSheet(pendingImageItems[0]);
+      setPayChoiceOpen(false);
+      setCodConfirmOpen(false);
+      setPlaceError(
+        `${pendingImageItems.length} item${
+          pendingImageItems.length !== 1 ? "s" : ""
+        } waiting for photos — payment unlocks once they're uploaded.`,
+      );
+      return;
+    }
     setChoosingCod(true);
     setChoiceError(null);
     try {
@@ -1200,6 +1301,14 @@ function OrderDetailContent() {
         setCodConfirmOpen(false);
         setPlaceError(err.message);
         await refreshDetail();
+        return;
+      }
+      if (err instanceof ApiError && err.code === "item_images_pending") {
+        setPayChoiceOpen(false);
+        setCodConfirmOpen(false);
+        setPlaceError(err.message);
+        await refreshDetail();
+        setImageSheet((cur) => cur ?? pendingImageItems[0] ?? null);
         return;
       }
       setChoiceError(
@@ -1405,8 +1514,9 @@ function OrderDetailContent() {
                   <span className="font-heading font-semibold text-body text-ink-navy">
                     {formatPrice(g.total_price ?? 0)}
                   </span>
-                  {/* Collapsed swaps the status pill for a quick-edit pencil —
-                      it opens the selection sheet and re-expands the row. */}
+                  {/* Collapsed swaps the production pill for a quick-edit
+                      pencil — it opens the selection sheet and re-expands
+                      the row; without edit rights the pill stays visible. */}
                   {collapsed && selectionsEditable && g.garment_id && (
                     <button
                       type="button"
@@ -1472,7 +1582,19 @@ function OrderDetailContent() {
                       </p>
                       <div className="mt-1">
                         {selections.map((item, idx) => (
-                          <ItemRow key={idx} item={item} />
+                          <ItemRow
+                            key={idx}
+                            item={item}
+                            onImages={
+                              item.images_required && item.item_id
+                                ? () =>
+                                    setImageSheet({
+                                      garmentOrderId: g.id,
+                                      item,
+                                    })
+                                : undefined
+                            }
+                          />
                         ))}
                       </div>
                     </>
@@ -1483,7 +1605,19 @@ function OrderDetailContent() {
                       <p className="eyebrow mt-4">{strings.orderDetail.addonsTitle}</p>
                       <div className="mt-1">
                         {addons.map((item, idx) => (
-                          <ItemRow key={idx} item={item} />
+                          <ItemRow
+                            key={idx}
+                            item={item}
+                            onImages={
+                              item.images_required && item.item_id
+                                ? () =>
+                                    setImageSheet({
+                                      garmentOrderId: g.id,
+                                      item,
+                                    })
+                                : undefined
+                            }
+                          />
                         ))}
                       </div>
                     </>
@@ -1576,6 +1710,58 @@ function OrderDetailContent() {
                   open={editingGOId === g.id}
                   garmentId={g.garment_id}
                   garmentOrderId={g.id}
+                  uploadItemPhotos={async (row, files) => {
+                    // Rows written through the customer endpoints carry their
+                    // real id (see makeCustomerPersistence) — upload straight
+                    // onto the item, then return the row's fresh images.
+                    if (!row.id) {
+                      throw new Error("Save the selection first, then add photos.");
+                    }
+                    const res = await ordersApi.uploadItemImages(
+                      detail.id,
+                      row.garment_order_id ?? g.id,
+                      row.id,
+                      files,
+                    );
+                    if (row.type === "add_on") {
+                      const placement =
+                        Array.isArray(row.placement)
+                          ? (row.placement[0] ?? null)
+                          : (row.placement ?? null);
+                      return (
+                        (res.add_on_states ?? []).find(
+                          (s) =>
+                            s.add_on_id === row.addon_id &&
+                            (s.placement?.[0] ?? null) === placement,
+                        )?.images ?? null
+                      );
+                    }
+                    return (
+                      (res.selections ?? []).find(
+                        (s) =>
+                          s.component_id === row.garment_style_component_id,
+                      )?.images ?? null
+                    );
+                  }}
+                  fetchSavedItems={async () => {
+                    // Fresh saved rows for this garment from the order
+                    // detail — photos included, so previews survive
+                    // close/reopen of the sheet.
+                    const d = await ordersApi.getOrderDetail(detail.id);
+                    const go = d.garment_orders.find((x) => x.id === g.id);
+                    return (go?.items ?? []).map((it) => ({
+                      id: it.item_id ?? "",
+                      garment_order_id: g.id,
+                      type: it.type === "add_on" ? "add_on" : "variation",
+                      garment_style_component_id: it.garment_style_component_id,
+                      variation_id: it.variation_id,
+                      variation_type_id: it.variation_type_id,
+                      addon_id: it.addon_id,
+                      addon_variation_id: it.addon_variation_id,
+                      placement: it.placement,
+                      images: it.images,
+                    })) as GarmentOrderItemRow[];
+                  }}
                   initialItems={seedSelectionItems(g)}
                   basePrice={g.base_price}
                   persistence={makeCustomerPersistence(detail.id, g.id)}
@@ -1595,6 +1781,52 @@ function OrderDetailContent() {
           <p className="text-caption">{removeError}</p>
         </Banner>
       )}
+
+      {/* Reference-photo capture sheet (core/item_images) — opened by the
+          per-item chips above or short-circuited from Pay / COD. Reads the
+          LIVE row from detail (keyed by ids) so uploads/removes repaint
+          without re-opening the sheet. */}
+      {(() => {
+        if (!imageSheet?.item.item_id) return null;
+        const liveGO = detail.garment_orders.find(
+          (g) => g.id === imageSheet.garmentOrderId,
+        );
+        const liveItem = liveGO?.items.find(
+          (i) => i.item_id === imageSheet.item.item_id,
+        );
+        if (!liveItem) return null;
+        return (
+          <ItemImagesSheet
+            open
+            onClose={() => setImageSheet(null)}
+            title={
+              [liveItem.label, liveItem.value].filter(Boolean).join(" — ") ||
+              "Selected option"
+            }
+            state={itemImagesState(null, liveItem, liveItem.images)}
+            images={liveItem.images ?? []}
+            upload={(files) =>
+              ordersApi.uploadItemImages(
+                detail.id,
+                imageSheet.garmentOrderId,
+                liveItem.item_id!,
+                files,
+              )
+            }
+            remove={(filename) =>
+              ordersApi.removeItemImage(
+                detail.id,
+                imageSheet.garmentOrderId,
+                liveItem.item_id!,
+                filename,
+              )
+            }
+            onChanged={() => {
+              void refreshDetail();
+            }}
+          />
+        );
+      })()}
 
       {/* Coupon + live sale — the promo surface lives on open orders only
           (draft or pending), and disappears entirely while the global
