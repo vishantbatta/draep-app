@@ -736,6 +736,7 @@ function CataloguePageInner() {
                     badges={(c) => {
                       const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
                       if (c.importance) b.push({ label: c.importance, variant: "accent" });
+                      if (c.selection_mode === "multi") b.push({ label: "multi-pick", variant: "positive" });
                       return b;
                     }}
                     onReorder={(reordered) => {
@@ -836,6 +837,7 @@ function CataloguePageInner() {
                     badges={(v) => {
                       const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
                       if (v.price != null) b.push({ label: `\u20B9${v.price}`, variant: "positive" });
+                      if (v.type_selection_mode === "multi") b.push({ label: "multi-type", variant: "accent" });
                       const material = materialBadge(v.is_material_needed);
                       if (material) b.push(material);
                       return b;
@@ -1100,6 +1102,14 @@ function CatalogueFormModal({
   // ── Entity-specific fields ──
   const [gender, setGender] = useState<string>((d?.gender as string) ?? "");
   const [importance, setImportance] = useState<string>((d?.importance as string) ?? "");
+  // Selection-mode config: component → variations, variation → sub-types.
+  // Empty = leave unset (server default 'single').
+  const [selectionMode, setSelectionMode] = useState<string>(
+    (d?.selection_mode as string) ?? "",
+  );
+  const [typeSelectionMode, setTypeSelectionMode] = useState<string>(
+    (d?.type_selection_mode as string) ?? "",
+  );
   const [type, setType] = useState<string>((d?.type as string) ?? "");
   const [isDefaultOn, setIsDefaultOn] = useState<boolean>((d?.is_default_on as boolean) ?? false);
   const [isMaterialNeeded, setIsMaterialNeeded] = useState<boolean>(toMaterialChecked(d?.is_material_needed));
@@ -1420,6 +1430,7 @@ function CatalogueFormModal({
               descriptions,
               asset_urls: assetUrls,
               importance: importance.trim() || null,
+              selection_mode: selectionMode || null,
               priority_order: priorityNum,
               default_variation_id: defaultVariationId || null,
             });
@@ -1431,6 +1442,7 @@ function CatalogueFormModal({
               descriptions,
               asset_urls: assetUrls,
               importance: importance.trim() || null,
+              selection_mode: selectionMode || null,
               priority_order: priorityNum,
               default_variation_id: defaultVariationId || null,
             } as StyleComponentUpdateInput);
@@ -1450,6 +1462,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               default_type_id: defaultTypeId || null,
+              type_selection_mode: typeSelectionMode || null,
               is_material_needed: isMaterialNeeded,
               ...imagesRequirementPayload(),
             });
@@ -1463,6 +1476,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               default_type_id: defaultTypeId || null,
+              type_selection_mode: typeSelectionMode || null,
               is_material_needed: isMaterialNeeded,
               ...imagesRequirementPayload(),
             } as VariationUpdateInput);
@@ -1689,6 +1703,20 @@ function CatalogueFormModal({
             <Field label="Priority Order">
               <TextInput value={priority} onChange={setPriority} type="number" placeholder="0" />
             </Field>
+            <Field
+              label="Variation Selection"
+              hint="Multiple lets the customer pick several variations of this component"
+            >
+              <Select
+                value={selectionMode}
+                onChange={setSelectionMode}
+                placeholder="Single (default)"
+                options={[
+                  { value: "single", label: "Single choice" },
+                  { value: "multi", label: "Multiple allowed" },
+                ]}
+              />
+            </Field>
           </div>
         )}
 
@@ -1735,6 +1763,22 @@ function CatalogueFormModal({
                 <MaterialToggle checked={isMaterialNeeded} onChange={setIsMaterialNeeded} />
               </div>
             </Field>
+            {target.kind === "variation" && (
+              <Field
+                label="Type Selection"
+                hint="Multiple lets the customer pick several sub-types of this variation"
+              >
+                <Select
+                  value={typeSelectionMode}
+                  onChange={setTypeSelectionMode}
+                  placeholder="Single (default)"
+                  options={[
+                    { value: "single", label: "Single choice" },
+                    { value: "multi", label: "Multiple allowed" },
+                  ]}
+                />
+              </Field>
+            )}
           </div>
         )}
 

@@ -103,6 +103,8 @@ export interface VariationOut {
   not_ideal_for: string[] | null;
   price: number | null;
   default_type_id: string | null;
+  /** 'single' (default) | 'multi' — can several sub-types be picked at once. */
+  type_selection_mode?: string | null;
   is_material_needed: boolean | null;
   /** Reference-photo requirement (be/app/core/item_images.py): picking
    *  this option asks for min..max photos. min null/0 = no requirement. */
@@ -120,6 +122,8 @@ export interface ComponentOut {
   asset_urls: string[] | null;
   priority_order: number | null;
   importance: string | null;
+  /** 'single' (default) | 'multi' — can several variations be picked at once. */
+  selection_mode?: string | null;
   default_variation_id: string | null;
   variations: VariationOut[];
 }

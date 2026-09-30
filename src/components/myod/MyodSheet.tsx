@@ -506,8 +506,11 @@ export function MyodSheet({
       // Advance only on the choice steps, and only if the user is still on
       // the step this tap was made on — rapid re-taps on the same step
       // advance exactly once, and a late tap never yanks the user forward
-      // after they've navigated back.
-      if (!step?.isExtras) {
+      // after they've navigated back. Multi-select components never
+      // auto-advance: taps accumulate picks and the price bar's Next button
+      // moves the step on explicitly.
+      const tappedComp = step?.components.find((c) => c.id === componentId);
+      if (!step?.isExtras && tappedComp?.selectionMode !== "multi") {
         const tappedIdx = activeStepIdx;
         setActiveStepIdx((i) =>
           i === tappedIdx ? Math.min(steps.length - 1, i + 1) : i,
@@ -1077,6 +1080,22 @@ export function MyodSheet({
     phase !== "loading-tree" &&
     phase !== "error";
 
+  // Multi-select step: at least one component on it allows several picks.
+  // Taps accumulate instead of auto-advancing, so the price bar grows a
+  // Next button (bottom right) that moves the step on explicitly.
+  const multiStepComponents = (activeStep?.components ?? []).filter(
+    (c) => c.selectionMode === "multi",
+  );
+  const isMultiStep = multiStepComponents.length > 0;
+  const multiPending = multiStepComponents.filter((c) => !selections[c.id]);
+  const advanceMultiStep = () => {
+    const fromIdx = activeStepIdx;
+    setActiveStepIdx((i) =>
+      i === fromIdx ? Math.min(steps.length - 1, i + 1) : i,
+    );
+    track({ event: "myod_step_advanced", step: activeStep?.id ?? "", mode: "multi" });
+  };
+
   return (
     // pb grows on the extras step so the sticky final CTA never overlaps the
     // last content row (bar ≈ 76px + safe-area inset, plus footerInset when
@@ -1212,6 +1231,9 @@ export function MyodSheet({
       {/* ── Slim running-total ticker (choice steps) ─────────────────────
           Same fixed slot the final CTA occupies, so the total stays visible
           as each step adds to it. Tapping it expands the breakdown sheet.
+          Multi-select steps grow a Next pill on the right — taps accumulate
+          picks instead of auto-advancing, so this button is the explicit
+          way forward (disabled until every multi component has ≥1 pick).
           z-40 keeps it under the picker sheets. */}
       {showPriceBar && (
         <div
@@ -1221,24 +1243,43 @@ export function MyodSheet({
           }
           style={footerInset ? { bottom: footerInset } : undefined}
         >
-          <button
-            type="button"
-            onClick={() => setPriceSheetOpen(true)}
-            className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left"
-          >
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted">
-                {strings.myod.estTotal}
+          <div className="flex w-full items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setPriceSheetOpen(true)}
+              className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-2.5 text-left"
+            >
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted">
+                  {strings.myod.estTotal}
+                </span>
+                <span className="text-[11px] leading-tight text-muted">
+                  {strings.myod.priceTaxNote}
+                </span>
               </span>
-              <span className="text-[11px] leading-tight text-muted">
-                {strings.myod.priceTaxNote}
+              <span className="flex items-center gap-1 font-heading text-h3 font-semibold leading-none text-ink-navy">
+                {formatPrice(priceBreakdown.total)}
+                <ChevronDown size={14} className="rotate-180 text-muted" />
               </span>
-            </span>
-            <span className="flex items-center gap-1 font-heading text-h3 font-semibold leading-none text-ink-navy">
-              {formatPrice(priceBreakdown.total)}
-              <ChevronDown size={14} className="rotate-180 text-muted" />
-            </span>
-          </button>
+            </button>
+            {isMultiStep && (
+              <button
+                type="button"
+                onClick={advanceMultiStep}
+                disabled={multiPending.length > 0}
+                className={
+                  "mr-3 flex h-11 flex-none items-center gap-1.5 rounded-pill px-5 text-caption font-semibold text-chalk-white shadow-brand transition-all ease-brand active:scale-[0.98] " +
+                  (multiPending.length > 0
+                    ? "opacity-40"
+                    : "hover:brightness-105")
+                }
+                style={{ backgroundImage: "var(--tape-gradient)" }}
+              >
+                {strings.myod.nextCta}
+                <ArrowRight size={16} />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -2571,7 +2612,9 @@ function ExtrasPicker({
   const [spots, setSpots] = useState<string[]>(() => {
     if (!whereAxis) return [];
     if (initialSelection?.picks?.length)
-      return initialSelection.picks.map((p) => p.placement);
+      return initialSelection.picks
+        .map((p) => p.placement)
+        .filter((p): p is string => Boolean(p));
     const seedOpt = component.options.find(
       (o) =>
         o.id === (initialSelection?.variationId ?? component.defaultOptionId),
@@ -2591,6 +2634,7 @@ function ExtrasPicker({
     const rest = allAxes.slice(1);
     const seed: Record<string, Record<string, string>> = {};
     for (const p of initialSelection?.picks ?? []) {
+      if (!p.placement) continue; // component picks carry no spot
       const o = component.options.find((op) => op.id === p.variationId);
       if (!o || whereOf(o) !== p.placement) continue;
       const combo: Record<string, string> = {};
@@ -3324,6 +3368,7 @@ function ComponentCards({
     options: StepOption[];
     kind?: "choice" | "toggle";
     price?: number;
+    selectionMode?: "single" | "multi";
   };
   /** Stashed reference-photo preview URLs for an option of this component. */
   stashedPhotosFor?: (optionId: string) => string[];
@@ -3331,12 +3376,49 @@ function ComponentCards({
   selection: ComponentSelection | undefined;
   disabled: boolean;
   generating?: boolean;
-  onSelect: (sel: ComponentSelection) => void;
+  onSelect: (sel: ComponentSelection | null) => void;
 }) {
+  const multi = component.selectionMode === "multi";
+  // Multi: one entry per picked variation (seeded from a legacy single
+  // selection when the picks array isn't populated yet).
+  const picks: PlacementPick[] = selection?.picks?.length
+    ? selection.picks
+    : selection && selection.variationId !== "__off__"
+      ? [
+          {
+            variationId: selection.variationId,
+            variationTypeId: selection.variationTypeId,
+          },
+        ]
+      : [];
   const selectedId = selection?.variationId;
   // Variation whose type sheet is open (null = closed). Tapping a variation
   // with types opens the sheet instead of selecting outright.
   const [typeOpt, setTypeOpt] = useState<StepOption | null>(null);
+
+  /** Toggle one (variation[, type]) pick for a multi component. */
+  const togglePick = (pick: PlacementPick) => {
+    const idx = picks.findIndex(
+      (p) =>
+        p.variationId === pick.variationId &&
+        (p.variationTypeId ?? null) === (pick.variationTypeId ?? null),
+    );
+    const next =
+      idx >= 0
+        ? picks.filter((_, i) => i !== idx)
+        : [...picks, pick];
+    if (!next.length) {
+      onSelect(null);
+      return;
+    }
+    // variationId mirrors the first pick so single-selection consumers
+    // (render config, SVG state, summary) keep working.
+    onSelect({
+      variationId: next[0].variationId,
+      variationTypeId: next[0].variationTypeId,
+      picks: next,
+    });
+  };
 
   if (component.kind === "toggle") {
     return (
@@ -3358,11 +3440,19 @@ function ComponentCards({
       )}
       <div className="flex flex-col gap-2">
         {component.options.map((opt) => {
-          const selected = opt.id === selectedId;
-          // Chosen type, shown on the card once selected (Hook → Front hook).
-          const chosenSub = opt.subOptions?.find(
-            (s) => s.id === selection?.variationTypeId,
-          );
+          const selected = multi
+            ? picks.some((p) => p.variationId === opt.id)
+            : opt.id === selectedId;
+          // Chosen type(s), shown on the card once selected (Hook → Front hook).
+          const chosenSubs = opt.subOptions?.filter((s) => {
+            if (multi) {
+              return picks.some(
+                (p) =>
+                  p.variationId === opt.id && p.variationTypeId === s.id,
+              );
+            }
+            return s.id === selection?.variationTypeId;
+          });
           return (
             <div
               key={opt.id}
@@ -3387,6 +3477,32 @@ function ComponentCards({
                 type="button"
                 disabled={disabled}
                 onClick={() => {
+                  if (multi) {
+                    // Already-picked variations toggle straight off (their
+                    // type, if any, goes with them); un-picked ones with
+                    // types open the sheet first.
+                    if (picks.some((p) => p.variationId === opt.id)) {
+                      const removed = picks.filter(
+                        (p) => p.variationId !== opt.id,
+                      );
+                      if (!removed.length) {
+                        onSelect(null);
+                        return;
+                      }
+                      onSelect({
+                        variationId: removed[0].variationId,
+                        variationTypeId: removed[0].variationTypeId,
+                        picks: removed,
+                      });
+                      return;
+                    }
+                    if (opt.subOptions?.length) {
+                      setTypeOpt(opt);
+                      return;
+                    }
+                    togglePick({ variationId: opt.id });
+                    return;
+                  }
                   // Variations with types (e.g. Tying mechanism → Hook) open
                   // the type bottom-sheet instead of selecting outright.
                   if (opt.subOptions?.length) {
@@ -3433,12 +3549,15 @@ function ComponentCards({
                       {opt.description}
                     </span>
                   )}
-                  {selected && chosenSub && (
+                  {selected && chosenSubs && chosenSubs.length > 0 && (
                     <span className="text-[11px] font-medium leading-snug text-accent-text">
-                      Type: {chosenSub.label}
-                      {chosenSub.price
-                        ? ` · + ${formatPrice(chosenSub.price)}`
-                        : ""}
+                      Type:{" "}
+                      {chosenSubs
+                        .map(
+                          (s) =>
+                            `${s.label}${s.price ? ` · + ${formatPrice(s.price)}` : ""}`,
+                        )
+                        .join(", ")}
                     </span>
                   )}
                   {stashedPhotosFor?.(opt.id).length ? (
@@ -3467,15 +3586,27 @@ function ComponentCards({
           variationLabel={typeOpt.label}
           subs={typeOpt.subOptions}
           selectedId={
-            selectedId === typeOpt.id ? selection?.variationTypeId : undefined
+            multi
+              ? picks.find((p) => p.variationId === typeOpt.id)
+                  ?.variationTypeId
+              : selectedId === typeOpt.id
+                ? selection?.variationTypeId
+                : undefined
           }
           disabled={disabled}
           onClose={() => setTypeOpt(null)}
           onPick={(subId) => {
-            onSelect({
-              variationId: typeOpt.id,
-              variationTypeId: subId,
-            });
+            if (multi) {
+              togglePick({
+                variationId: typeOpt.id,
+                variationTypeId: subId,
+              });
+            } else {
+              onSelect({
+                variationId: typeOpt.id,
+                variationTypeId: subId,
+              });
+            }
             setTypeOpt(null);
           }}
         />

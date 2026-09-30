@@ -144,6 +144,9 @@ export interface StepOption {
   }[];
   /** Pre-selected sub-option id (variation.default_type_id), if any. */
   defaultSubOptionId?: string;
+  /** Catalog type_selection_mode: can several sub-options (variation_types)
+   *  be picked at once when this variation is chosen? Absent/"single" = one. */
+  typeSelectionMode?: "single" | "multi";
   /** Reference-photo requirement (core/item_images) — choosing this option
    *  asks for min..max photos on the order page after the order is created. */
   minImages?: number;
@@ -191,6 +194,9 @@ export interface StepComponent {
   placements?: string[];
   /** Logical section for grouping in the extras step (e.g. "Fit", "Add-ons"). */
   section?: string;
+  /** Catalog selection_mode: can the customer pick several variations of
+   *  this component at once? Absent/\"single\" = one choice. */
+  selectionMode?: "single" | "multi";
   /** Additive price of a toggle add-on (addon.price when it has no variations). */
   price?: number;
   /** Reference-photo requirement on a toggle add-on (core/item_images). */
@@ -218,12 +224,13 @@ export interface DesignStep {
 /** One spot of a multi-spot add-on pick: where it goes plus the variation
  *  chosen for that spot. Add-ons priced by placement (a leading "Where"
  *  axis, like Key Hole) can be placed on several spots at once — a key hole
- *  on each sleeve, each with its own shape/size. */
+ *  on each sleeve, each with its own shape/size. Component picks (selection
+ *  mode 'multi') reuse this shape with placement undefined. */
 export interface PlacementPick {
   variationId: string;
   variationTypeId?: string;
   /** The spot's where-axis value (a label segment, e.g. "Left Sleeve"). */
-  placement: string;
+  placement?: string;
 }
 
 /** The user's selection for a single component. Multi-spot add-ons carry
@@ -334,6 +341,7 @@ function componentToStepComponent(c: ComponentOut): StepComponent {
     description: descText(c.descriptions) || undefined,
     assetUrl: c.asset_urls?.[0] || undefined,
     defaultOptionId: c.default_variation_id ?? undefined,
+    selectionMode: c.selection_mode === "multi" ? "multi" : "single",
     options: (c.variations ?? [])
       .slice()
       .sort(byPriority)
@@ -368,6 +376,9 @@ function variationToStepOption(v: VariationOut): StepOption {
           })),
           defaultSubOptionId: v.default_type_id ?? types[0]?.id,
         }
+      : {}),
+    ...(v.type_selection_mode === "multi"
+      ? { typeSelectionMode: "multi" as const }
       : {}),
   };
 }
@@ -740,7 +751,13 @@ export function selectionAmount(
   if (sel.picks?.length) {
     return sel.picks.reduce((sum, p) => {
       const opt = comp.options.find((o) => o.id === p.variationId);
-      return sum + (opt?.price ?? 0);
+      // Component picks may carry a sub-type (variation_types) whose price
+      // is additive on top of the variation's own — add-on picks have no
+      // subOptions, so this is a no-op for them.
+      const sub = p.variationTypeId
+        ? opt?.subOptions?.find((s) => s.id === p.variationTypeId)
+        : undefined;
+      return sum + (opt?.price ?? 0) + (sub?.price ?? 0);
     }, 0);
   }
   const opt = comp.options.find((o) => o.id === sel.variationId);

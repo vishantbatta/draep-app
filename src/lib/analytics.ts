@@ -53,6 +53,7 @@ export type AnalyticsEvent =
   | { event: "myod_succeeded" }
   | { event: "myod_failed"; error?: string }
   | { event: "myod_refined"; instruction: string }
+  | { event: "myod_step_advanced"; step: string; mode: "multi" }
   | { event: "myod_generate" }
   | { event: "myod_generated" }
   | { event: "myod_render_succeeded"; views: number }

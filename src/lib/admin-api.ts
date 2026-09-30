@@ -247,6 +247,8 @@ export interface StyleComponent {
   descriptions: Record<string, string> | null;
   asset_urls: string[] | null;
   importance: string | null;
+  /** 'single' (default) | 'multi' — how many variations a customer may pick. */
+  selection_mode: string | null;
   default_variation_id: string | null;
 }
 
@@ -258,6 +260,7 @@ export interface StyleComponentCreateInput {
   descriptions?: Record<string, string> | null;
   asset_urls?: string[] | null;
   importance?: string | null;
+  selection_mode?: string | null;
   default_variation_id?: string | null;
 }
 
@@ -269,6 +272,7 @@ export interface StyleComponentUpdateInput {
   descriptions?: Record<string, string> | null;
   asset_urls?: string[] | null;
   importance?: string | null;
+  selection_mode?: string | null;
   default_variation_id?: string | null;
 }
 
@@ -304,6 +308,8 @@ export interface Variation {
   not_ideal_for: string[] | null;
   price: number | null;
   default_type_id: string | null;
+  /** 'single' (default) | 'multi' — how many sub-types a customer may pick. */
+  type_selection_mode: string | null;
   is_material_needed: boolean | null;
   /** Reference-photo requirement (core/item_images). */
   min_images: number | null;
@@ -322,6 +328,7 @@ export interface VariationCreateInput {
   not_ideal_for?: string[] | null;
   price?: number | null;
   default_type_id?: string | null;
+  type_selection_mode?: string | null;
   is_material_needed?: boolean | null;
   /** Reference-photo requirement (core/item_images). */
   min_images?: number | null;
@@ -340,6 +347,7 @@ export interface VariationUpdateInput {
   not_ideal_for?: string[] | null;
   price?: number | null;
   default_type_id?: string | null;
+  type_selection_mode?: string | null;
   is_material_needed?: boolean | null;
   /** Reference-photo requirement (core/item_images). */
   min_images?: number | null;

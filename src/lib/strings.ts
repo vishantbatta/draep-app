@@ -609,6 +609,7 @@ export const strings = {
     completeOrder: "Complete Order",
     // Pricing shown alongside options and as a running total
     estTotal: "Estimated total",
+    nextCta: "Next",
     priceTaxNote: "including taxes",
     priceSheetTitle: "Price breakdown",
     priceBaseLine: "Base blouse",
