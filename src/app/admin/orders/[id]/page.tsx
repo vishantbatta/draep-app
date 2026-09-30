@@ -1107,6 +1107,15 @@ export default function OrderDetailPage() {
     }
   }
 
+  // ── Back to Orders: return to the list page the user came from ───────────
+  // The list page stores its current page in sessionStorage before opening an
+  // order; direct lands (no stored page) fall back to page 1.
+  const backToOrders = useCallback(() => {
+    const last = Number(sessionStorage.getItem("admin-orders-last-page")) || 1;
+    sessionStorage.removeItem("admin-orders-last-page");
+    router.push(last > 1 ? `/admin/orders?page=${last}` : "/admin/orders");
+  }, [router]);
+
   // ── Emit sidebar items ────────────────────────────────────────────────────
   useEffect(() => {
     window.dispatchEvent(
@@ -1116,7 +1125,7 @@ export default function OrderDetailPage() {
             {
               label: "← Back to Orders",
               active: false,
-              onClick: () => router.push("/admin/orders"),
+              onClick: backToOrders,
             },
           ],
         },
@@ -1127,7 +1136,7 @@ export default function OrderDetailPage() {
         new CustomEvent("admin-sidebar-update", { detail: null }),
       );
     };
-  }, [router]);
+  }, [backToOrders]);
 
   // ── Load order ─────────────────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
@@ -2394,7 +2403,7 @@ export default function OrderDetailPage() {
           {error ?? "Order not found"}
         </div>
         <button
-          onClick={() => router.push("/admin/orders")}
+          onClick={backToOrders}
           className="mt-4 text-sm font-medium text-ink-navy underline"
         >
           ← Back to Orders

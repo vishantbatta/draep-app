@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   fetchTableRows,
   fetchTableData,
@@ -94,13 +94,36 @@ function truncateId(id: string): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function OrdersListPage() {
+  // useSearchParams (?page=N) needs a Suspense boundary during prerender.
+  return (
+    <Suspense fallback={<div className="py-12 text-center text-muted">Loading orders…</div>}>
+      <OrdersList />
+    </Suspense>
+  );
+}
+
+function OrdersList() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
+  // The URL is the source of truth for the current page (?page=N; absent = 1),
+  // so opening an order and pressing Back returns to the same page.
+  const page = Math.max(1, Math.floor(Number(searchParams.get("page")) || 1));
+  const setPage = useCallback(
+    (p: number) => {
+      if (p === page) return;
+      const params = new URLSearchParams(searchParams.toString());
+      if (p <= 1) params.delete("page");
+      else params.set("page", String(p));
+      const qs = params.toString();
+      router.replace(qs ? `/admin/orders?${qs}` : "/admin/orders", { scroll: false });
+    },
+    [page, router, searchParams],
+  );
   const [perPage] = useState(20);
   const [filterFulfillment, setFilterFulfillment] = useState<FulfillmentStatus | "all">("all");
   const [filterPayment, setFilterPayment] = useState<PaymentStatus | "all">("all");
@@ -249,10 +272,14 @@ export default function OrdersListPage() {
   // ── Debounce search input → search term ───────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => {
-      setSearchTerm(searchInput.trim());
+      const term = searchInput.trim();
+      // Unchanged (covers the mount run) — must not reset an incoming ?page=N.
+      if (term === searchTerm) return;
+      setSearchTerm(term);
       setPage(1);
     }, 350);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchInput]);
 
   // ── Clear selection whenever the view changes ─────────────────────────────
@@ -268,6 +295,8 @@ export default function OrdersListPage() {
   }, [flash]);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
+  // The backend clamps out-of-range page requests; mirror that in the label.
+  const currentPage = Math.min(page, totalPages);
 
   // ── Selection handlers ────────────────────────────────────────────────────
   const toggleOrder = useCallback((id: string) => {
@@ -566,7 +595,11 @@ export default function OrdersListPage() {
                     return (
                       <tr
                         key={order.id}
-                        onClick={() => router.push(`/admin/orders/${order.id}`)}
+                        onClick={() => {
+                          // Remember the page so "← Back to Orders" returns to it
+                          sessionStorage.setItem("admin-orders-last-page", String(page));
+                          router.push(`/admin/orders/${order.id}`);
+                        }}
                         className={`cursor-pointer border-b border-hairline transition hover:bg-mist-navy/30 last:border-0 ${selected.has(order.id) ? "bg-mist-navy/40" : ""}`}
                       >
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -639,19 +672,19 @@ export default function OrdersListPage() {
           {totalPages > 1 && (
             <div className="mt-5 flex items-center justify-between">
               <span className="text-xs text-muted">
-                Page {page} of {totalPages}
+                Page {currentPage} of {totalPages}
               </span>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
+                  onClick={() => setPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
                   className="rounded-lg border border-hairline-strong px-3 py-1.5 text-xs font-medium text-ink transition enabled:hover:bg-mist-navy disabled:opacity-40"
                 >
                   ← Prev
                 </button>
                 <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
+                  onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage === totalPages}
                   className="rounded-lg border border-hairline-strong px-3 py-1.5 text-xs font-medium text-ink transition enabled:hover:bg-mist-navy disabled:opacity-40"
                 >
                   Next →
