@@ -188,6 +188,13 @@ interface GarmentSelectionSheetProps {
   titleClassName?: string;
   /** Draft mode's apply-CTA label (default "Apply selections"). */
   draftApplyLabel?: string;
+  /**
+   * Read-only mode: the sheet renders the order's saved selections exactly
+   * like edit mode (cards, pills, add-ons, photo previews) but pills and
+   * toggles do nothing and the footer is a single Close button. No writes,
+   * no diffing — for tools that display selections without editing.
+   */
+  readOnly?: boolean;
   /** Attach stashed reference photos to a saved/created item row (persist
    *  mode, core/item_images). Returns the row's resulting image URLs (null
    *  when unknown) so previews reflect the upload without a refetch. */
@@ -518,6 +525,7 @@ export function GarmentSelectionSheet({
   title,
   titleClassName,
   draftApplyLabel,
+  readOnly = false,
 }: GarmentSelectionSheetProps) {
   const [tree, setTree] = useState<GarmentTree | null>(null);
   const [loading, setLoading] = useState(true);
@@ -900,6 +908,7 @@ export function GarmentSelectionSheet({
   }
 
   function selectVariation(componentId: string, variationId: string) {
+    if (readOnly) return;
     // Reference-photo gate: the pick lands only once its photos are in
     // (stashed this session, or already on the saved row).
     const comp = tree?.components.find((c) => c.id === componentId);
@@ -939,6 +948,7 @@ export function GarmentSelectionSheet({
     variationId: string,
     variationTypeId: string,
   ) {
+    if (readOnly) return;
     const comp = tree?.components.find((c) => c.id === componentId);
     const v = comp?.variations.find((x) => x.id === variationId);
     const req = variationPhotoReq(componentId, v, variationTypeId);
@@ -988,6 +998,7 @@ export function GarmentSelectionSheet({
   }
 
   function toggleAddon(addonId: string, enabled: boolean) {
+    if (readOnly) return;
     if (!enabled) {
       applyToggleAddon(addonId, false);
       return;
@@ -1060,6 +1071,7 @@ export function GarmentSelectionSheet({
   }
 
   function togglePlacement(addonId: string, placement: string, on: boolean) {
+    if (readOnly) return;
     if (!on) {
       applyTogglePlacement(addonId, placement, false);
       return;
@@ -1088,6 +1100,7 @@ export function GarmentSelectionSheet({
     placement: string | null,
     variationId: string | null,
   ) {
+    if (readOnly) return;
     if (variationId === null) {
       applySlotVariation(addonId, placement, null);
       return;
@@ -1250,7 +1263,17 @@ export function GarmentSelectionSheet({
         </div>
       ) : tree ? (
         <>
-        <div className="space-y-4">
+        {/* Read-only: every option button inside the catalog area is inert
+            (no hover, no cursor, no clicks) — the footer Close button lives
+            outside this wrapper so it stays tappable. Scrolling is untouched
+            since only the buttons opt out of pointer events. */}
+        <div
+          className={`space-y-4${
+            readOnly
+              ? " [&_button]:pointer-events-none [&_button]:cursor-default"
+              : ""
+          }`}
+        >
           {/* Header: garment + live computed total — sticks below the sheet
               header while the selections list scrolls */}
           <div className="sticky -top-1 z-10 -mx-1 bg-chalk-white px-1 pb-2 pt-1">
@@ -1569,6 +1592,13 @@ export function GarmentSelectionSheet({
                 className="tap flex-1 rounded-pill bg-ink-navy px-4 py-3 text-body font-semibold text-chalk-white"
               >
                 Done
+              </button>
+            ) : readOnly ? (
+              <button
+                onClick={onClose}
+                className="tap flex-1 rounded-pill bg-ink-navy px-4 py-3 text-body font-semibold text-chalk-white"
+              >
+                Close
               </button>
             ) : draftMode ? (
               <>
