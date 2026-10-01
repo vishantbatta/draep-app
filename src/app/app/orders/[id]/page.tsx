@@ -821,6 +821,11 @@ function OrderDetailContent() {
   const [expandedPromos, setExpandedPromos] = useState<Set<string>>(
     () => new Set(),
   );
+  // Same pattern for the per-garment discount sections (key = garment
+  // order id) — collapsed until the customer asks for the math.
+  const [expandedGarments, setExpandedGarments] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   /* ── Address + slot finish flow: deliver-to card → Continue → slot sheet,
      then the Pay-to-Book CTA once a visit is booked ────────────────────── */
@@ -1182,6 +1187,40 @@ function OrderDetailContent() {
       (t.type === "payment" && t.status === "captured") ||
       (t.type === "refund" && (t.status === "captured" || t.status === "refunded")),
   );
+
+  /* ── Payment-summary garment sections (discounted orders) ─────────────────
+     Each garment reads as: header = its AFTER-discount price, expanded =
+     the before-discount price + every discount line that hit it. */
+  const hasDiscount = orderAdjustments.some((a) => a.amount < 0);
+  const garmentSummaries = detail.garment_orders.map((g) => {
+    const pre = (g.base_price ?? 0) + (g.items ?? []).reduce(
+      (s, it) => s + (it.price ?? 0),
+      0,
+    );
+    const post = g.total_price ?? pre;
+    // every adjustment row scoped to this garment — engine discounts carry
+    // per-line detail; the promotion name rides separately so it can be
+    // rendered as a tag distinct from the item name. Flat rows (whole-
+    // garment / manual) show just the promo tag.
+    const lines = orderAdjustments
+      .filter((a) => a.garment_order_id === g.id)
+      .flatMap((a) =>
+        a.detail?.length
+          ? a.detail.map((ln) => ({
+              promo: a.label ?? null,
+              item: ln.label ?? null,
+              amount: -Math.abs(ln.amount),
+            }))
+          : [{ promo: a.label ?? null, item: null, amount: a.amount }],
+      );
+    return {
+      id: g.id,
+      label: garmentLabelById.get(g.id) ?? "Garment",
+      pre,
+      post,
+      lines,
+    };
+  });
 
   /* ── Deliver-to card: the attached address, else the first saved one ──── */
   const attached = Boolean(addressLine1);
@@ -2085,6 +2124,121 @@ function OrderDetailContent() {
                   )}
                 </div>
               ),
+          )}
+          {/* Net of every adjustment — the number the customer actually
+              pays for the garments, shown before the garment math. */}
+          {hasDiscount && (
+            <div className="mt-1.5 border-t border-dashed border-hairline pt-2">
+              <SummaryRow
+                label={strings.orderDetail.totalAfterDiscount}
+                value={formatPrice(grossTotal + orderAdjustments.reduce((s, a) => s + a.amount, 0))}
+                strong
+              />
+            </div>
+          )}
+          {/* Per-garment ledger — header carries the after-discount price;
+              expanding reveals the before-discount price and each discount
+              line that hit this garment. Undiscounted garments stay flat
+              (there is no math to reveal). */}
+          {hasDiscount && garmentSummaries.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              {garmentSummaries.map((gs) => {
+                const expandable = gs.lines.length > 0;
+                const open = expandedGarments.has(gs.id);
+                const header = (
+                  <>
+                    <span className="flex min-w-0 items-center gap-2">
+                      {expandable && (
+                        <span
+                          aria-hidden
+                          className="h-1.5 w-1.5 flex-none rounded-full bg-tape"
+                        />
+                      )}
+                      <span className="min-w-0 truncate text-[13px] font-medium text-ink-navy">
+                        {gs.label}
+                      </span>
+                    </span>
+                    <span className="flex flex-none items-center gap-1">
+                      <span className="font-mono text-[12px] font-medium tabular-nums text-ink-navy">
+                        {formatPrice(gs.post)}
+                      </span>
+                      {expandable && (
+                        <ChevronDown
+                          size={13}
+                          aria-hidden
+                          className={`flex-none text-muted transition-transform duration-200 ${
+                            open ? "rotate-180" : ""
+                          }`}
+                        />
+                      )}
+                    </span>
+                  </>
+                );
+                return expandable ? (
+                  <div
+                    key={gs.id}
+                    className="overflow-hidden rounded-card border border-hairline"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedGarments((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(gs.id)) next.delete(gs.id);
+                          else next.add(gs.id);
+                          return next;
+                        })
+                      }
+                      aria-expanded={open}
+                      className="flex w-full items-center justify-between gap-3 bg-chalk-white px-3 py-2 text-left"
+                    >
+                      {header}
+                    </button>
+                    {open && (
+                      <div className="border-t border-hairline bg-warm-sand/50 px-3 py-2">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-caption text-muted">
+                            {strings.orderDetail.priceBeforeDiscount}
+                          </span>
+                          <span className="flex-none font-mono text-[12px] tabular-nums text-muted">
+                            {formatPrice(gs.pre)}
+                          </span>
+                        </div>
+                        {gs.lines.map((ln, i) => (
+                          <div
+                            key={i}
+                            className="mt-0.5 flex items-baseline justify-between gap-3 border-l border-hairline pl-2.5"
+                          >
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              {ln.promo && (
+                                <span className="flex-none rounded-pill bg-warm-sand px-1.5 py-0.5 text-[10px] font-medium leading-4 text-accent-text">
+                                  {ln.promo}
+                                </span>
+                              )}
+                              {ln.item && (
+                                <span className="min-w-0 truncate text-caption text-ink/70">
+                                  {ln.item}
+                                </span>
+                              )}
+                            </span>
+                            <span className="flex-none font-mono text-[12px] tabular-nums text-ink-navy/80">
+                              {`${ln.amount < 0 ? "−" : "+"}${formatPrice(Math.abs(ln.amount))}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    key={gs.id}
+                    className="flex items-center justify-between gap-3 px-1 py-0.5"
+                  >
+                    {header}
+                  </div>
+                );
+              })}
+            </div>
           )}
           {/* Invoice-style ledger: price build-up and paid rows run as plain
               ledger lines, then a hairline, then the emphasized balance. */}

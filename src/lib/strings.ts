@@ -373,6 +373,8 @@ export const strings = {
     balanceDue: "To be paid",
     // ─── Engine-discount grouping (payment summary) ────────────────────────
     // coupons/sales render as one row per code + one panel per garment hit
+    totalAfterDiscount: "Total after discount",
+    priceBeforeDiscount: "Price before discount",
     entireOrderTarget: "Your entire order",
     // a sale row whose label is missing (sales have no code to show)
     saleLabelFallback: "Offer",
