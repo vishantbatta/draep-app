@@ -691,6 +691,7 @@ function CataloguePageInner() {
                   onDelete={(g) => setDeleteItem({ type: "garment", id: g.id, label: getLabel(g.labels, g.slug, g.id) })}
                   badges={(g) => {
                     const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
+                    if (g.is_enabled === false) b.push({ label: "Disabled", variant: "negative" });
                     if (g.gender) b.push({ label: g.gender, variant: "accent" });
                     if (g.base_price != null) b.push({ label: `\u20B9${g.base_price}`, variant: "positive" });
                     return b;
@@ -734,8 +735,9 @@ function CataloguePageInner() {
                     onEdit={(c) => setEditTarget({ kind: "component", mode: "edit", data: c as unknown as Record<string, unknown> })}
                     onDelete={(c) => setDeleteItem({ type: "component", id: c.id, label: getLabel(c.labels, c.slug, c.id) })}
                     badges={(c) => {
-                      const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
-                      if (c.importance) b.push({ label: c.importance, variant: "accent" });
+                    const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
+                    if (c.is_enabled === false) b.push({ label: "Disabled", variant: "negative" });
+                    if (c.importance) b.push({ label: c.importance, variant: "accent" });
                       if (c.selection_mode === "multi") b.push({ label: "multi-pick", variant: "positive" });
                       return b;
                     }}
@@ -782,6 +784,7 @@ function CataloguePageInner() {
                     onDelete={(a) => setDeleteItem({ type: "addon", id: a.id, label: getLabel(a.labels, a.slug, a.id) })}
                     badges={(a) => {
                       const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
+                      if (a.is_enabled === false) b.push({ label: "Disabled", variant: "negative" });
                       if (a.type) b.push({ label: a.type, variant: "accent" });
                       if (a.price != null) b.push({ label: `+\u20B9${a.price}`, variant: "positive" });
                       if (a.is_default_on) b.push({ label: "Default", variant: "positive" });
@@ -835,9 +838,10 @@ function CataloguePageInner() {
                     onEdit={(v) => setEditTarget({ kind: "variation", mode: "edit", data: v as unknown as Record<string, unknown> })}
                     onDelete={(v) => setDeleteItem({ type: "variation", id: v.id, label: getLabel(v.labels, v.slug, v.id) })}
                     badges={(v) => {
-                      const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
-                      if (v.price != null) b.push({ label: `\u20B9${v.price}`, variant: "positive" });
-                      if (v.type_selection_mode === "multi") b.push({ label: "multi-type", variant: "accent" });
+                    const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
+                    if (v.is_enabled === false) b.push({ label: "Disabled", variant: "negative" });
+                    if (v.price != null) b.push({ label: `\u20B9${v.price}`, variant: "positive" });
+                    if (v.type_selection_mode === "multi") b.push({ label: "multi-type", variant: "accent" });
                       const material = materialBadge(v.is_material_needed);
                       if (material) b.push(material);
                       return b;
@@ -877,6 +881,7 @@ function CataloguePageInner() {
                     onDelete={(a) => setDeleteItem({ type: "addon", id: a.id, label: getLabel(a.labels, a.slug, a.id) })}
                     badges={(a) => {
                       const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
+                      if (a.is_enabled === false) b.push({ label: "Disabled", variant: "negative" });
                       if (a.type) b.push({ label: a.type, variant: "accent" });
                       if (a.price != null) b.push({ label: `+\u20B9${a.price}`, variant: "positive" });
                       if (a.is_default_on) b.push({ label: "Default", variant: "positive" });
@@ -915,6 +920,7 @@ function CataloguePageInner() {
                   onDelete={(t) => setDeleteItem({ type: "variationType", id: t.id, label: getLabel(t.labels, t.slug, t.id) })}
                   badges={(t) => {
                     const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
+                    if (t.is_enabled === false) b.push({ label: "Disabled", variant: "negative" });
                     if (t.price != null) b.push({ label: `\u20B9${t.price}`, variant: "positive" });
                     const material = materialBadge(t.is_material_needed);
                     if (material) b.push(material);
@@ -975,6 +981,7 @@ function CataloguePageInner() {
                     const b: { label: string; variant?: "default" | "positive" | "negative" | "accent" }[] = [];
                     // The name already spells out the full combination — badges
                     // repeat the scannable differentiators (color/size/placement).
+                    if (v.is_enabled === false) b.push({ label: "Disabled", variant: "negative" });
                     if (v.color) b.push({ label: v.color });
                     if (v.size) b.push({ label: v.size });
                     if (v.placement) b.push({ label: `@ ${v.placement}`, variant: "accent" });
@@ -1113,6 +1120,12 @@ function CatalogueFormModal({
   const [type, setType] = useState<string>((d?.type as string) ?? "");
   const [isDefaultOn, setIsDefaultOn] = useState<boolean>((d?.is_default_on as boolean) ?? false);
   const [isMaterialNeeded, setIsMaterialNeeded] = useState<boolean>(toMaterialChecked(d?.is_material_needed));
+  // Enabled/disabled flag — NULL/true = enabled; false hides the item from
+  // customer flows (configurator, walk-in, library facets) but admin still
+  // sees and edits it here.
+  const [isEnabled, setIsEnabled] = useState<boolean>(
+    target.mode === "edit" ? d?.is_enabled !== false : true,
+  );
   // ── Reference-photo requirement (core/item_images) ──
   const [minImages, setMinImages] = useState<string>(
     d?.min_images != null ? String(d!.min_images) : ""
@@ -1405,6 +1418,7 @@ function CatalogueFormModal({
               asset_urls: assetUrls,
               gender: gender.trim() || null,
               base_price: priceNum,
+              is_enabled: isEnabled,
             });
           } else {
             const id = d!.id as string;
@@ -1415,6 +1429,7 @@ function CatalogueFormModal({
               asset_urls: assetUrls,
               gender: gender.trim() || null,
               base_price: priceNum,
+              is_enabled: isEnabled,
             } as GarmentUpdateInput);
           }
           break;
@@ -1433,6 +1448,7 @@ function CatalogueFormModal({
               selection_mode: selectionMode || null,
               priority_order: priorityNum,
               default_variation_id: defaultVariationId || null,
+              is_enabled: isEnabled,
             });
           } else {
             const id = d!.id as string;
@@ -1445,6 +1461,7 @@ function CatalogueFormModal({
               selection_mode: selectionMode || null,
               priority_order: priorityNum,
               default_variation_id: defaultVariationId || null,
+              is_enabled: isEnabled,
             } as StyleComponentUpdateInput);
           }
           break;
@@ -1464,6 +1481,7 @@ function CatalogueFormModal({
               default_type_id: defaultTypeId || null,
               type_selection_mode: typeSelectionMode || null,
               is_material_needed: isMaterialNeeded,
+              is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             });
           } else {
@@ -1478,6 +1496,7 @@ function CatalogueFormModal({
               default_type_id: defaultTypeId || null,
               type_selection_mode: typeSelectionMode || null,
               is_material_needed: isMaterialNeeded,
+              is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             } as VariationUpdateInput);
           }
@@ -1496,6 +1515,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             });
           } else {
@@ -1508,6 +1528,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             } as VariationTypeUpdateInput);
           }
@@ -1542,6 +1563,7 @@ function CatalogueFormModal({
             is_material_needed: isMaterialNeeded,
             default_variation_id: defaultAddonVariationId || null,
             priority_order: priorityNum,
+            is_enabled: isEnabled,
             ...imagesRequirementPayload(),
           };
 
@@ -1572,6 +1594,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             });
           } else {
@@ -1590,6 +1613,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             } as AddonVariationUpdateInput);
           }
@@ -1665,6 +1689,20 @@ function CatalogueFormModal({
               void handleGenerateImage(null);
             }}
           />
+        </div>
+
+        {/* Enabled flag — off hides the item from customer flows without
+            deleting it; admin keeps full visibility either way. */}
+        <div className="flex items-center justify-between rounded-lg bg-mist-navy/40 p-3 ring-1 ring-hairline">
+          <div>
+            <p className="text-[12px] font-semibold text-ink-navy">Enabled</p>
+            <p className="mt-0.5 text-[11px] text-muted">
+              Turn off to hide this from customers (admin can still see it)
+            </p>
+          </div>
+          <div className="flex h-[38px] items-center">
+            <MaterialToggle checked={isEnabled} onChange={setIsEnabled} ariaLabel="Enabled" />
+          </div>
         </div>
 
         {/* Garment-specific */}
@@ -2142,16 +2180,18 @@ function CatalogueFormModal({
 function MaterialToggle({
   checked,
   onChange,
+  ariaLabel = "Material needed",
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
+  ariaLabel?: string;
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
-      aria-label="Material needed"
+      aria-label={ariaLabel}
       onClick={() => onChange(!checked)}
       className={`tap relative inline-flex h-5 w-9 flex-none items-center rounded-pill transition-colors duration-200 ${
         checked ? "bg-ink-navy" : "bg-hairline-strong"

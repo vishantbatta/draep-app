@@ -78,6 +78,8 @@ export interface Address {
 
 export interface VariationTypeOut {
   id: string;
+  /** NULL/true = enabled; false = hidden from customer flows (server filters). */
+  is_enabled?: boolean | null;
   labels: Record<string, string> | null;
   descriptions: Record<string, string> | null;
   asset_urls: string[] | null;
@@ -95,6 +97,8 @@ export interface VariationTypeOut {
 
 export interface VariationOut {
   id: string;
+  /** NULL/true = enabled; false = hidden from customer flows (server filters). */
+  is_enabled?: boolean | null;
   labels: Record<string, string> | null;
   descriptions: Record<string, string> | null;
   asset_urls: string[] | null;
@@ -125,11 +129,15 @@ export interface ComponentOut {
   /** 'single' (default) | 'multi' — can several variations be picked at once. */
   selection_mode?: string | null;
   default_variation_id: string | null;
+  /** NULL/true = enabled; false = hidden from customer flows (server filters). */
+  is_enabled?: boolean | null;
   variations: VariationOut[];
 }
 
 export interface AddonVariationOut {
   id: string;
+  /** NULL/true = enabled; false = hidden from customer flows (server filters). */
+  is_enabled?: boolean | null;
   labels: Record<string, string> | null;
   descriptions: Record<string, string> | null;
   asset_urls: string[] | null;
@@ -152,6 +160,8 @@ export interface AddonVariationOut {
 
 export interface AddonOut {
   id: string;
+  /** NULL/true = enabled; false = hidden from customer flows (server filters). */
+  is_enabled?: boolean | null;
   labels: Record<string, string> | null;
   descriptions: Record<string, string> | null;
   asset_urls: string[] | null;
@@ -179,6 +189,8 @@ export interface GarmentTreeOut {
   asset_urls: string[] | null;
   gender: string | null;
   base_price: number | null;
+  /** NULL/true = enabled; disabled garments are hidden from customer lists. */
+  is_enabled?: boolean | null;
   components: ComponentOut[];
   addons: AddonOut[];
 }
@@ -187,9 +199,12 @@ export interface GarmentListItem {
   id: string;
   slug: string | null;
   labels: Record<string, string> | null;
+  descriptions?: Record<string, string> | null;
   asset_urls: string[] | null;
   gender: string | null;
   base_price: number | null;
+  /** NULL/true = enabled; disabled garments are hidden from customer lists. */
+  is_enabled?: boolean | null;
 }
 
 export interface GarmentListOut {

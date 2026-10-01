@@ -587,6 +587,14 @@ export const strings = {
     sheetTitle: "Make Your Own Draep",
     chooseEyebrow: "Choose your",
     loadingTree: "Loading your design options…",
+    // /app/create garment picker — the first screen when the catalogue
+    // carries more than one enabled garment; single-garment catalogues
+    // skip straight to the configurator
+    pickerTitle: "What do you want to get stitched today?",
+    pickerBody: "Pick a garment to start configuring or designing.",
+    pickerEmpty: "No garments are available right now.",
+    pickerRetry: "Try again",
+    pickerFromPrice: "Starting",
     generating: "Designing…",
     // Full-page takeover while the AI redraws the sketch
     sketchTitle: "Sketching it for you",

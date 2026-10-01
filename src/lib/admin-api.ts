@@ -198,6 +198,8 @@ export interface Garment {
   asset_urls: string[] | null;
   gender: string | null;
   base_price: number | null;
+  /** NULL/true = enabled (default); false hides it from customer flows. */
+  is_enabled: boolean | null;
 }
 
 export interface GarmentCreateInput {
@@ -207,6 +209,7 @@ export interface GarmentCreateInput {
   asset_urls?: string[] | null;
   gender?: string | null;
   base_price?: number | null;
+  is_enabled?: boolean | null;
 }
 
 export interface GarmentUpdateInput {
@@ -216,6 +219,7 @@ export interface GarmentUpdateInput {
   asset_urls?: string[] | null;
   gender?: string | null;
   base_price?: number | null;
+  is_enabled?: boolean | null;
 }
 
 export async function createGarment(input: GarmentCreateInput): Promise<Garment> {
@@ -250,6 +254,8 @@ export interface StyleComponent {
   /** 'single' (default) | 'multi' — how many variations a customer may pick. */
   selection_mode: string | null;
   default_variation_id: string | null;
+  /** NULL/true = enabled (default); false hides it from customer flows. */
+  is_enabled: boolean | null;
 }
 
 export interface StyleComponentCreateInput {
@@ -262,6 +268,7 @@ export interface StyleComponentCreateInput {
   importance?: string | null;
   selection_mode?: string | null;
   default_variation_id?: string | null;
+  is_enabled?: boolean | null;
 }
 
 export interface StyleComponentUpdateInput {
@@ -274,6 +281,7 @@ export interface StyleComponentUpdateInput {
   importance?: string | null;
   selection_mode?: string | null;
   default_variation_id?: string | null;
+  is_enabled?: boolean | null;
 }
 
 export async function createStyleComponent(input: StyleComponentCreateInput): Promise<StyleComponent> {
@@ -315,6 +323,8 @@ export interface Variation {
   min_images: number | null;
   max_images: number | null;
   image_note: Record<string, string> | null;
+  /** NULL/true = enabled (default); false hides it from customer flows. */
+  is_enabled: boolean | null;
 }
 
 export interface VariationCreateInput {
@@ -334,6 +344,7 @@ export interface VariationCreateInput {
   min_images?: number | null;
   max_images?: number | null;
   image_note?: Record<string, string> | null;
+  is_enabled?: boolean | null;
 }
 
 export interface VariationUpdateInput {
@@ -353,6 +364,7 @@ export interface VariationUpdateInput {
   min_images?: number | null;
   max_images?: number | null;
   image_note?: Record<string, string> | null;
+  is_enabled?: boolean | null;
 }
 
 export async function createVariation(input: VariationCreateInput): Promise<Variation> {
@@ -391,6 +403,8 @@ export interface VariationType {
   min_images: number | null;
   max_images: number | null;
   image_note: Record<string, string> | null;
+  /** NULL/true = enabled (default); false hides it from customer flows. */
+  is_enabled: boolean | null;
 }
 
 export interface VariationTypeCreateInput {
@@ -408,6 +422,7 @@ export interface VariationTypeCreateInput {
   min_images?: number | null;
   max_images?: number | null;
   image_note?: Record<string, string> | null;
+  is_enabled?: boolean | null;
 }
 
 export interface VariationTypeUpdateInput {
@@ -425,6 +440,7 @@ export interface VariationTypeUpdateInput {
   min_images?: number | null;
   max_images?: number | null;
   image_note?: Record<string, string> | null;
+  is_enabled?: boolean | null;
 }
 
 export async function createVariationType(input: VariationTypeCreateInput): Promise<VariationType> {
@@ -466,6 +482,8 @@ export interface Addon {
   min_images: number | null;
   max_images: number | null;
   image_note: Record<string, string> | null;
+  /** NULL/true = enabled (default); false hides it from customer flows. */
+  is_enabled: boolean | null;
 }
 
 export interface AddonCreateInput {
@@ -486,6 +504,7 @@ export interface AddonCreateInput {
   min_images?: number | null;
   max_images?: number | null;
   image_note?: Record<string, string> | null;
+  is_enabled?: boolean | null;
 }
 
 export interface AddonUpdateInput {
@@ -506,6 +525,7 @@ export interface AddonUpdateInput {
   min_images?: number | null;
   max_images?: number | null;
   image_note?: Record<string, string> | null;
+  is_enabled?: boolean | null;
 }
 
 export async function createAddon(input: AddonCreateInput): Promise<Addon> {
@@ -549,6 +569,8 @@ export interface AddonVariation {
   min_images: number | null;
   max_images: number | null;
   image_note: Record<string, string> | null;
+  /** NULL/true = enabled (default); false hides it from customer flows. */
+  is_enabled: boolean | null;
 }
 
 export interface AddonVariationCreateInput {
@@ -570,6 +592,7 @@ export interface AddonVariationCreateInput {
   min_images?: number | null;
   max_images?: number | null;
   image_note?: Record<string, string> | null;
+  is_enabled?: boolean | null;
 }
 
 export interface AddonVariationUpdateInput {
@@ -591,6 +614,7 @@ export interface AddonVariationUpdateInput {
   min_images?: number | null;
   max_images?: number | null;
   image_note?: Record<string, string> | null;
+  is_enabled?: boolean | null;
 }
 
 export async function createAddonVariation(input: AddonVariationCreateInput): Promise<AddonVariation> {
@@ -1028,6 +1052,8 @@ export interface GarmentRow {
   labels: unknown;
   gender: string | null;
   base_price: number | null;
+  /** NULL/true = enabled (default); false hides it from customer flows. */
+  is_enabled: boolean | null;
 }
 
 /** Fetch rows from a table with optional column filters + sort + pagination.
@@ -1393,6 +1419,8 @@ export interface CatalogVariationType {
   min_images: number | null;
   max_images: number | null;
   image_note: Record<string, string> | null;
+  /** NULL/true = enabled (default); false hides it from customer flows. */
+  is_enabled: boolean | null;
 }
 
 export interface CatalogVariation {
@@ -1411,6 +1439,8 @@ export interface CatalogVariation {
   min_images: number | null;
   max_images: number | null;
   image_note: Record<string, string> | null;
+  /** NULL/true = enabled (default); false hides it from customer flows. */
+  is_enabled: boolean | null;
 }
 
 export interface CatalogComponent {
@@ -1443,6 +1473,8 @@ export interface CatalogAddonVariation {
   min_images: number | null;
   max_images: number | null;
   image_note: Record<string, string> | null;
+  /** NULL/true = enabled (default); false hides it from customer flows. */
+  is_enabled: boolean | null;
 }
 
 export interface CatalogAddon {
@@ -1463,6 +1495,8 @@ export interface CatalogAddon {
   min_images: number | null;
   max_images: number | null;
   image_note: Record<string, string> | null;
+  /** NULL/true = enabled (default); false hides it from customer flows. */
+  is_enabled: boolean | null;
 }
 
 export interface GarmentTree {

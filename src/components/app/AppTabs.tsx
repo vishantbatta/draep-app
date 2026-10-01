@@ -49,6 +49,7 @@ import {
   User,
 } from "@/components/ui/icons";
 import { ordersApi } from "@/lib/api";
+import { listGarments } from "@/lib/api/catalog";
 import { track } from "@/lib/analytics";
 import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import { normalizePhoneInput } from "@/lib/phone";
@@ -56,7 +57,7 @@ import { msg91Enabled, otpLength, sendOtpViaMsg91, verifyOtpViaMsg91 } from "@/l
 import { displayOrderNumber, formatDate, slotVisitLabel } from "@/lib/order-display";
 import { formatPrice } from "@/lib/pricing";
 import { strings } from "@/lib/strings";
-import type { OrderListItem } from "@/types/api";
+import type { GarmentListItem, OrderListItem } from "@/types/api";
 
 /* ============================================================ */
 
@@ -252,6 +253,48 @@ function CreateTab() {
     setHeaderStep(step);
   }, []);
 
+  // ── Garment picker — step 0 of Create ───────────────────────────────
+  // The catalogue carries several garments; when more than one is enabled,
+  // Create opens on a picker and hands the chosen garment to the
+  // configurator. A single-garment catalogue skips the picker entirely —
+  // today's blouse-only behaviour. (The server already hides disabled
+  // garments from this list.)
+  const [garments, setGarments] = useState<GarmentListItem[] | null>(null);
+  const [garmentsError, setGarmentsError] = useState<string | null>(null);
+  const [picked, setPicked] = useState<GarmentListItem | null>(null);
+  const canPick = (garments?.length ?? 0) > 1;
+
+  const loadGarments = useCallback(async () => {
+    setGarments(null);
+    setGarmentsError(null);
+    try {
+      const list = await listGarments();
+      const items = list.items ?? [];
+      setGarments(items);
+      if (items.length === 1) setPicked(items[0]);
+    } catch (err) {
+      setGarmentsError(
+        err instanceof Error ? err.message : strings.myod.pickerEmpty,
+      );
+    }
+  }, []);
+  useEffect(() => {
+    void loadGarments();
+  }, [loadGarments]);
+
+  // Leave the configurator for the picker. MyodSheet unmounts (its session
+  // draft survives keyed by garment id) and the header drops back to the
+  // picker title — its reported step/back state is stale after unmount.
+  const backToPicker = useCallback(() => {
+    setPicked(null);
+    handleStepChange(null);
+    handleBackChange(null);
+  }, [handleStepChange, handleBackChange]);
+
+  // The header's Back button: step-back while inside the configurator,
+  // back-to-the-picker on its first step / while the tree loads.
+  const headerBackAction = headerBack.back ?? (picked && canPick ? backToPicker : null);
+
   return (
     <div className="flex h-full flex-col bg-warm-sand">
       {/* Navy header that doubles as the step banner — the badge/back row
@@ -279,10 +322,10 @@ function CreateTab() {
           }
         >
           <div className="flex items-center justify-between gap-3">
-            {headerBack.back ? (
+            {headerBackAction ? (
               <button
                 type="button"
-                onClick={headerBack.back}
+                onClick={headerBackAction}
                 className="flex flex-none items-center gap-1 rounded-pill px-1 py-1.5 text-caption font-medium text-chalk-white transition-opacity ease-brand active:opacity-70"
               >
                 <ArrowLeft size={14} />
@@ -304,7 +347,8 @@ function CreateTab() {
             )}
           </div>
           {/* Component photo left, name + description right — the banner
-              mirrors the catalogue card for the step's component. */}
+              mirrors the catalogue card for the step's component. In the
+              picker state (no garment yet) it's just the picker title. */}
           <div className="flex items-center gap-3.5">
             {headerStep?.image ? (
               <img
@@ -316,10 +360,20 @@ function CreateTab() {
             ) : null}
             <div className="min-w-0">
               <h2 className="font-heading text-h1 font-semibold leading-tight text-chalk-white">
-                {headerStep?.title ?? strings.myod.sheetTitle}
+                {!picked
+                  ? strings.myod.pickerTitle
+                  : headerStep?.title ?? strings.myod.sheetTitle}
               </h2>
-              {headerStep?.description && (
-                <HeaderDescription text={headerStep.description} />
+              {!picked ? (
+                // Fixed one-liner — no expander (HeaderDescription's font-load
+                // measurement shows a spurious "Read more" on short text).
+                <p className="max-w-[340px] text-caption leading-relaxed text-chalk-white/85">
+                  {strings.myod.pickerBody}
+                </p>
+              ) : (
+                headerStep?.description && (
+                  <HeaderDescription text={headerStep.description} />
+                )
               )}
             </div>
           </div>
@@ -328,14 +382,129 @@ function CreateTab() {
         <div aria-hidden className="lp-tape-strip absolute inset-x-0 bottom-0 z-10" />
       </header>
 
-      {/* Body: the configurator */}
+      {/* Body: garment picker first, then the configurator for the pick */}
       <div className="min-h-0 flex-1 overflow-y-auto pt-4">
-        <MyodSheet
-          footerInset={TAB_BAR_INSET}
-          onBackChange={handleBackChange}
-          onStepChange={handleStepChange}
-        />
+        {picked ? (
+          <MyodSheet
+            key={picked.id}
+            garmentId={picked.id}
+            footerInset={TAB_BAR_INSET}
+            onBackChange={handleBackChange}
+            onStepChange={handleStepChange}
+          />
+        ) : (
+          <GarmentPicker
+            garments={garments}
+            error={garmentsError}
+            onRetry={() => void loadGarments()}
+            onPick={setPicked}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Step 0 of Create — one card per enabled garment (image, name, gender,
+ * starting price). Only mounted when the catalogue offers a choice; a
+ * single enabled garment is auto-picked and never shown.
+ */
+function GarmentPicker({
+  garments,
+  error,
+  onRetry,
+  onPick,
+}: {
+  garments: GarmentListItem[] | null;
+  error: string | null;
+  onRetry: () => void;
+  onPick: (g: GarmentListItem) => void;
+}) {
+  if (error) {
+    return (
+      <div className="mx-auto flex w-full max-w-column flex-col items-center gap-3 px-4 py-10 text-center">
+        <p className="text-body text-muted">{error}</p>
+        <Button variant="secondary" onClick={onRetry}>
+          {strings.myod.pickerRetry}
+        </Button>
+      </div>
+    );
+  }
+  if (!garments) {
+    return (
+      <p className="px-4 py-10 text-center text-body text-muted">
+        {strings.myod.loadingTree}
+      </p>
+    );
+  }
+  if (garments.length === 0) {
+    return (
+      <p className="px-4 py-10 text-center text-body text-muted">
+        {strings.myod.pickerEmpty}
+      </p>
+    );
+  }
+  return (
+    <div className="mx-auto flex w-full max-w-column flex-col gap-3 px-4 pb-6">
+      {garments.map((g) => {
+        const label =
+          g.labels?.en ??
+          Object.values(g.labels ?? {})[0] ??
+          g.slug ??
+          g.id;
+        const desc =
+          g.descriptions?.en ??
+          Object.values(g.descriptions ?? {})[0] ??
+          null;
+        const img = g.asset_urls?.[0] ?? null;
+        return (
+          <button
+            key={g.id}
+            type="button"
+            onClick={() => onPick(g)}
+            className="group flex w-full items-center gap-3.5 overflow-hidden rounded-card border border-hairline bg-chalk-white p-3 text-left shadow-card transition-all ease-brand active:scale-[0.99] active:shadow-brand"
+          >
+            <div className="h-28 w-28 flex-none overflow-hidden rounded-card bg-mist-navy">
+              {img ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={img}
+                  alt={label}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div
+                  className="flex h-full w-full items-center justify-center text-muted"
+                  style={{ backgroundImage: "linear-gradient(135deg,#EAF0F8,#FFF6EA)" }}
+                >
+                  <Sparkles size={26} />
+                </div>
+              )}
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5 self-stretch py-0.5">
+              <p className="font-heading text-[15px] font-semibold leading-snug text-ink-navy">
+                {label}
+              </p>
+              {desc && (
+                <p className="line-clamp-3 text-[12.5px] leading-snug text-muted">
+                  {desc}
+                </p>
+              )}
+              {g.base_price != null && (
+                <div className="mt-auto flex flex-wrap items-center gap-1.5">
+                  <span className="rounded-pill bg-warm-sand px-2 py-0.5 text-[11px] font-medium text-ink-navy">
+                    {strings.myod.pickerFromPrice} {formatPrice(g.base_price)}
+                  </span>
+                </div>
+              )}
+            </div>
+            <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-warm-sand text-ink-navy transition-transform ease-brand active:scale-90">
+              <ChevronRight size={14} />
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
