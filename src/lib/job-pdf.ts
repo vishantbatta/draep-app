@@ -486,7 +486,9 @@ function bodyMeasurementsPage(
 //                           Selected Descriptions (every language, catalogue
 //                           titles + descriptions resolved by the caller)
 //   2.2 DESIGN INSPIRATION — customer photos, explicitly framed as reference
-//                           only ("not to be copied as-is")
+//                           only ("not to be copied as-is"), followed by the
+//                           garment photos captured during the measurement
+//                           job (material rows' asset_urls)
 //   2.3 GARMENT MEASUREMENTS — this instance's readings: table with the
 //                           metric image, titles, descriptions, big value
 //   2.4 CLOTH & MATERIALS  — color banners / photos per material
@@ -749,6 +751,35 @@ function inspirationHtml(style: StyleSelectionGroup): string {
   `;
 }
 
+/** Garment photos captured during the measurement job — the material rows'
+ *  asset_urls, deduped. Rendered inside the Design Inspiration section right
+ *  after the customer-shared photos, under its own source caption. Kept as a
+ *  separate atomic block from inspirationHtml so the packing can move it to
+ *  the next page instead of cropping an oversized combined block. */
+function capturedPhotosHtml(group: GarmentMeasurementGroup, garmentLabel: string): string {
+  const urls = [
+    ...new Set(
+      group.materials.flatMap((m) =>
+        (m.asset_urls ?? []).filter((u): u is string => Boolean(u)),
+      ),
+    ),
+  ];
+  if (urls.length === 0) return "";
+  return `
+    <div class="insp-source-label">${upper("Captured during measurement visit")}</div>
+    <div class="photo-grid">
+      ${urls
+        .map(
+          (u) =>
+            `<img src="${absUrl(u)}"
+                   data-pdf-src="${esc(u)}"
+                   alt="${esc(garmentLabel)} captured during measurement visit" />`,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
 /** One material card — color banner, dimensions, photos (as on the old
  *  garment-details page, so no fabric information is lost in the merge). */
 function materialCardHtml(
@@ -843,10 +874,22 @@ function buildGarmentSectionBlocks(
       });
     }
 
-    // 2.2 Design inspiration (only when photos exist — with the disclaimer).
+    // 2.2 Design inspiration (only when photos exist — with the disclaimer),
+    // followed by the photos captured during the measurement job. Two
+    // separate blocks: each packs whole, so a long combined run splits
+    // across pages instead of cropping. The captured block carries the
+    // section label only when it has no customer-photos sibling above it.
     const insp = inspirationHtml(style);
     if (insp) {
       blocks.push({ label: "Design Inspiration", kind: "atomic", html: insp });
+    }
+    const captured = capturedPhotosHtml(group, garmentLabel);
+    if (captured) {
+      blocks.push({
+        label: insp ? "" : "Design Inspiration",
+        kind: "atomic",
+        html: captured,
+      });
     }
   }
 
@@ -2468,6 +2511,19 @@ const PRINT_CSS = `
     color: #475569;
     background: rgba(255,255,255,0.7);
     text-shadow: none;
+  }
+
+  /* Source caption inside the Design Inspiration block ("Captured during
+     measurement visit") — lighter than .style-section-label, no rule line. */
+  .insp-source-label {
+    font-size: 9pt;
+    font-weight: 700;
+    /* text-transform removed: html2canvas ignores it and mis-measures
+       uppercased glyphs, clipping them. Text is uppercased at the source
+       via upper() instead, so measurement and rendering match. */
+    letter-spacing: 1pt;
+    color: #94a3b8;
+    margin: 10pt 0 6pt 0;
   }
 
   .photo-grid {
