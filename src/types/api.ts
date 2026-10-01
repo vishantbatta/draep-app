@@ -394,12 +394,26 @@ export interface OrderDetailGarmentOrder {
   assets: string[];
 }
 
+/** One matched target line inside a garment — the engine's snapshot of
+ *  WHAT a coupon/sale discount hit ("Sleeve · Sleeveless"). Amounts are
+ *  positive magnitudes; the parent row carries the sign. */
+export interface OrderDetailAdjustmentLine {
+  label: string | null;
+  amount: number;
+}
+
 export interface OrderDetailAdjustment {
   label: string | null;
   type: string | null; // discount | fee
   amount: number;
   /** Provenance: manual (admin) | cod (booking-advance fee) | coupon | sale */
   source: string | null;
+  /** Coupon code / sale promo id — the promo-group key in the summary. */
+  source_ref?: string | null;
+  /** NULL => whole-order scope; set => this row discounts that garment. */
+  garment_order_id?: string | null;
+  /** Matched lines inside the garment (engine-authored rows only). */
+  detail?: OrderDetailAdjustmentLine[] | null;
 }
 
 // ─── Promotions (be/app/services/promotions.py) ──────────────────────────────

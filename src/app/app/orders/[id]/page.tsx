@@ -109,11 +109,131 @@ import type {
   ActiveSale,
   Address,
   CustomerOrderDetail,
+  OrderDetailAdjustment,
   OrderDetailGarmentOrder,
   OrderDetailItem,
   OrderOut,
   PromoDroppedDecision,
 } from "@/types/api";
+
+/* ─── Payment-summary adjustment grouping ─────────────────────────────────── */
+
+/** A render model for one payment-summary discount/fee entry.
+ *  Engine rows (coupon/sale) collapse into ONE group per code so the
+ *  summary can spell out WHERE each rupee came off; manual/COD rows stay
+ *  flat, exactly as before. */
+type SummaryAdjItem =
+  | { kind: "flat"; label: string; amount: number }
+  | {
+      kind: "promo";
+      /** Stable key for the collapse toggle ("coupon:CODE" / "sale:id"). */
+      groupKey: string;
+      source: "coupon" | "sale";
+      /** Coupon code for the mono chip; sales have none (label instead). */
+      code: string | null;
+      /** Promo display label, e.g. "Purva Skywood". */
+      label: string | null;
+      /** Signed group total (discounts negative). */
+      amount: number;
+      /** One panel per garment the promo touched (null = whole order).
+       *  Each carries the garment's subtotal and its matched lines —
+       *  item.label null means the whole garment IS the target. */
+      targets: {
+        garment: string | null;
+        items: { label: string | null; amount: number }[];
+      }[];
+    };
+
+/** Group engine adjustment rows by promotion; everything else stays flat.
+ *  Rows carry the engine's target snapshot (detail) and garment link; old
+ *  rows without either degrade to the garment name, then the promo label. */
+function buildAdjustmentGroups(
+  adjustments: OrderDetailAdjustment[],
+  garmentLabelById: Map<string, string | null>,
+): SummaryAdjItem[] {
+  const items: SummaryAdjItem[] = [];
+  const groups = new Map<
+    string,
+    Extract<SummaryAdjItem, { kind: "promo" }>
+  >();
+  for (const a of adjustments) {
+    if (a.source !== "coupon" && a.source !== "sale") {
+      items.push({
+        kind: "flat",
+        label:
+          a.label ??
+          (a.type === "discount"
+            ? "Discount"
+            : a.type === "fee"
+              ? "Fee"
+              : "Adjustment"),
+        amount: a.amount,
+      });
+      continue;
+    }
+    const key = `${a.source}:${a.source_ref ?? a.label ?? ""}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        kind: "promo",
+        groupKey: key,
+        source: a.source,
+        code: a.source === "coupon" ? (a.source_ref ?? null) : null,
+        label: a.label,
+        amount: 0,
+        targets: [],
+      };
+      groups.set(key, group);
+      items.push(group); // first appearance fixes render order
+    }
+    group.amount += a.amount;
+    const garment = a.garment_order_id
+      ? (garmentLabelById.get(a.garment_order_id) ?? a.label ?? null)
+      : null;
+    const lines = a.detail?.length
+      ? a.detail.map((ln) => ({
+          label: ln.label ?? null,
+          amount: Math.abs(ln.amount),
+        }))
+      : [{ label: null, amount: Math.abs(a.amount) }];
+    // consecutive rows for the same garment (multi target-groups) share
+    // one panel so its subtotal stays the garment's real saving
+    const last = group.targets[group.targets.length - 1];
+    if (last && last.garment === garment) {
+      last.items.push(...lines);
+    } else {
+      group.targets.push({ garment, items: lines });
+    }
+  }
+  return items;
+}
+
+/** Garment-order id → display label for the promo sub-lines. Repeated
+ *  labels (two blouses in one order) get an occurrence number so
+ *  "on Blouse 1 · Sleeve style" / "on Blouse 2 · Sleeve style" stay
+ *  unambiguous — display-only, the garment cards keep plain labels. */
+function buildGarmentLabelIndex(
+  garmentOrders: OrderDetailGarmentOrder[],
+): Map<string, string | null> {
+  const label = (g: OrderDetailGarmentOrder) => g.garment_label ?? "Garment";
+  const totals = new Map<string, number>();
+  for (const g of garmentOrders) {
+    totals.set(label(g), (totals.get(label(g)) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  const out = new Map<string, string | null>();
+  for (const g of garmentOrders) {
+    const base = label(g);
+    if ((totals.get(base) ?? 0) > 1) {
+      const n = (seen.get(base) ?? 0) + 1;
+      seen.set(base, n);
+      out.set(g.id, `${base} ${n}`);
+    } else {
+      out.set(g.id, base);
+    }
+  }
+  return out;
+}
 
 /* ─── Row renderers ───────────────────────────────────────────────────────── */
 
@@ -695,6 +815,10 @@ function OrderDetailContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  // Collapsed promo groups in the payment summary (key = source:code).
+  const [collapsedPromos, setCollapsedPromos] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   /* ── Address + slot finish flow: deliver-to card → Continue → slot sheet,
      then the Pay-to-Book CTA once a visit is booked ────────────────────── */
@@ -1044,6 +1168,8 @@ function OrderDetailContent() {
     .join(" · ");
 
   const orderAdjustments = detail.adjustments.filter((a) => a.amount !== 0);
+  // Garment-order id → display label, for the promo sub-lines ("on Blouse").
+  const garmentLabelById = buildGarmentLabelIndex(detail.garment_orders);
   // The stored total is already net of the adjustment rows (discounts
   // subtracted, fees added) — adding them back recovers the pre-adjustment
   // top line the payment summary leads with.
@@ -1847,26 +1973,117 @@ function OrderDetailContent() {
         <div className="mt-2">
           {/* Order total leads with the pre-adjustment sum; discounts and
               fees follow as signed rows, so the card reads top-down:
-              gross − discounts + fees − paid = balance due. */}
+              gross − discounts + fees − paid = balance due. Engine rows
+              (coupon/sale) group into one entry per promo with a sub-line
+              per garment/selection hit. */}
           <SummaryRow
             label={strings.orderDetail.total}
             value={formatPrice(grossTotal)}
             strong
           />
-          {orderAdjustments.map((a, idx) => (
-            <SummaryRow
-              key={idx}
-              label={
-                a.label ??
-                (a.type === "discount"
-                  ? "Discount"
-                  : a.type === "fee"
-                    ? "Fee"
-                    : "Adjustment")
-              }
-              value={`${a.amount < 0 ? "−" : "+"}${formatPrice(Math.abs(a.amount))}`}
-            />
-          ))}
+          {buildAdjustmentGroups(orderAdjustments, garmentLabelById).map(
+            (item, idx) =>
+              item.kind === "flat" ? (
+                <SummaryRow
+                  key={idx}
+                  label={item.label}
+                  value={`${item.amount < 0 ? "−" : "+"}${formatPrice(Math.abs(item.amount))}`}
+                />
+              ) : (
+                <div key={idx} className="py-1.5">
+                  {/* Header doubles as the expand/collapse toggle — the
+                      chevron signals the target breakdown is tucked inside. */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCollapsedPromos((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(item.groupKey)) next.delete(item.groupKey);
+                        else next.add(item.groupKey);
+                        return next;
+                      })
+                    }
+                    aria-expanded={!collapsedPromos.has(item.groupKey)}
+                    className="flex w-full items-center justify-between gap-3 text-left"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      {item.code && (
+                        <span className="flex-none rounded-pill border border-hairline-strong bg-chalk-white px-2 py-0.5 font-mono text-[11px] tracking-wide text-ink-navy">
+                          {item.code}
+                        </span>
+                      )}
+                      <span className="min-w-0 truncate text-body text-ink/85">
+                        {item.code
+                          ? item.label ?? ""
+                          : item.label ?? strings.orderDetail.saleLabelFallback}
+                      </span>
+                    </span>
+                    <span className="flex flex-none items-center gap-1">
+                      <span className="font-mono text-data text-ink-navy">
+                        {`${item.amount < 0 ? "−" : "+"}${formatPrice(Math.abs(item.amount))}`}
+                      </span>
+                      <ChevronDown
+                        size={14}
+                        aria-hidden
+                        className={`flex-none text-muted transition-transform duration-200 ${
+                          collapsedPromos.has(item.groupKey) ? "" : "rotate-180"
+                        }`}
+                      />
+                    </span>
+                  </button>
+                  {/* WHERE it discounted — one warm-sand panel per garment,
+                      brand-tape rule on the left: garment + its subtotal,
+                      then the matched selection lines beneath. */}
+                  {!collapsedPromos.has(item.groupKey) && (
+                    <div className="mt-1.5 space-y-1.5">
+                      {item.targets.map((tg, i) => {
+                        const subtotal = tg.items.reduce(
+                          (s, it) => s + it.amount,
+                          0,
+                        );
+                        const lines = tg.items.filter((it) => it.label);
+                        return (
+                          <div
+                            key={i}
+                            className="flex overflow-hidden rounded-card bg-warm-sand/70"
+                          >
+                            <span aria-hidden className="w-1 flex-none bg-tape" />
+                            <div className="min-w-0 flex-1 px-3 py-2">
+                              <div className="flex items-baseline justify-between gap-3">
+                                <span className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-navy/80">
+                                  {tg.garment ??
+                                    strings.orderDetail.entireOrderTarget}
+                                </span>
+                                <span className="flex-none font-mono text-[12px] font-medium tabular-nums text-ink-navy">
+                                  −{formatPrice(subtotal)}
+                                </span>
+                              </div>
+                              {lines.length > 0 && (
+                                <div className="mt-1 space-y-0.5 border-l border-hairline pl-2.5">
+                                  {lines.map((it, j) => (
+                                    <div
+                                      key={j}
+                                      className="flex items-baseline justify-between gap-3"
+                                    >
+                                      <span className="min-w-0 truncate text-caption text-ink/70">
+                                        {it.label}
+                                      </span>
+                                      <span className="flex-none font-mono text-[12px] tabular-nums text-ink-navy/80">
+                                        −{formatPrice(it.amount)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ),
+          )}
           {/* Invoice-style ledger: price build-up and paid rows run as plain
               ledger lines, then a hairline, then the emphasized balance. */}
           <SummaryRow
