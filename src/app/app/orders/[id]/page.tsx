@@ -815,8 +815,10 @@ function OrderDetailContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
-  // Collapsed promo groups in the payment summary (key = source:code).
-  const [collapsedPromos, setCollapsedPromos] = useState<Set<string>>(
+  // Expanded promo groups in the payment summary (key = source:code).
+  // Inverted set: an empty set means every coupon starts COLLAPSED on
+  // page load; toggling a row adds it here to reveal its breakdown.
+  const [expandedPromos, setExpandedPromos] = useState<Set<string>>(
     () => new Set(),
   );
 
@@ -1996,14 +1998,14 @@ function OrderDetailContent() {
                   <button
                     type="button"
                     onClick={() =>
-                      setCollapsedPromos((prev) => {
+                      setExpandedPromos((prev) => {
                         const next = new Set(prev);
                         if (next.has(item.groupKey)) next.delete(item.groupKey);
                         else next.add(item.groupKey);
                         return next;
                       })
                     }
-                    aria-expanded={!collapsedPromos.has(item.groupKey)}
+                    aria-expanded={expandedPromos.has(item.groupKey)}
                     className="flex w-full items-center justify-between gap-3 text-left"
                   >
                     <span className="flex min-w-0 items-center gap-2">
@@ -2026,7 +2028,7 @@ function OrderDetailContent() {
                         size={14}
                         aria-hidden
                         className={`flex-none text-muted transition-transform duration-200 ${
-                          collapsedPromos.has(item.groupKey) ? "" : "rotate-180"
+                          expandedPromos.has(item.groupKey) ? "rotate-180" : ""
                         }`}
                       />
                     </span>
@@ -2034,7 +2036,7 @@ function OrderDetailContent() {
                   {/* WHERE it discounted — one warm-sand panel per garment,
                       brand-tape rule on the left: garment + its subtotal,
                       then the matched selection lines beneath. */}
-                  {!collapsedPromos.has(item.groupKey) && (
+                  {expandedPromos.has(item.groupKey) && (
                     <div className="mt-1.5 space-y-1.5">
                       {item.targets.map((tg, i) => {
                         const subtotal = tg.items.reduce(
