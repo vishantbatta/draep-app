@@ -21,6 +21,7 @@ import {
   fetchGarmentOrderItems,
   fetchGarmentOrdersForOrder,
   fetchJobsForOrder,
+  fetchOrderGarmentMaterials,
   fetchTableRows,
   fetchUserById,
   getAdminToken,
@@ -28,6 +29,7 @@ import {
   type AdminJobChecklist,
   type ChecklistMetric,
   type GarmentOrderItemRow,
+  type GarmentOrderMaterialRow,
   type MeasurementJobRow,
   type OrderRow,
 } from "@/lib/admin-api";
@@ -297,7 +299,7 @@ export default function HubQcToolPage() {
       const uniqueGarmentIds = [
         ...new Set(goRows.map((g) => g.garment_id).filter(Boolean)),
       ] as string[];
-      const [itemsByGo, catalogRows] = await Promise.all([
+      const [itemsByGo, catalogRows, materialRows] = await Promise.all([
         Promise.all(
           goRows.map((g) =>
             fetchGarmentOrderItems(g.id).catch(
@@ -315,10 +317,21 @@ export default function HubQcToolPage() {
               .catch(() => null),
           ),
         ),
+        fetchOrderGarmentMaterials(found.id).catch(
+          () => [] as GarmentOrderMaterialRow[],
+        ),
       ]);
       const catalogById = new Map(
         catalogRows.filter(Boolean).map((c) => [c!.id, c!]),
       );
+      // Photos captured during the measurement visit (cloth/addon material
+      // shots), grouped per garment order.
+      const materialPhotosByGo = new Map<string, string[]>();
+      for (const m of materialRows) {
+        const list = materialPhotosByGo.get(m.garment_order_id) ?? [];
+        list.push(...(m.asset_urls ?? []));
+        materialPhotosByGo.set(m.garment_order_id, list);
+      }
 
       const cards: GarmentCard[] = goRows.map((go, i) => {
         const catalog = catalogById.get(go.garment_id);
@@ -327,11 +340,16 @@ export default function HubQcToolPage() {
         )?.label;
         const label =
           clLabel ?? catalog?.labels?.en ?? catalog?.slug ?? `Garment ${i + 1}`;
+        // Real photos first — inspiration shared while ordering, reference
+        // photos on selections, then the garment/cloth shots taken during
+        // the measurement visit. The catalog image is only a fallback when
+        // the order carries no photos at all.
         const raw = [
-          (catalog?.asset_urls ?? [])[0],
           ...(go.assets_shared ?? []),
           ...itemsByGo[i].flatMap((it) => it.images ?? []),
+          ...(materialPhotosByGo.get(go.id) ?? []),
         ].filter((u): u is string => !!u);
+        if (raw.length === 0) raw.push((catalog?.asset_urls ?? [])[0] ?? "");
         const images = [
           ...new Set(raw.map((u) => resolveAssetUrl(u)).filter((u): u is string => !!u)),
         ];
@@ -921,15 +939,22 @@ export default function HubQcToolPage() {
                 >
                   <div className="flex h-36 items-center justify-center gap-1 overflow-hidden bg-mist-navy/40 p-2">
                     {g.images.length > 0 ? (
-                      g.images.slice(0, 3).map((src, i) => (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          key={src + i}
-                          src={src}
-                          alt=""
-                          className="h-full max-w-[33%] rounded-md object-cover"
-                        />
-                      ))
+                      <>
+                        {g.images.slice(0, 4).map((src, i) => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            key={src + i}
+                            src={src}
+                            alt=""
+                            className="h-full max-w-[25%] rounded-md object-cover"
+                          />
+                        ))}
+                        {g.images.length > 4 && (
+                          <span className="flex h-full items-center justify-center px-1 font-mono text-[11px] text-muted">
+                            +{g.images.length - 4}
+                          </span>
+                        )}
+                      </>
                     ) : (
                       <span className="text-[11px] text-muted">No images</span>
                     )}
