@@ -1252,30 +1252,46 @@ const MATERIALS_LABEL_BLOCK = `
   <div class="style-section-label">${upper("Materials Required")}</div>
   <div class="gs-note">These selections need material from the customer — tick each one off as you collect it before stitching begins.</div>`;
 
-/** One checklist card: empty tick-box on the left, the entity's details
- *  compressed into crisp lines on the right (title + add-on badge, garment ·
- *  placement context, native names, blurb, per-language descriptions). */
+/** The table head — re-printed on every Materials Required page so a
+ *  continuation page is still readable standalone. */
+const MATERIALS_THEAD_HTML = `
+  <thead class="mat-thead">
+    <tr>
+      <th class="w-check"></th>
+      <th class="w-item">${upper("Item")}</th>
+      <th class="w-garment">${upper("Garment")}</th>
+      <th class="w-place">${upper("Placement")}</th>
+      <th class="w-remark">${upper("Remark (what to bring)")}</th>
+    </tr>
+  </thead>`;
+
+/** One table row: tick-box, item details (title + add-on badge, natives,
+ *  blurb, descriptions), garment, placement, and the computed remark. */
 function materialsChecklistItemHtml(item: MaterialsChecklistItem): string {
   return `
-    <div class="mat-item">
-      <div class="mat-check"></div>
-      <div class="mat-body">
+    <tr class="mat-row">
+      <td class="mat-check-cell"><div class="mat-check"></div></td>
+      <td class="mat-item-cell">
         <div class="mat-title-row">
           <div class="mat-title">${esc(item.title)}</div>
           ${item.isAddon ? `<div class="mat-addon">${upper("Add-on")}</div>` : ""}
         </div>
-        <div class="mat-context">${esc(item.context)}</div>
         ${item.native ? `<div class="mat-native">${esc(item.native)}</div>` : ""}
         ${item.blurb ? `<div class="mat-blurb">${esc(item.blurb)}</div>` : ""}
         ${item.descs.map((d) => `<div class="mat-desc">${esc(d)}</div>`).join("")}
-      </div>
-    </div>
+      </td>
+      <td class="mat-plain">${esc(item.garment)}</td>
+      <td class="mat-plain">${item.placement ? esc(item.placement) : "—"}</td>
+      <td class="mat-remark-cell">${
+        item.remark ? esc(item.remark) : `<span class="mat-none">—</span>`
+      }</td>
+    </tr>
   `;
 }
 
-/** Probe-measure the checklist cards in an offscreen document (same pattern
- *  as measureGarmentSections) and greedy-plan its pages. Returns null when
- *  there is nothing to render. */
+/** Probe-measure the Materials Required table in an offscreen document (same
+ *  pattern as measureGarmentSections) and greedy-plan its pages. Returns
+ *  null when there is nothing to render. */
 async function measureMaterialsRequiredSection(
   items: MaterialsChecklistItem[],
 ): Promise<{ pages: number[][] } | null> {
@@ -1300,7 +1316,9 @@ async function measureMaterialsRequiredSection(
       <div class="page-num">Page 1 of 1</div>
     </header>
     ${MATERIALS_LABEL_BLOCK}
-    <div class="mat-list">${items.map((it) => materialsChecklistItemHtml(it)).join("")}</div>
+    <table class="mat-table">${MATERIALS_THEAD_HTML}
+      <tbody>${items.map((it) => materialsChecklistItemHtml(it)).join("")}</tbody>
+    </table>
     ${gsFooterHtml(1, 1)}
   </section>
 </body>
@@ -1327,20 +1345,27 @@ async function measureMaterialsRequiredSection(
         .height ?? 0;
     const labelH = blockH(sec.querySelector(".style-section-label")) +
       blockH(sec.querySelector(".gs-note"));
-    const itemHeights = Array.from(
-      sec.querySelectorAll(".mat-item"),
+    const theadH = blockH(sec.querySelector(".mat-thead"));
+    const rowHeights = Array.from(
+      sec.querySelectorAll(".mat-row"),
     ).map((el) => blockH(el as HTMLElement));
 
     const budget = GS_PAGE_CONTENT_H - headerH - footerH - GS_SAFETY;
-    return { pages: planMaterialsPages(itemHeights, { budget, labelHeight: labelH }) };
+    return {
+      pages: planMaterialsPages(rowHeights, {
+        budget,
+        labelHeight: labelH,
+        theadHeight: theadH,
+      }),
+    };
   } finally {
     if (holder.parentNode) holder.parentNode.removeChild(holder);
   }
 }
 
 /** Emit the planned Materials Required pages: header + footer on every page,
- *  label + intro on the first (matches the planner's accounting exactly —
- *  checklist cards carry no repeating header). */
+ *  the table head on every page, label + intro on the first (matches the
+ *  planner's accounting exactly). */
 function materialsRequiredPages(
   items: MaterialsChecklistItem[],
   pages: number[][],
@@ -1358,9 +1383,11 @@ function materialsRequiredPages(
             <div class="page-num">Page ${current} of ${totalPageCount}</div>
           </header>
           ${pi === 0 ? MATERIALS_LABEL_BLOCK : ""}
-          <div class="mat-list">${indices
-        .map((ii) => materialsChecklistItemHtml(items[ii]))
-        .join("")}</div>
+          <table class="mat-table">${MATERIALS_THEAD_HTML}
+            <tbody>${indices
+          .map((ii) => materialsChecklistItemHtml(items[ii]))
+          .join("")}</tbody>
+          </table>
           ${gsFooterHtml(current, totalPageCount)}
         </section>
       `;
@@ -1924,11 +1951,26 @@ export async function downloadMeasurementJobPdf(
 
 // ─── Internal helpers ────────────────────────────────────────────────────
 
-/** Yield to the browser so it can paint pending UI updates. */
-function nextPaint(): Promise<void> {
+/** Yield to the browser so it can paint pending UI updates.
+ *
+ *  Double rAF alone is NOT enough: hidden/backgrounded tabs pause
+ *  requestAnimationFrame entirely, which used to hang PDF generation at
+ *  "Laying out garment sections…" (or truncate it) whenever the admin
+ *  switched tabs during the ~30-60s build. The paint wait therefore races
+ *  a timeout — a visible tab still gets the crisp after-paint timing, a
+ *  hidden tab falls through after the timeout and measures via forced
+ *  reflow (getBoundingClientRect works without paints). */
+function nextPaint(timeoutMs = 350): Promise<void> {
   return new Promise((resolve) => {
-    // Double rAF: first schedules the paint, second fires after the paint.
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(settle, timeoutMs);
+    requestAnimationFrame(() => requestAnimationFrame(settle));
   });
 }
 
@@ -2756,42 +2798,59 @@ const PRINT_CSS = `
   }
   .gs-desc-line:first-child { margin-top: 0; }
 
-  /* ─── Materials Required checklist (order-level) ─────────────────────────
-     One card per flagged selection: tick-box + crisp detail lines. Same
-     html2canvas constraints as everywhere: no text-transform (upper() at
-     source), flex children instead of inline-block pills, explicit sizes.
-     The card's margin-bottom is included in its measured height (blockH in
-     measureMaterialsRequiredSection), so the planner accounts for the
-     inter-card gap; the last card's trailing margin is absorbed by
-     GS_SAFETY. */
-  .mat-list { margin-top: 2pt; }
-  .mat-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 12pt;
-    padding: 12pt 14pt;
-    border: 1pt solid #e2e8f0;
-    border-radius: 6pt;
-    background: #ffffff;
-    margin-bottom: 10pt;
+  /* ─── Materials Required table (order-level) ─────────────────────────────
+     One row per flagged selection: tick-box | item details | garment |
+     placement | remark. Same html2canvas constraints as everywhere: no
+     text-transform (upper() at source), flex children instead of
+     inline-block pills, explicit sizes, table-layout:fixed + percentage
+     widths so html2canvas lays the columns out identically to the probe.
+     The thead height + each row's height are measured (blockH in
+     measureMaterialsRequiredSection) and fed to the planner. */
+  .mat-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin-top: 2pt;
   }
+  .mat-table th.w-check { width: 5%; }
+  .mat-table th.w-item { width: 37%; }
+  .mat-table th.w-garment { width: 11%; }
+  .mat-table th.w-place { width: 14%; }
+  .mat-table th.w-remark { width: 33%; }
+  .mat-thead th {
+    font-size: 7.5pt;
+    font-weight: 700;
+    color: #475569;
+    text-align: left;
+    background: #f1f5f9;
+    border-bottom: 1pt solid #cbd5e1;
+    padding: 5pt 7pt;
+    letter-spacing: 0.4pt;
+  }
+  .mat-row td {
+    vertical-align: top;
+    padding: 7pt;
+    border-bottom: 1pt solid #e2e8f0;
+    font-size: 8.5pt;
+    color: #334155;
+    line-height: 1.45;
+  }
+  .mat-check-cell { padding-top: 9pt !important; }
   .mat-check {
-    flex: 0 0 auto;
-    width: 13pt;
-    height: 13pt;
+    width: 12pt;
+    height: 12pt;
     border: 1.5pt solid #475569;
-    border-radius: 3pt;
-    margin-top: 3pt;
+    border-radius: 2.5pt;
+    background: #ffffff;
   }
-  .mat-body { flex: 1 1 auto; }
   .mat-title-row {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 10pt;
+    gap: 8pt;
   }
   .mat-title {
-    font-size: 12pt;
+    font-size: 10.5pt;
     font-weight: 700;
     color: #0f172a;
     line-height: 1.3;
@@ -2799,39 +2858,44 @@ const PRINT_CSS = `
   }
   .mat-addon {
     flex: 0 0 auto;
-    font-size: 7.5pt;
+    font-size: 7pt;
     font-weight: 700;
     color: #ffffff;
     background: #6d28d9;
-    padding: 2.5pt 10pt;
+    padding: 2pt 8pt;
     border-radius: 3pt;
     white-space: nowrap;
     letter-spacing: 0;
   }
-  .mat-context {
-    font-size: 9pt;
-    color: #475569;
-    line-height: 1.4;
-    margin-top: 3pt;
-  }
   .mat-native {
-    font-size: 9pt;
+    font-size: 8.5pt;
     color: #64748b;
     line-height: 1.4;
     margin-top: 2pt;
+    word-break: break-word;
   }
   .mat-blurb {
-    font-size: 8.5pt;
+    font-size: 8pt;
     color: #94a3b8;
     line-height: 1.4;
-    margin-top: 3pt;
+    margin-top: 2pt;
+    word-break: break-word;
   }
   .mat-desc {
-    font-size: 8.5pt;
+    font-size: 8pt;
     color: #64748b;
-    line-height: 1.5;
-    margin-top: 3pt;
+    line-height: 1.45;
+    margin-top: 2pt;
+    word-break: break-word;
   }
+  .mat-plain { word-break: break-word; }
+  .mat-remark-cell {
+    color: #4c1d95;
+    font-weight: 600;
+    background: #f5f3ff;
+    word-break: break-word;
+  }
+  .mat-none { color: #cbd5e1; font-weight: 400; }
 
   /* 2.3 measurement image rail (canvases = pre-rasterized by
      inlineImagesAsCanvases before html2canvas runs). */

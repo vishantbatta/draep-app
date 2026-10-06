@@ -14,6 +14,7 @@ import {
   fetchGarments,
   fetchMeasurementMetrics,
   fetchJobReadings,
+  previewMaterialScript,
   fetchOrderGarmentOrders,
   fetchOrderGarmentMaterials,
   resolveAssetUrl,
@@ -77,6 +78,7 @@ import {
   type StyleItemDetail,
 } from "@/lib/job-pdf";
 import type { MaterialsRequiredSourceItem } from "@/lib/materials-required";
+import { buildScriptValues, pickRemarkScript } from "@/lib/material-script";
 import { GarmentSelectionSheet } from "@/components/admin/GarmentSelectionSheet";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { GarmentOrderAssets } from "./GarmentOrderAssets";
@@ -2150,31 +2152,60 @@ export default function OrderDetailPage() {
       // material even when its type isn't flagged, and vice versa); display
       // still follows the most specific entity picked. Unresolvable items
       // carry null → filtered out downstream. Deselected garment orders are
-      // already absent from pdfGoRows.
-      const materialsRequired: MaterialsRequiredSourceItem[] = pdfGoRows.flatMap(
-        (row) =>
-          (itemsByGOId.get(row.id) ?? []).map((it) => {
-            const tree = row.garment_id
-              ? treeByGarmentId.get(row.garment_id)
-              : undefined;
-            if (it.type === "add_on") {
-              const addon = tree?.addons.find((a) => a.id === it.addon_id) ?? null;
-              const addonVariation =
-                addon?.variations.find((v) => v.id === it.addon_variation_id) ?? null;
-              return {
-                garmentOrderId: row.id,
-                garmentLabel: garmentDisplayLabel(row.garment_id),
-                isAddon: true,
-                placement: it.placement ?? null,
-                componentLabels: addon?.labels ?? null,
-                componentDescriptions: addon?.descriptions ?? null,
-                choiceLabels: addonVariation?.labels ?? null,
-                choiceDescriptions: addonVariation?.descriptions ?? null,
-                isMaterialNeeded:
-                  addonVariation?.is_material_needed === true ||
-                  addon?.is_material_needed === true,
-              };
-            }
+      // already absent from pdfGoRows. Flagged entities carrying a material
+      // remark script get it evaluated server-side with this order's body +
+      // garment readings; a failed or missing script just omits the remark.
+      const garmentReadingsByGoId = new Map(
+        garments.map((g) => [g.garmentOrderId, g.readings]),
+      );
+      // The cloth captured for each garment order during the measurement
+      // job (photo + colour + dimensions) — feeds scripts' cloth.* vars.
+      const clothByGoId = new Map(
+        garments.map((g) => {
+          const cloth = g.materials.find((m) => m.type === "cloth") ?? null;
+          return [
+            g.garmentOrderId,
+            cloth
+              ? {
+                  length: cloth.length,
+                  breadth: cloth.breadth,
+                  color: cloth.color,
+                  name: cloth.name,
+                }
+              : null,
+          ];
+        }),
+      );
+      const materialsRequired: MaterialsRequiredSourceItem[] = [];
+      for (const row of pdfGoRows) {
+        for (const it of itemsByGOId.get(row.id) ?? []) {
+          const tree = row.garment_id
+            ? treeByGarmentId.get(row.garment_id)
+            : undefined;
+          let item: MaterialsRequiredSourceItem;
+          let script: string | null = null;
+          if (it.type === "add_on") {
+            const addon = tree?.addons.find((a) => a.id === it.addon_id) ?? null;
+            const addonVariation =
+              addon?.variations.find((v) => v.id === it.addon_variation_id) ?? null;
+            script = pickRemarkScript(
+              addonVariation?.material_remark_script,
+              addon?.material_remark_script,
+            );
+            item = {
+              garmentOrderId: row.id,
+              garmentLabel: garmentDisplayLabel(row.garment_id),
+              isAddon: true,
+              placement: it.placement ?? null,
+              componentLabels: addon?.labels ?? null,
+              componentDescriptions: addon?.descriptions ?? null,
+              choiceLabels: addonVariation?.labels ?? null,
+              choiceDescriptions: addonVariation?.descriptions ?? null,
+              isMaterialNeeded:
+                addonVariation?.is_material_needed === true ||
+                addon?.is_material_needed === true,
+            };
+          } else {
             const components = tree?.components ?? [];
             const component =
               components.find((c) => c.id === it.garment_style_component_id) ?? null;
@@ -2186,7 +2217,11 @@ export default function OrderDetailPage() {
                 (t) => t.id === it.variation_type_id,
               ) ?? null;
             const choice = variationType ?? variation;
-            return {
+            script = pickRemarkScript(
+              variationType?.material_remark_script,
+              variation?.material_remark_script,
+            );
+            item = {
               garmentOrderId: row.id,
               garmentLabel: garmentDisplayLabel(row.garment_id),
               isAddon: false,
@@ -2199,8 +2234,26 @@ export default function OrderDetailPage() {
                 variationType?.is_material_needed === true ||
                 variation?.is_material_needed === true,
             };
-          }),
-      );
+          }
+          if (script && item.isMaterialNeeded) {
+            try {
+              const res = await previewMaterialScript(
+                script,
+                buildScriptValues(
+                  body,
+                  garmentReadingsByGoId.get(row.id),
+                  clothByGoId.get(row.id),
+                ),
+              );
+              if (res.ok && res.remark) item.remark = res.remark;
+            } catch {
+              // Endpoint unreachable / payload rejected → card renders
+              // without the remark; never block the PDF.
+            }
+          }
+          materialsRequired.push(item);
+        }
+      }
 
       await downloadMeasurementJobPdf(
         {

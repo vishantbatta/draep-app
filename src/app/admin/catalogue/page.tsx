@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Garment,
@@ -41,6 +41,11 @@ import {
   updatePriorityOrder,
   type MeasurableEntityType,
   type AiEntityType,
+  fetchMeasurementMetrics,
+  fetchTableRows,
+  generateMaterialScript,
+  previewMaterialScript,
+  type MaterialScriptPreview,
 } from "@/lib/admin-api";
 import {
   Card,
@@ -58,6 +63,7 @@ import {
   ReorderableCardGrid,
 } from "./_shared/catalogue-helpers";
 import { materialBadge, toMaterialChecked } from "./_shared/material-flag";
+import { CLOTH_FIELDS, extractScriptVars, parseTestValues } from "@/lib/material-script";
 import { AddonMatrixModal } from "./AddonMatrixModal";
 import { EntityMetricsSection } from "./_shared/EntityMetricsSection";
 import {
@@ -1120,6 +1126,12 @@ function CatalogueFormModal({
   const [type, setType] = useState<string>((d?.type as string) ?? "");
   const [isDefaultOn, setIsDefaultOn] = useState<boolean>((d?.is_default_on as boolean) ?? false);
   const [isMaterialNeeded, setIsMaterialNeeded] = useState<boolean>(toMaterialChecked(d?.is_material_needed));
+  // Optional Python snippet whose server-computed remark rides the PDF's
+  // Materials Required checklist (see _shared/MaterialScriptSection +
+  // be/app/services/material_script.py). Empty = none.
+  const [materialScript, setMaterialScript] = useState<string>(
+    (d?.material_remark_script as string | null) ?? "",
+  );
   // Enabled/disabled flag — NULL/true = enabled; false hides the item from
   // customer flows (configurator, walk-in, library facets) but admin still
   // sees and edits it here.
@@ -1407,6 +1419,19 @@ function CatalogueFormModal({
     setSaving(true);
     setError(null);
     try {
+      // Save-time gate for material remark scripts: a script may only be
+      // stored when it passes the server's static sandbox/convention check.
+      if (
+        isMaterialNeeded &&
+        materialScript.trim() !== "" &&
+        ["variation", "variationType", "addon", "addonVariation"].includes(target.kind)
+      ) {
+        const check = await previewMaterialScript(materialScript, {}, { checkOnly: true });
+        if (!check.ok) {
+          setError(`Material script: ${check.error ?? "failed the sandbox check"}`);
+          return;
+        }
+      }
       switch (target.kind) {
         // ── Garment ──
         case "garment": {
@@ -1481,6 +1506,7 @@ function CatalogueFormModal({
               default_type_id: defaultTypeId || null,
               type_selection_mode: typeSelectionMode || null,
               is_material_needed: isMaterialNeeded,
+              material_remark_script: materialScript.trim() === "" ? null : materialScript,
               is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             });
@@ -1496,6 +1522,7 @@ function CatalogueFormModal({
               default_type_id: defaultTypeId || null,
               type_selection_mode: typeSelectionMode || null,
               is_material_needed: isMaterialNeeded,
+              material_remark_script: materialScript.trim() === "" ? null : materialScript,
               is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             } as VariationUpdateInput);
@@ -1515,6 +1542,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              material_remark_script: materialScript.trim() === "" ? null : materialScript,
               is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             });
@@ -1528,6 +1556,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              material_remark_script: materialScript.trim() === "" ? null : materialScript,
               is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             } as VariationTypeUpdateInput);
@@ -1561,6 +1590,7 @@ function CatalogueFormModal({
             price: priceNum,
             is_default_on: isDefaultOn,
             is_material_needed: isMaterialNeeded,
+            material_remark_script: materialScript.trim() === "" ? null : materialScript,
             default_variation_id: defaultAddonVariationId || null,
             priority_order: priorityNum,
             is_enabled: isEnabled,
@@ -1594,6 +1624,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              material_remark_script: materialScript.trim() === "" ? null : materialScript,
               is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             });
@@ -1613,6 +1644,7 @@ function CatalogueFormModal({
               price: priceNum,
               priority_order: priorityNum,
               is_material_needed: isMaterialNeeded,
+              material_remark_script: materialScript.trim() === "" ? null : materialScript,
               is_enabled: isEnabled,
               ...imagesRequirementPayload(),
             } as AddonVariationUpdateInput);
@@ -1801,6 +1833,15 @@ function CatalogueFormModal({
                 <MaterialToggle checked={isMaterialNeeded} onChange={setIsMaterialNeeded} />
               </div>
             </Field>
+            {isMaterialNeeded && (
+              <div className="col-span-2">
+                <MaterialScriptSection
+                  script={materialScript}
+                  onChange={setMaterialScript}
+                  entityName={primaryLabel}
+                />
+              </div>
+            )}
             {target.kind === "variation" && (
               <Field
                 label="Type Selection"
@@ -1926,6 +1967,15 @@ function CatalogueFormModal({
                   <MaterialToggle checked={isMaterialNeeded} onChange={setIsMaterialNeeded} />
                 </div>
               </Field>
+              {isMaterialNeeded && (
+                <div className="col-span-2">
+                  <MaterialScriptSection
+                  script={materialScript}
+                  onChange={setMaterialScript}
+                  entityName={primaryLabel}
+                />
+                </div>
+              )}
             </div>
 
             <Field label="Placements" hint="Where this add-on can be applied — every chip is removable">
@@ -2124,6 +2174,15 @@ function CatalogueFormModal({
                 <MaterialToggle checked={isMaterialNeeded} onChange={setIsMaterialNeeded} />
               </div>
             </Field>
+            {isMaterialNeeded && (
+              <div className="col-span-2">
+                <MaterialScriptSection
+                  script={materialScript}
+                  onChange={setMaterialScript}
+                  entityName={primaryLabel}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -2176,6 +2235,373 @@ function CatalogueFormModal({
 // ═══════════════════════════════════════════════════════════════════════════════
 // Small form helpers
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Material remark script editor (shown when Material Needed? is on)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** One measurement a script may read, as offered by the picker. */
+interface ScriptMetric {
+  code: string;
+  label: string;
+  unit: string | null;
+  /** Has at least one per_garment capture link → also offered as
+   *  garment.<code>. */
+  garmentScoped: boolean;
+}
+
+/**
+ * Author + test a material remark script in one place: a type-to-search
+ * measurement picker that inserts variables at the cursor, a monospace
+ * editor, and an input-form test bench that runs the script on the server
+ * exactly as the PDF will. Pure helpers live in lib/material-script.
+ */
+function MaterialScriptSection({
+  script,
+  onChange,
+  entityName,
+}: {
+  script: string;
+  onChange: (v: string) => void;
+  entityName?: string | null;
+}) {
+  const [metrics, setMetrics] = useState<ScriptMetric[] | null>(null);
+  const [search, setSearch] = useState("");
+  const [testValues, setTestValues] = useState<Record<string, string>>({});
+  const [result, setResult] = useState<MaterialScriptPreview | null>(null);
+  const [running, setRunning] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [metricRows, linkRows] = await Promise.all([
+          fetchMeasurementMetrics(),
+          fetchTableRows<{ measurement_metric_id: string; capture_scope: string }>(
+            "entity_measurement_metrics",
+            { perPage: 100 },
+          ).then((r) => r.rows),
+        ]);
+        if (!alive) return;
+        const garmentIds = new Set(
+          linkRows
+            .filter((l) => l.capture_scope === "per_garment")
+            .map((l) => l.measurement_metric_id),
+        );
+        setMetrics(
+          metricRows
+            .filter((m) => m.code)
+            .map((m) => ({
+              code: m.code as string,
+              label:
+                (m.labels as Record<string, string> | null)?.en?.trim() ||
+                (m.code as string),
+              unit: m.unit,
+              garmentScoped: garmentIds.has(m.id),
+            })),
+        );
+      } catch {
+        if (alive) setMetrics([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const knownCodes = useMemo(() => (metrics ?? []).map((m) => m.code), [metrics]);
+  const vars = useMemo(
+    () => extractScriptVars(script, knownCodes),
+    [script, knownCodes],
+  );
+  const metaFor = useCallback(
+    (code: string) => metrics?.find((m) => m.code === code),
+    [metrics],
+  );
+
+  const insertVar = (snippet: string) => {
+    const ta = taRef.current;
+    if (!ta) {
+      onChange(script + snippet);
+      return;
+    }
+    const start = ta.selectionStart ?? script.length;
+    const end = ta.selectionEnd ?? start;
+    onChange(script.slice(0, start) + snippet + script.slice(end));
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = start + snippet.length;
+    });
+  };
+
+  const runTest = async () => {
+    setRunning(true);
+    setResult(null);
+    try {
+      setResult(await previewMaterialScript(script, parseTestValues(testValues)));
+    } catch (e) {
+      setResult({
+        ok: false,
+        remark: null,
+        kind: "syntax",
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const runAi = async () => {
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const out = await generateMaterialScript(
+        aiPrompt,
+        [
+          ...(metrics ?? []).map((m) => m.code),
+          ...CLOTH_FIELDS.map((f) => `cloth.${f.field}`),
+        ],
+        entityName,
+      );
+      if (out.script) {
+        onChange(out.script);
+        setResult(null); // stale result from the previous script
+      } else {
+        setAiError(out.error ?? "The AI returned no script. Try again.");
+      }
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const q = search.trim().toLowerCase();
+  const matches = (metrics ?? []).filter(
+    (m) => !q || m.code.includes(q) || m.label.toLowerCase().includes(q),
+  );
+  const bodyMetrics = matches;
+  const garmentMetrics = matches.filter((m) => m.garmentScoped);
+
+  // Test-form rows: one labelled input per variable the script reads.
+  const testRows = [
+    ...vars.body.map((c) => ({
+      key: c,
+      label: metaFor(c)?.label ?? c,
+      unit: metaFor(c)?.unit ?? null,
+    })),
+    ...vars.garment.map((c) => ({
+      key: `garment.${c}`,
+      label: `${metaFor(c)?.label ?? c} (this garment)`,
+      unit: metaFor(c)?.unit ?? null,
+    })),
+    ...vars.cloth.map((c) => {
+      const meta = CLOTH_FIELDS.find((f) => f.field === c);
+      return { key: `cloth.${c}`, label: meta?.label ?? `cloth.${c}`, unit: null };
+    }),
+    ...vars.unknown.map((c) => ({ key: c, label: c, unit: null })),
+  ];
+
+  return (
+    <div className="rounded-lg bg-violet-50/60 p-3 ring-1 ring-violet-200">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-800">
+        Material remark script
+      </p>
+      <p className="mt-1 text-[11px] leading-relaxed text-violet-700">
+        Python snippet the server runs at PDF time with this order&apos;s
+        measurements — its <code>remark = …</code> line becomes the highlighted
+        &quot;bring this&quot; text on the Materials Required checklist.
+      </p>
+      <p className="mt-1 text-[11px] leading-relaxed text-violet-700">
+        Tap a measurement to insert it at the cursor. Body measurements insert
+        as-is; garment-specific ones as <code>garment.&lt;name&gt;</code>; the
+        customer&apos;s captured cloth as <code>cloth.length / .breadth /
+        .color / .name</code>. End with <code>remark = …</code>.
+      </p>
+
+      {/* AI writer: plain English in, validated script out */}
+      <div className="mt-2">
+        <div className="flex gap-2">
+          <input
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+            placeholder="Describe it in plain English — e.g. bra cup size from the bust measurements…"
+            className="min-w-0 flex-1 rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-[13px] text-ink-navy placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-violet-300"
+          />
+          <button
+            type="button"
+            onClick={runAi}
+            disabled={aiBusy || aiPrompt.trim() === ""}
+            className="tap shrink-0 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 py-1.5 text-[12px] font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {aiBusy ? "Writing…" : "✦ Write with AI"}
+          </button>
+        </div>
+        {aiError && (
+          <p className="mt-1 rounded-md bg-red-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-red-700 ring-1 ring-red-200">
+            {aiError}
+          </p>
+        )}
+      </div>
+
+      {/* Type-to-search variable picker */}
+      <div className="mt-2">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search a measurement to insert (e.g. bust)…"
+          className="w-full rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-[13px] text-ink-navy placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-violet-300"
+        />
+        {metrics === null ? (
+          <p className="mt-1.5 text-[11px] text-muted">Loading measurements…</p>
+        ) : (
+          <div className="mt-1.5 max-h-44 overflow-y-auto rounded-lg border border-violet-200 bg-white">
+            <PickerGroup
+              title="Body measurements"
+              empty={bodyMetrics.length === 0}
+              items={bodyMetrics.map((m) => ({
+                snippet: m.code,
+                label: m.label,
+                code: m.code,
+                unit: m.unit,
+              }))}
+              onPick={insertVar}
+            />
+            <PickerGroup
+              title="Garment-specific"
+              empty={garmentMetrics.length === 0}
+              items={garmentMetrics.map((m) => ({
+                snippet: `garment.${m.code}`,
+                label: m.label,
+                code: `garment.${m.code}`,
+                unit: m.unit,
+              }))}
+              onPick={insertVar}
+            />
+            <PickerGroup
+              title="Cloth (captured during measurement)"
+              empty={CLOTH_FIELDS.length === 0}
+              items={CLOTH_FIELDS.map((f) => ({
+                snippet: `cloth.${f.field}`,
+                label: f.label,
+                code: `cloth.${f.field}`,
+                unit: null,
+              }))}
+              onPick={insertVar}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Script editor */}
+      <textarea
+        ref={taRef}
+        value={script}
+        onChange={(e) => onChange(e.target.value)}
+        rows={5}
+        spellCheck={false}
+        placeholder={'diff = bust_full_round - upper_bust\nremark = f"Bring …"'}
+        className="mt-2 w-full rounded-lg border border-violet-200 bg-white p-2.5 font-mono text-[12px] leading-relaxed text-ink-navy placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-violet-300"
+      />
+
+      {/* Test bench: one input per variable the script reads */}
+      {testRows.length > 0 && (
+        <div className="mt-2 rounded-lg border border-violet-200 bg-white p-2.5">
+          <p className="text-[11px] font-medium text-violet-800">
+            Test with sample values
+          </p>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            {testRows.map((r) => (
+              <label key={r.key} className="flex flex-col gap-0.5">
+                <span className="text-[11px] text-muted">
+                  {r.label}
+                  {r.unit ? ` (${r.unit})` : ""}
+                </span>
+                <input
+                  value={testValues[r.key] ?? ""}
+                  onChange={(e) =>
+                    setTestValues((prev) => ({ ...prev, [r.key]: e.target.value }))
+                  }
+                  inputMode="decimal"
+                  placeholder="—"
+                  className="rounded-md border border-hairline px-2 py-1 text-[13px] text-ink-navy focus:outline-none focus:ring-2 focus:ring-violet-300"
+                />
+              </label>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={runTest}
+            disabled={running || script.trim() === ""}
+            className="mt-2 rounded-lg bg-violet-700 px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-violet-800 disabled:opacity-50"
+          >
+            {running ? "Running…" : "▶ Run test"}
+          </button>
+          {result && (
+            <div
+              className={`mt-2 rounded-md px-2.5 py-2 text-[12px] leading-relaxed ${
+                result.ok
+                  ? "bg-green-50 text-green-800 ring-1 ring-green-200"
+                  : "bg-red-50 text-red-700 ring-1 ring-red-200"
+              }`}
+            >
+              {result.ok ? (
+                <>✓ {result.remark}</>
+              ) : (
+                <>
+                  ✗ {result.kind}: {result.error}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One labelled group inside the measurement picker. */
+function PickerGroup({
+  title,
+  empty,
+  items,
+  onPick,
+}: {
+  title: string;
+  empty: boolean;
+  items: { snippet: string; label: string; code: string; unit: string | null }[];
+  onPick: (snippet: string) => void;
+}) {
+  return (
+    <div className="border-b border-violet-100 last:border-b-0">
+      <p className="bg-violet-50/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+        {title}
+      </p>
+      {empty ? (
+        <p className="px-2.5 py-1.5 text-[11px] text-muted">No matches</p>
+      ) : (
+        items.map((it) => (
+          <button
+            key={it.snippet}
+            type="button"
+            onClick={() => onPick(it.snippet)}
+            className="flex w-full items-baseline justify-between gap-2 px-2.5 py-1 text-left text-[12px] text-ink-navy hover:bg-violet-50"
+          >
+            <span>{it.label}</span>
+            <span className="font-mono text-[11px] text-muted">
+              {it.code}
+              {it.unit ? ` · ${it.unit}` : ""}
+            </span>
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
 
 function MaterialToggle({
   checked,

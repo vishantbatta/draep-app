@@ -319,6 +319,9 @@ export interface Variation {
   /** 'single' (default) | 'multi' — how many sub-types a customer may pick. */
   type_selection_mode: string | null;
   is_material_needed: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark
+   *  (what / how much) when the flag is on. Server-side only. */
+  material_remark_script: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images: number | null;
   max_images: number | null;
@@ -340,6 +343,8 @@ export interface VariationCreateInput {
   default_type_id?: string | null;
   type_selection_mode?: string | null;
   is_material_needed?: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark. */
+  material_remark_script?: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images?: number | null;
   max_images?: number | null;
@@ -360,6 +365,8 @@ export interface VariationUpdateInput {
   default_type_id?: string | null;
   type_selection_mode?: string | null;
   is_material_needed?: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark. */
+  material_remark_script?: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images?: number | null;
   max_images?: number | null;
@@ -399,6 +406,9 @@ export interface VariationType {
   not_ideal_for: string[] | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark
+   *  (what / how much) when the flag is on. Server-side only. */
+  material_remark_script: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images: number | null;
   max_images: number | null;
@@ -418,6 +428,8 @@ export interface VariationTypeCreateInput {
   not_ideal_for?: string[] | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark. */
+  material_remark_script?: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images?: number | null;
   max_images?: number | null;
@@ -436,6 +448,8 @@ export interface VariationTypeUpdateInput {
   not_ideal_for?: string[] | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark. */
+  material_remark_script?: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images?: number | null;
   max_images?: number | null;
@@ -478,6 +492,9 @@ export interface Addon {
   is_default_on: boolean | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark
+   *  (what / how much) when the flag is on. Server-side only. */
+  material_remark_script: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images: number | null;
   max_images: number | null;
@@ -500,6 +517,8 @@ export interface AddonCreateInput {
   is_default_on?: boolean | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark. */
+  material_remark_script?: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images?: number | null;
   max_images?: number | null;
@@ -521,6 +540,8 @@ export interface AddonUpdateInput {
   is_default_on?: boolean | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark. */
+  material_remark_script?: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images?: number | null;
   max_images?: number | null;
@@ -565,6 +586,9 @@ export interface AddonVariation {
   placement: string | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark
+   *  (what / how much) when the flag is on. Server-side only. */
+  material_remark_script: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images: number | null;
   max_images: number | null;
@@ -588,6 +612,8 @@ export interface AddonVariationCreateInput {
   placement?: string | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark. */
+  material_remark_script?: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images?: number | null;
   max_images?: number | null;
@@ -610,6 +636,8 @@ export interface AddonVariationUpdateInput {
   placement?: string | null;
   price?: number | null;
   is_material_needed?: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark. */
+  material_remark_script?: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images?: number | null;
   max_images?: number | null;
@@ -1415,6 +1443,9 @@ export interface CatalogVariationType {
   not_ideal_for: string[] | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark
+   *  (what / how much) when the flag is on. Server-side only. */
+  material_remark_script: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images: number | null;
   max_images: number | null;
@@ -1433,6 +1464,7 @@ export interface CatalogVariation {
   not_ideal_for: string[] | null;
   price: number | null;
   is_material_needed: boolean | null;
+  material_remark_script: string | null;
   default_type_id: string | null;
   variation_types: CatalogVariationType[];
   /** Reference-photo requirement (core/item_images). */
@@ -1469,6 +1501,9 @@ export interface CatalogAddonVariation {
   placement: string | null;
   price: number | null;
   is_material_needed: boolean | null;
+  /** Sandboxed Python snippet computing the tailor-facing remark
+   *  (what / how much) when the flag is on. Server-side only. */
+  material_remark_script: string | null;
   /** Reference-photo requirement (core/item_images). */
   min_images: number | null;
   max_images: number | null;
@@ -1488,6 +1523,7 @@ export interface CatalogAddon {
   placements: string[] | null;
   is_default_on: boolean | null;
   is_material_needed: boolean | null;
+  material_remark_script: string | null;
   default_variation_id: string | null;
   price: number | null;
   variations: CatalogAddonVariation[];
@@ -1716,6 +1752,53 @@ export async function fetchJobReadings(jobId: string): Promise<MeasurementReadin
     perPage: 100, // backend caps at le=100
   });
   return rows;
+}
+
+// ─── Material remark scripts (sandboxed server-side evaluation) ─────────────
+
+/** Result of POST /admin/material-scripts/preview — mirrors the backend's
+ *  evaluate/check contract: ok with a remark, or not-ok with a kind and a
+ *  human-readable error. */
+export interface MaterialScriptPreview {
+  ok: boolean;
+  remark: string | null;
+  kind: "syntax" | "sandbox" | "convention" | "runtime" | "limit" | null;
+  error: string | null;
+}
+
+/** Run (or statically check) a material remark script on the server.
+ *  values keys are measurement codes ("upper_bust") or garment-scoped codes
+ *  ("garment.front_neck_depth"). check_only skips execution — the save-time
+ *  gate, where no values exist yet. */
+export async function previewMaterialScript(
+  script: string,
+  values: Record<string, number | string>,
+  opts?: { checkOnly?: boolean },
+): Promise<MaterialScriptPreview> {
+  return adminFetch<MaterialScriptPreview>("/admin/material-scripts/preview", {
+    method: "POST",
+    body: JSON.stringify({
+      script,
+      values,
+      check_only: opts?.checkOnly ?? false,
+    }),
+  });
+}
+
+/** POST /admin/material-scripts/generate — plain-English description →
+ *  sandbox-validated Python script (admin-authed, Gemini-backed). */
+export async function generateMaterialScript(
+  prompt: string,
+  codes: string[],
+  entityName?: string | null,
+): Promise<{ script: string; error: string | null }> {
+  return adminFetch<{ script: string; error: string | null }>(
+    "/admin/material-scripts/generate",
+    {
+      method: "POST",
+      body: JSON.stringify({ prompt, codes, entity_name: entityName ?? null }),
+    },
+  );
 }
 
 // ─── Admin job checklist (resolver output + saved readings) ─────────────────

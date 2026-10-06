@@ -14,6 +14,8 @@ const LANGS = ["en", "hi", "kn"] as const;
 const DESC_MAX = 160;
 /** Component blurb clamp, mirroring the style-selections cell. */
 const COMP_DESC_MAX = 120;
+/** Remark clamp — matches the server's 300-char cap (defensive only). */
+const REMARK_MAX = 300;
 
 /** One resolved order-item selection, enriched from the catalog tree by the
  *  caller (see handleGeneratePdf in the admin order page). */
@@ -33,6 +35,10 @@ export interface MaterialsRequiredSourceItem {
   choiceDescriptions: Record<string, string> | null;
   /** Catalog flag of the resolved entity; only strictly-true qualifies. */
   isMaterialNeeded: boolean | null | undefined;
+  /** Remark computed by the entity's material_remark_script at PDF time
+   *  (POST /admin/material-scripts/preview). Null when the script is
+   *  absent, failed, or returned nothing. */
+  remark?: string | null;
 }
 
 /** A fully-shaped table row for the Materials Required page. */
@@ -46,6 +52,8 @@ export interface MaterialsRequiredRow {
   choiceNative: string | null;
   placement: string | null;
   descriptions: string[];
+  /** Computed "what / how much" line from the entity's script, if any. */
+  remark: string | null;
 }
 
 function nativeNames(labels: Record<string, string> | null): string | null {
@@ -93,55 +101,62 @@ export function toMaterialsRequiredRows(
       choiceNative: nativeNames(it.choiceLabels),
       placement: placementText(it.placement),
       descriptions: descLines(it.choiceDescriptions, DESC_MAX),
+      remark: it.remark ?? null,
     });
   }
   return rows;
 }
 
-/** One checklist card for the Materials Required page: checkbox-led, with
- *  the entity's details compressed into a few crisp lines. */
+/** One Materials Required table row: the entity's details compressed into
+ *  crisp columns (item / garment / placement / remark). */
 export interface MaterialsChecklistItem {
   /** Choice-led headline: "Hook — Tying mechanism" (component alone when
    *  there is no distinct choice). */
   title: string;
   /** True when the selection is an add-on (drives the badge). */
   isAddon: boolean;
-  /** One context line: garment · placement. */
-  context: string;
+  /** Garment display label — its own table column. */
+  garment: string;
+  /** Placement text, or null when the item has none — its own column. */
+  placement: string | null;
   /** Component + choice native names, deduped and joined. */
   native: string | null;
   /** One-line component blurb. */
   blurb: string | null;
   /** Per-language choice descriptions, English first. */
   descs: string[];
+  /** Computed "bring this" line — the Remark column. The server already
+   *  truncates; clamp again defensively. */
+  remark: string | null;
 }
 
-/** Compress a shaped row into the checklist card's display lines. */
+/** Compress a shaped row into the table row's cells. */
 export function toChecklistItem(r: MaterialsRequiredRow): MaterialsChecklistItem {
   const title =
     r.choice && r.choice !== r.component ? `${r.choice} — ${r.component}` : r.component;
-  const context = r.placement ? `${r.garment} · Placement: ${r.placement}` : r.garment;
   const native =
     [...new Set([r.componentNative, r.choiceNative].filter(Boolean))].join(" · ") ||
     null;
   return {
     title,
     isAddon: r.isAddon,
-    context,
+    garment: r.garment,
+    placement: r.placement,
     native,
     blurb: r.componentDescription,
     descs: r.descriptions,
+    remark: r.remark ? clamp(r.remark, REMARK_MAX) : null,
   };
 }
 
-/** Greedy page plan for the materials checklist: item indices grouped per
- *  page. The first page pays labelHeight once (section label + note);
- *  continuation pages pay nothing extra. Every page holds at least one
- *  item — an item taller than the whole budget still gets a page of its
- *  own. */
+/** Greedy page plan for the Materials Required table: row indices grouped
+ *  per page. Every page re-prints the table head (theadHeight); the first
+ *  page additionally pays labelHeight once (section label + note). Every
+ *  page holds at least one row — a row taller than the whole budget still
+ *  gets a page of its own. */
 export function planMaterialsPages(
   itemHeights: number[],
-  opts: { budget: number; labelHeight: number },
+  opts: { budget: number; labelHeight: number; theadHeight: number },
 ): number[][] {
   const pages: number[][] = [];
   let current: number[] = [];
@@ -153,7 +168,10 @@ export function planMaterialsPages(
       current = [];
       used = 0;
     }
-    if (current.length === 0 && pages.length === 0) used += opts.labelHeight;
+    if (current.length === 0) {
+      used += opts.theadHeight;
+      if (pages.length === 0) used += opts.labelHeight;
+    }
     used += h;
     current.push(i);
   });
