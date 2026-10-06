@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   fetchTableRows,
@@ -124,6 +124,20 @@ function OrdersList() {
     },
     [page, router, searchParams],
   );
+  // Same treatment for the customer search (?q=term; absent = no search).
+  const searchTerm = searchParams.get("q") ?? "";
+  // Writes the search term to the URL; a new search always restarts at page 1.
+  const setSearchTerm = useCallback(
+    (term: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (term) params.set("q", term);
+      else params.delete("q");
+      params.delete("page");
+      const qs = params.toString();
+      router.replace(qs ? `/admin/orders?${qs}` : "/admin/orders", { scroll: false });
+    },
+    [router, searchParams],
+  );
   const [perPage] = useState(20);
   const [filterFulfillment, setFilterFulfillment] = useState<FulfillmentStatus | "all">("all");
   const [filterPayment, setFilterPayment] = useState<PaymentStatus | "all">("all");
@@ -141,9 +155,16 @@ function OrdersList() {
   const [bulkPayment, setBulkPayment] = useState<PaymentStatus | "">("");
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  // ── Customer search (name / phone) ───────────────────────────────────────
-  const [searchInput, setSearchInput] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
+  // ── Customer search (name / phone) — term lives in the URL (?q=) ─────────
+  const [searchInput, setSearchInput] = useState(searchTerm);
+  // Keep the input in sync when ?q changes underneath us (Back/Forward on the
+  // same route doesn't remount the component).
+  const lastUrlQ = useRef(searchTerm);
+  useEffect(() => {
+    if (searchTerm === lastUrlQ.current) return;
+    lastUrlQ.current = searchTerm;
+    setSearchInput(searchTerm);
+  }, [searchTerm]);
 
   // ── Emit sidebar items ────────────────────────────────────────────────────
   useEffect(() => {
@@ -269,14 +290,14 @@ function OrdersList() {
     loadOrders();
   }, [loadOrders]);
 
-  // ── Debounce search input → search term ───────────────────────────────────
+  // ── Debounce search input → URL (?q=) ─────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => {
       const term = searchInput.trim();
       // Unchanged (covers the mount run) — must not reset an incoming ?page=N.
       if (term === searchTerm) return;
+      lastUrlQ.current = term;
       setSearchTerm(term);
-      setPage(1);
     }, 350);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -468,8 +489,8 @@ function OrdersList() {
               setFilterFulfillment("all");
               setFilterPayment("all");
               setSearchInput("");
+              // clears both ?q and ?page in one URL update
               setSearchTerm("");
-              setPage(1);
             }}
             className="text-xs font-medium text-ink-navy underline hover:text-tape"
           >
@@ -596,8 +617,9 @@ function OrdersList() {
                       <tr
                         key={order.id}
                         onClick={() => {
-                          // Remember the page so "← Back to Orders" returns to it
+                          // Remember the view so "← Back to Orders" returns to it
                           sessionStorage.setItem("admin-orders-last-page", String(page));
+                          sessionStorage.setItem("admin-orders-last-q", searchTerm);
                           router.push(`/admin/orders/${order.id}`);
                         }}
                         className={`cursor-pointer border-b border-hairline transition hover:bg-mist-navy/30 last:border-0 ${selected.has(order.id) ? "bg-mist-navy/40" : ""}`}

@@ -1107,13 +1107,19 @@ export default function OrderDetailPage() {
     }
   }
 
-  // ── Back to Orders: return to the list page the user came from ───────────
-  // The list page stores its current page in sessionStorage before opening an
-  // order; direct lands (no stored page) fall back to page 1.
+  // ── Back to Orders: return to the list view the user came from ───────────
+  // The list page stores its page + active search in sessionStorage before
+  // opening an order; direct lands (nothing stored) fall back to page 1.
   const backToOrders = useCallback(() => {
     const last = Number(sessionStorage.getItem("admin-orders-last-page")) || 1;
+    const lastQ = sessionStorage.getItem("admin-orders-last-q") ?? "";
     sessionStorage.removeItem("admin-orders-last-page");
-    router.push(last > 1 ? `/admin/orders?page=${last}` : "/admin/orders");
+    sessionStorage.removeItem("admin-orders-last-q");
+    const params = new URLSearchParams();
+    if (last > 1) params.set("page", String(last));
+    if (lastQ) params.set("q", lastQ);
+    const qs = params.toString();
+    router.push(qs ? `/admin/orders?${qs}` : "/admin/orders");
   }, [router]);
 
   // ── Emit sidebar items ────────────────────────────────────────────────────
