@@ -19,6 +19,9 @@
  *    manual), newest first, cross-linked: reversed invoices badge their
  *    credit notes, credit notes point back at the invoice they correct.
  *    Per-row PDF download and credit-note issuance.
+ * 4. "Export" — filtered finance-register xlsx (issue-date range, type,
+ *    terms/reason) in the reference template, optionally zipped with every
+ *    document PDF (rendered client-side). See ExportTab.tsx.
  */
 
 import Link from "next/link";
@@ -40,6 +43,7 @@ import {
   type GstInvoice,
 } from "@/lib/gst-documents";
 import { Modal } from "../../catalogue/_shared/catalogue-helpers";
+import { ExportTab } from "./ExportTab";
 
 // ─── Sub-tabs for Configure (shared) ───────────────────────────────────────────
 
@@ -155,7 +159,7 @@ const formatRupees = (n: number | null | undefined) =>
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type SubTab = "manual" | "missing" | "history";
+type SubTab = "manual" | "missing" | "history" | "export";
 
 interface FormState {
   buyerName: string;
@@ -228,12 +232,22 @@ export default function InvoicesActionPage() {
         >
           History
         </button>
+        <button
+          onClick={() => setTab("export")}
+          className={`rounded-pill px-4 py-1.5 text-caption font-medium transition ${
+            tab === "export" ? "bg-ink-navy text-chalk-white" : "text-muted hover:text-ink"
+          }`}
+        >
+          Export
+        </button>
       </div>
 
       {tab === "manual" ? (
         <ManualInvoiceTab />
       ) : tab === "missing" ? (
         <MissingDocumentsTab />
+      ) : tab === "export" ? (
+        <ExportTab />
       ) : (
         <InvoicesHistoryTab />
       )}

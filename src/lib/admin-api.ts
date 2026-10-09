@@ -76,6 +76,42 @@ async function adminFetch<T>(path: string, options?: RequestInit & { auth?: bool
   return JSON.parse(text) as T;
 }
 
+/** Binary twin of adminFetch — same auth/error contract, Blob response.
+ *  Parses Content-Disposition so callers can keep the server's filename. */
+export async function adminFetchBlob(
+  path: string,
+  options?: RequestInit & { auth?: boolean },
+): Promise<{ blob: Blob; filename: string | null }> {
+  const { auth = true, headers = {}, ...rest } = options ?? {};
+  const finalHeaders: Record<string, string> = {
+    // POST bodies are JSON like adminFetch — without this FastAPI 422s.
+    ...(rest.body ? { "Content-Type": "application/json" } : {}),
+    ...(headers as Record<string, string>),
+  };
+  if (auth) {
+    const token = getAdminToken();
+    if (!token) throw new Error("No admin token");
+    finalHeaders["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${API_URL}${path}`, { ...rest, headers: finalHeaders });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let message = `Request failed (${res.status})`;
+    if (text) {
+      try {
+        const body = JSON.parse(text) as { error?: { message?: string } };
+        message = body?.error?.message ?? message;
+      } catch {
+        // Non-JSON error body — keep default message
+      }
+    }
+    throw new Error(message);
+  }
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  return { blob: await res.blob(), filename: match?.[1] ?? null };
+}
+
 export async function adminLogin(email: string, password: string): Promise<string> {
   const data = await adminFetch<{ token: string }>("/admin/login", {
     method: "POST",
@@ -2694,6 +2730,62 @@ export function createManualCreditNote(
     `/admin/invoices/manual/${invoiceId}/credit-note`,
     { method: "POST", body: JSON.stringify(input) },
   );
+}
+
+// ─── Export (Configure → Invoices → Export) ──────────────────────────────────
+
+export type ExportDocType = "payment_invoice" | "manual_invoice" | "credit_note";
+export type ExportTerm = "paid_in_full" | "due_on_receipt" | "partially_paid";
+export type ExportReason = "refund" | "payment_recorded_in_error";
+
+export interface InvoiceExportFilters {
+  /** Inclusive IST days ("yyyy-mm-dd"); null = unbounded. */
+  date_from?: string | null;
+  date_to?: string | null;
+  /** Empty/undefined → all three types (server-side default). */
+  types?: ExportDocType[];
+  /** Empty → no filter. Invoices only. */
+  terms?: ExportTerm[];
+  /** Empty → no filter. Credit notes only. */
+  reasons?: ExportReason[];
+}
+
+export interface InvoiceExportSummary {
+  invoiceCount: number;
+  creditNoteCount: number;
+  months: string[];
+  taxablePaise: number;
+  totalPaise: number;
+  creditNotePaise: number;
+  /** Workbook stem, e.g. "DRAEP - FINANCE AUG 2026". */
+  basename: string;
+}
+
+export interface InvoiceExportResult {
+  summary: InvoiceExportSummary;
+  invoices: GstInvoice[];
+  creditNotes: GstCreditNote[];
+}
+
+/** Filtered documents + summary — the Export tab preview and the PDF worklist. */
+export function exportInvoices(filters: InvoiceExportFilters): Promise<InvoiceExportResult> {
+  return adminFetch<InvoiceExportResult>("/admin/invoices/export", {
+    method: "POST",
+    body: JSON.stringify({ ...filters, format: "json" }),
+  });
+}
+
+/** The finance-register workbook (reference template) as a blob. */
+export function downloadInvoiceExportXlsx(
+  filters: InvoiceExportFilters,
+): Promise<{ blob: Blob; filename: string }> {
+  return adminFetchBlob("/admin/invoices/export", {
+    method: "POST",
+    body: JSON.stringify({ ...filters, format: "xlsx" }),
+  }).then(({ blob, filename }) => ({
+    blob,
+    filename: filename ?? "DRAEP - FINANCE.xlsx",
+  }));
 }
 
 export interface ReversePaymentResult {

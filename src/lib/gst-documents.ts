@@ -434,21 +434,29 @@ export interface GstPdfProgress {
   (label: string): void;
 }
 
-/** Render a persisted GST document and download it as a one-page A4 PDF.
+/** Filename used for every download of this document (single PDF and the
+ *  Export tab's zip entries) — sanitised identically in both paths. */
+export function gstDocumentPdfFilename(doc: GstDocument): string {
+  const kindLabel = doc.kind === "invoice" ? "Invoice" : "CreditNote";
+  const safeNum = (doc.number || kindLabel).replace(/[^\w-]/g, "_");
+  return `DRAEP-${kindLabel}-${safeNum}.pdf`;
+}
+
+/** Render a persisted GST document to a one-page A4 PDF blob WITHOUT saving.
  *  Deterministic: everything shown comes from the stored record — no
  *  Date.now(), no random ids — so the same record rasterizes to the same
- *  bytes every time. */
-export async function generateGstDocumentPdf(
+ *  bytes every time. The Export tab's zip flow needs the blob itself;
+ *  single-PDF downloads wrap this with file-saver. */
+export async function renderGstDocumentPdfBlob(
   doc: GstDocument,
   fallbackSeller?: GstSeller,
   onProgress?: GstPdfProgress,
-): Promise<void> {
+): Promise<Blob> {
   const html = buildGstDocumentHtml(doc, fallbackSeller);
 
-  const [{ default: html2canvas }, jspdfMod, { default: saveAs }] = await Promise.all([
+  const [{ default: html2canvas }, jspdfMod] = await Promise.all([
     import("html2canvas"),
     import("jspdf"),
-    import("file-saver"),
   ]);
   const jsPDF = jspdfMod.jsPDF ?? jspdfMod.default;
 
@@ -492,10 +500,19 @@ export async function generateGstDocumentPdf(
     const imgH = (canvas.height * imgW) / canvas.width;
     pdf.addImage(imgData, "JPEG", 0, 0, imgW, Math.min(imgH, pageHeightMm));
 
-    const kindLabel = doc.kind === "invoice" ? "Invoice" : "CreditNote";
-    const safeNum = (doc.number || kindLabel).replace(/[^\w-]/g, "_");
-    saveAs(pdf.output("blob"), `DRAEP-${kindLabel}-${safeNum}.pdf`);
+    return pdf.output("blob");
   } finally {
     if (holder.parentNode) holder.parentNode.removeChild(holder);
   }
+}
+
+/** Render a persisted GST document and download it as a one-page A4 PDF. */
+export async function generateGstDocumentPdf(
+  doc: GstDocument,
+  fallbackSeller?: GstSeller,
+  onProgress?: GstPdfProgress,
+): Promise<void> {
+  const blob = await renderGstDocumentPdfBlob(doc, fallbackSeller, onProgress);
+  const { default: saveAs } = await import("file-saver");
+  saveAs(blob, gstDocumentPdfFilename(doc));
 }
