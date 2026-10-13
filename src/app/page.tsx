@@ -4,7 +4,7 @@
  * Draep landing page — pixel-perfect port of draep.html.
  *
  * Desktop + mobile responsive layout (max-w-1120). All "Book now" CTAs
- * deep-link to WhatsApp with a pre-drafted message to +91 81474 97006.
+ * link to /app/create, where booking happens.
  * Scroll reveal animations are wired via IntersectionObserver on .lp-reveal.
  */
 
@@ -17,7 +17,7 @@ import {
   HomeVisit,
 } from "@/components/ui/icons";
 
-// WhatsApp booking constants (mirror draep.html).
+// WhatsApp contact constants — used by the secondary "Contact us" CTA.
 const WA_PHONE = "918147497006";
 const WA_MESSAGE =
   "Hi Draep! 👋 I'd like to book a free at-home visit for blouse stitching. Please help me get started.";
@@ -138,16 +138,13 @@ export default function LandingPage() {
             >
               Pricing
             </a>
-            <a
-              href={WA_URL}
-              target="_blank"
-              rel="noopener"
-              className="inline-flex min-h-[48px] items-center gap-[9px] rounded-pill bg-tape px-[26px] py-[14px] font-heading text-[15px] font-semibold text-white transition-all duration-200 ease-brand hover:-translate-y-[2px] active:translate-y-0 active:bg-ember"
+            <Link
+              href="/app/create"
+              className="inline-flex min-h-[48px] items-center rounded-pill bg-tape px-[26px] py-[14px] font-heading text-[15px] font-semibold text-white transition-all duration-200 ease-brand hover:-translate-y-[2px] active:translate-y-0 active:bg-ember"
               style={{ boxShadow: "0 8px 22px rgba(208, 96, 16, 0.32)" }}
             >
-              <WhatsAppIcon />
               Book now
-            </a>
+            </Link>
           </nav>
         </div>
       </header>
@@ -172,16 +169,13 @@ export default function LandingPage() {
               trials, and delivery — end to end.
             </p>
             <div className="flex flex-wrap items-center gap-[14px]">
-              <a
-                href={WA_URL}
-                target="_blank"
-                rel="noopener"
-                className="inline-flex min-h-[48px] items-center gap-[9px] rounded-pill bg-tape px-[26px] py-[14px] font-heading text-[15px] font-semibold text-white transition-all duration-200 ease-brand hover:-translate-y-[2px] active:translate-y-0 active:bg-ember"
+              <Link
+                href="/app/create"
+                className="inline-flex min-h-[48px] items-center rounded-pill bg-tape px-[26px] py-[14px] font-heading text-[15px] font-semibold text-white transition-all duration-200 ease-brand hover:-translate-y-[2px] active:translate-y-0 active:bg-ember"
                 style={{ boxShadow: "0 8px 22px rgba(208, 96, 16, 0.32)" }}
               >
-                <WhatsAppIcon />
                 Book now
-              </a>
+              </Link>
               <a
                 href="#how"
                 className="inline-flex min-h-[48px] items-center gap-[9px] rounded-pill border-[1.5px] border-[rgba(8,48,104,0.22)] bg-transparent px-[26px] py-[14px] font-heading text-[15px] font-semibold text-[var(--ink-navy)] transition-colors hover:border-[var(--ink-navy)] hover:bg-[rgba(8,48,104,0.04)]"
@@ -611,16 +605,24 @@ export default function LandingPage() {
         <p className="relative mx-auto mt-[18px] mb-[30px] max-w-[44ch] text-[17px] text-white/90">
           Book a free home visit today. We&apos;ll take it from there.
         </p>
-        <a
-          href={WA_URL}
-          target="_blank"
-          rel="noopener"
-          className="relative inline-flex min-h-[48px] items-center gap-[9px] rounded-pill bg-white px-[26px] py-[14px] font-heading text-[15px] font-semibold text-[var(--ember)] transition-all duration-200 ease-brand hover:-translate-y-[2px]"
-          style={{ boxShadow: "0 10px 30px rgba(0,0,0,.18)" }}
-        >
-          <WhatsAppIcon fill="#D06010" />
-          Book now on WhatsApp
-        </a>
+        <div className="relative flex flex-wrap items-center justify-center gap-[14px]">
+          <Link
+            href="/app/create"
+            className="inline-flex min-h-[48px] items-center rounded-pill bg-white px-[26px] py-[14px] font-heading text-[15px] font-semibold text-[var(--ember)] transition-all duration-200 ease-brand hover:-translate-y-[2px]"
+            style={{ boxShadow: "0 10px 30px rgba(0,0,0,.18)" }}
+          >
+            Book now
+          </Link>
+          <a
+            href={WA_URL}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex min-h-[48px] items-center gap-[9px] rounded-pill border-[1.5px] border-[rgba(255,255,255,0.45)] bg-transparent px-[26px] py-[14px] font-heading text-[15px] font-semibold text-white transition-colors hover:border-white hover:bg-[rgba(255,255,255,0.10)]"
+          >
+            <WhatsAppIcon />
+            Contact us
+          </a>
+        </div>
       </section>
 
       {/* ============ FOOTER ============ */}
