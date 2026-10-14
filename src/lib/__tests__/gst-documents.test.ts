@@ -150,6 +150,11 @@ describe("buildGstInvoiceHtml", () => {
     expect(h).toContain("CGST");
     expect(h).toContain("SGST");
     expect(h).toContain("1.19");
+    // Labels carry the half rate — the full 5% belongs to the pair, not each.
+    expect(h).toContain("CGST (2.5%)");
+    expect(h).toContain("SGST (2.5%)");
+    expect(h).not.toContain("CGST (5%");
+    expect(h).not.toContain("SGST (5%");
     expect(h).not.toMatch(/IGST \(/);
   });
 

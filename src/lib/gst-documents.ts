@@ -235,12 +235,16 @@ function buyerBlock(buyer: GstBuyer, placeOfSupply: string | null): string {
 
 export function buildGstInvoiceHtml(inv: GstInvoice): string {
   const a = inv.amounts;
-  const ratePct = (a.rateBp / 100).toFixed(a.rateBp % 100 === 0 ? 0 : 2);
+  const pct = (bp: number) => `${parseFloat((bp / 100).toFixed(2))}`;
+  const ratePct = pct(a.rateBp);
+  // CGST and SGST are each half of the tax-inclusive rate (the stored amounts
+  // were split at mint time; only the label needs the half rate).
+  const halfRatePct = pct(a.rateBp / 2);
   const taxRows =
     inv.taxKind === "cgst_sgst"
       ? `
-        <div class="tot-row"><span>CGST (${ratePct}% on ₹${paiseToAmountString(a.taxablePaise)})</span><span class="mono">${paiseToAmountString(a.cgstPaise)}</span></div>
-        <div class="tot-row"><span>SGST (${ratePct}%)</span><span class="mono">${paiseToAmountString(a.sgstPaise)}</span></div>`
+        <div class="tot-row"><span>CGST (${halfRatePct}%)</span><span class="mono">${paiseToAmountString(a.cgstPaise)}</span></div>
+        <div class="tot-row"><span>SGST (${halfRatePct}%)</span><span class="mono">${paiseToAmountString(a.sgstPaise)}</span></div>`
       : `
         <div class="tot-row"><span>IGST (${ratePct}%)</span><span class="mono">${paiseToAmountString(a.taxPaise)}</span></div>`;
 

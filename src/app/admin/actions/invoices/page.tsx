@@ -60,16 +60,15 @@ const ACTION_TABS = [
 
 // ─── GST helpers (mirror be/app/core/invoice_math.py) ─────────────────────────
 
-/** Mirrors settings.gst_seller_state on the backend ("UP" + aliases) — used
- *  ONLY for the live preview's CGST+SGST vs IGST split. The backend
- *  recomputes authoritatively at mint time; the success panel shows its
- *  numbers, not the preview's. */
-const SELLER_STATE_ALIASES = new Set(["up", "uttar pradesh", "uttarpradesh", "u.p."]);
+/** Business rule (mirrors the mint sites in services/invoicing.py): every
+ *  invoice is charged as an intra-state supply — CGST + SGST at half the
+ *  rate each — regardless of the buyer's place of supply. IGST is never
+ *  minted; legacy documents that carry it still render from their stored
+ *  record (see lib/gst-documents.ts). */
 
 const INDIAN_STATES = [
   "Andaman and Nicobar Islands",
   "Andhra Pradesh",
-  "Arunachal Pradesh",
   "Assam",
   "Bihar",
   "Chandigarh",
@@ -146,12 +145,6 @@ function computeTotals(rupees: number, rateBp: number) {
   const tax = total - taxable;
   const cgst = Math.floor(tax / 2);
   return { total, taxable, tax, cgst, sgst: tax - cgst };
-}
-
-function taxKindFor(state: string): "cgst_sgst" | "igst" | null {
-  const norm = state.trim().toLowerCase();
-  if (!norm) return null;
-  return SELLER_STATE_ALIASES.has(norm) ? "cgst_sgst" : "igst";
 }
 
 const formatRupees = (n: number | null | undefined) =>
@@ -296,11 +289,10 @@ function ManualInvoiceTab() {
     () => (amountValid ? computeTotals(amount, form.rateBp) : null),
     [amountValid, amount, form.rateBp],
   );
-  const previewKind = taxKindFor(form.buyerState);
 
   function validate(): string | null {
     if (!form.buyerName.trim()) return "Buyer name is required.";
-    if (!form.buyerState) return "Select the buyer's state — it is the place of supply and decides IGST vs CGST+SGST.";
+    if (!form.buyerState) return "Select the buyer's state — it is printed as the place of supply on the invoice.";
     if (!form.itemDescription.trim()) return "Item description is required.";
     if (!amountValid) return "Amount must be a whole number of rupees between 1 and 1,00,00,000.";
     const gstin = form.buyerGstin.trim().toUpperCase();
@@ -396,11 +388,10 @@ function ManualInvoiceTab() {
               </div>
               <div className="mt-1 text-xs text-green-800">
                 Taxable {paiseToRupeeString(created.amounts.taxablePaise)} · GST{" "}
-                {paiseToRupeeString(created.amounts.taxPaise)} (
-                {created.taxKind === "igst"
-                  ? `IGST ${paiseToRupeeString(created.amounts.taxPaise)}`
-                  : `CGST ${paiseToRupeeString(created.amounts.cgstPaise)} + SGST ${paiseToRupeeString(created.amounts.sgstPaise)}`}
-                ) · Total {paiseToRupeeString(created.amounts.totalPaise)}
+                {paiseToRupeeString(created.amounts.taxPaise)} (CGST{" "}
+                {paiseToRupeeString(created.amounts.cgstPaise)} + SGST{" "}
+                {paiseToRupeeString(created.amounts.sgstPaise)}) · Total{" "}
+                {paiseToRupeeString(created.amounts.totalPaise)}
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -594,27 +585,17 @@ function ManualInvoiceTab() {
             <div className="mt-3 space-y-2 text-sm">
               <Row label="Taxable value" value={paiseToRupeeString(preview.taxable)} />
               <Row
-                label={
-                  previewKind === "igst"
-                    ? `IGST @ ${(form.rateBp / 100).toFixed(0)}%`
-                    : previewKind === "cgst_sgst"
-                      ? `CGST + SGST @ ${(form.rateBp / 100).toFixed(0)}%`
-                      : "GST"
-                }
+                label={`CGST + SGST @ ${(form.rateBp / 100).toFixed(0)}%`}
                 value={paiseToRupeeString(preview.tax)}
               />
-              {previewKind === "cgst_sgst" && (
-                <div className="pl-3 text-[11px] text-muted">
-                  CGST {paiseToRupeeString(preview.cgst)} + SGST {paiseToRupeeString(preview.sgst)}
-                </div>
-              )}
+              <div className="pl-3 text-[11px] text-muted">
+                CGST {paiseToRupeeString(preview.cgst)} + SGST {paiseToRupeeString(preview.sgst)}
+              </div>
               <div className="border-t border-hairline pt-2">
                 <Row label="Total (tax-inclusive)" value={paiseToRupeeString(preview.total)} strong />
               </div>
               <p className="pt-1 text-[11px] leading-snug text-muted">
-                {previewKind
-                  ? "Preview only — the backend recomputes and its numbers are the legal record."
-                  : "Select the buyer's state to see the CGST+SGST / IGST split."}
+                Preview only — the backend recomputes and its numbers are the legal record.
               </p>
             </div>
           ) : (
