@@ -17,7 +17,7 @@ export default function PrivacyPage() {
       title="Privacy Policy"
       meta={
         <>
-          {COMPANY} · Last updated 4 August 2026
+          {COMPANY} · Last updated 15 October 2026
           <br />
           www.draep.com · info@draep.com · +91 96621 04002
         </>
@@ -71,7 +71,7 @@ export default function PrivacyPage() {
         <SubHeading>3.2 Information collected automatically</SubHeading>
         <p>
           Device and browser type, IP address, pages and screens viewed, referring links,
-          approximate location derived from IP or pincode, session identifiers and cookies. See §10.
+          approximate location derived from IP or pincode, session identifiers and cookies. See §11.
         </p>
         <SubHeading>3.3 Information from others</SubHeading>
         <p>
@@ -183,7 +183,28 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section number="09" title="Your rights">
+      <Section number="09" title="Delete your account">
+        <p>
+          You can delete your Draep account and its associated data at any time:
+        </p>
+        <Bullets
+          items={[
+            <>Email <strong>info@draep.com</strong> or WhatsApp <strong>+91 96621 04002</strong> with the message &ldquo;Delete my account&rdquo;, or</>,
+            <>Ask your Style Captain during a visit to raise the request for you.</>,
+          ]}
+        />
+        <p>
+          We verify your identity by OTP on your registered number. Your profile, measurements,
+          addresses, uploaded images and account data are then deleted within <strong>30 days</strong>.
+          Some records are kept longer where law requires — payment and invoice records for 8 years
+          (tax and accounting) and fabric-condition/QC photographs for 24 months — as listed in §08.
+        </p>
+        <p>
+          Deleting your account does not affect data already lawfully processed for completed orders.
+        </p>
+      </Section>
+
+      <Section number="10" title="Your rights">
         <p>Under the DPDP Act you can:</p>
         <Bullets
           items={[
@@ -207,7 +228,7 @@ export default function PrivacyPage() {
         </Callout>
       </Section>
 
-      <Section number="10" title="Cookies and analytics">
+      <Section number="11" title="Cookies and analytics">
         <p>www.draep.com uses:</p>
         <Bullets
           items={[
@@ -221,7 +242,7 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section number="11" title="Security">
+      <Section number="12" title="Security">
         <p>
           HTTPS across the site and apps; OTP-based sign-in, so there is no password to leak;
           role-based access so each Style Captain, tailor, hub and staff member sees only what their
@@ -235,7 +256,7 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section number="12" title="Children">
+      <Section number="13" title="Children">
         <p>
           Draep&apos;s services are for users <strong>18 and over</strong>. We do not process a
           child&apos;s data without verifiable parental consent, and we never use children&apos;s data
@@ -244,7 +265,7 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section number="13" title="Changes to this policy">
+      <Section number="14" title="Changes to this policy">
         <p>
           We update this policy as Draep expands to new areas, categories and features. The
           &ldquo;Last updated&rdquo; date will change, and for material changes we will notify you on
@@ -252,7 +273,7 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section number="14" title="Contact">
+      <Section number="15" title="Contact">
         <Callout title={COMPANY}>
           <p>Bengaluru, Karnataka, India</p>
           <p>Email: info@draep.com</p>
