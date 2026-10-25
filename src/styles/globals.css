@@ -322,6 +322,226 @@
     }
   }
 
+  /* ─── MYOD hero card (top of the library) ──────────────────────────────
+     The "design your own" invitation — the one card in the list allowed
+     to be loud. Navy ground, tape seam (§6), a breathing tape-gradient
+     glow, the alpha mark floating in (§2), twinkling sparkles, a soft
+     light sweep, and a tick ruler that slides like a tape being pulled.
+     All layers are decorative and settle into a sane static frame when
+     reduced motion freezes the keyframes. */
+  .myod-hero {
+    animation: myod-hero-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes myod-hero-in {
+    from {
+      opacity: 0;
+      transform: translateY(14px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* Breathing tape-gradient glow behind the alpha mark. */
+  .myod-hero-glow {
+    position: absolute;
+    top: -64px;
+    right: -56px;
+    width: 264px;
+    height: 264px;
+    border-radius: var(--radius-pill);
+    background: var(--tape-gradient);
+    filter: blur(52px);
+    opacity: 0.3;
+    animation: myod-glow-breathe 6s ease-in-out infinite;
+  }
+  @keyframes myod-glow-breathe {
+    0%,
+    100% {
+      opacity: 0.24;
+      transform: translate(4%, -2%) scale(1);
+    }
+    50% {
+      opacity: 0.4;
+      transform: translate(-2%, 3%) scale(1.12);
+    }
+  }
+
+  /* Periodic soft light sweep across the navy ground. */
+  .myod-hero-sheen {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .myod-hero-sheen::before {
+    content: "";
+    position: absolute;
+    inset: -20% 0;
+    width: 45%;
+    transform: translateX(-220%) rotate(12deg);
+    background: linear-gradient(
+      100deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.13) 50%,
+      transparent 100%
+    );
+    animation: myod-sheen-sweep 3.8s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+    animation-delay: 1.1s;
+  }
+  @keyframes myod-sheen-sweep {
+    0% {
+      transform: translateX(-220%) rotate(12deg);
+    }
+    55%,
+    100% {
+      transform: translateX(340%) rotate(12deg);
+    }
+  }
+
+  /* The design badge drifting in its corner. */
+  .myod-hero-alpha {
+    animation: myod-alpha-float 6s ease-in-out infinite;
+    filter: drop-shadow(0 5px 14px rgba(248, 144, 16, 0.2));
+  }
+  @keyframes myod-alpha-float {
+    0%,
+    100% {
+      transform: translateY(0) rotate(-3deg);
+    }
+    50% {
+      transform: translateY(-8px) rotate(2deg);
+    }
+  }
+
+  /* Twinkling sparkles, staggered. */
+  .myod-hero-spark {
+    animation: myod-spark-twinkle 2.6s ease-in-out infinite;
+  }
+  .myod-hero-spark-2 {
+    animation-duration: 3.2s;
+    animation-delay: 1.1s;
+  }
+  @keyframes myod-spark-twinkle {
+    0%,
+    100% {
+      opacity: 0.55;
+      transform: translateY(0) scale(0.9);
+    }
+    50% {
+      opacity: 1;
+      transform: translateY(-4px) scale(1.08);
+    }
+  }
+
+  /* ─── Measuring tapes on the MYOD hero ────────────────────────────────
+     Measuring-tape anatomy in the original strip palette: the top tape is
+     the Brand Book tape gradient with white marks (the old .lp-tape-strip
+     look); the bottom tape is white ticks on the navy card (the old tick
+     ruler). Ticks and numerals inherit currentColor from the variant.
+     `side="top"` anchors right (free end left), `side="bottom"` anchors
+     left (free end right) so the two read as one tape pulled across. */
+  .myod-tape {
+    position: absolute;
+    height: 14px;
+  }
+  .myod-tape-top {
+    top: 0;
+    right: 0;
+    width: 100%;
+    border-radius: 999px 0 0 999px;
+    background: var(--tape-gradient);
+    color: #ffffff;
+  }
+  .myod-tape-bottom {
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    border-radius: 0 999px 999px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.85);
+  }
+  /* Rivet — terminates the tape at its free end. White on the gradient,
+     brand orange on the navy card. */
+  .myod-tape-rivet {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-pill);
+  }
+  .myod-tape-top .myod-tape-rivet {
+    left: 5px;
+    background: #ffffff;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+  }
+  .myod-tape-bottom .myod-tape-rivet {
+    right: 5px;
+    background: var(--draep-orange);
+    box-shadow: 0 0 0 2px rgba(248, 144, 16, 0.3);
+  }
+  /* Scale window — clips the marquee just past the rivet. */
+  .myod-tape-window {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    overflow: hidden;
+  }
+  .myod-tape-top .myod-tape-window {
+    left: 18px;
+    right: 0;
+  }
+  .myod-tape-bottom .myod-tape-window {
+    left: 0;
+    right: 18px;
+  }
+  /* The scale itself: two identical halves, slid exactly one half-width
+     for a seamless loop. Bottom pulls left, top pulls right (reversed). */
+  .myod-tape-track {
+    display: flex;
+    height: 100%;
+    width: max-content;
+    animation: myod-tape-slide 14s linear infinite;
+  }
+  .myod-tape-top .myod-tape-track {
+    animation-direction: reverse;
+  }
+  @keyframes myod-tape-slide {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  /* Sheen that keeps sweeping across the tape-gradient CTA pill. */
+  .myod-hero-cta {
+    position: relative;
+    overflow: hidden;
+  }
+  .myod-hero-cta::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      100deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.4) 50%,
+      transparent 70%
+    );
+    animation: myod-cta-sheen 2.6s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+  }
+  @keyframes myod-cta-sheen {
+    0% {
+      transform: translateX(-100%);
+    }
+    60%,
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
   /* Reduced motion: disable all landing-page animations. */
   @media (prefers-reduced-motion: reduce) {
     .lp-reveal {
@@ -334,7 +554,14 @@
     .lp-float-3,
     .od-block::after,
     .od-rise,
-    .od-spinner {
+    .od-spinner,
+    .myod-hero,
+    .myod-hero-glow,
+    .myod-hero-sheen::before,
+    .myod-hero-alpha,
+    .myod-hero-spark,
+    .myod-tape-track,
+    .myod-hero-cta::after {
       animation: none !important;
     }
     .od-rise {

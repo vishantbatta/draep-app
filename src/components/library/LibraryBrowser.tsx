@@ -13,14 +13,14 @@
  *     a sheet; order / try-on flows live on that page.
  *   • No prices on cards
  *
- * Layout: collapsed header → infinite-scroll grid.
+ * Layout: MYOD hero card → infinite-scroll grid.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { Sparkle, Sparkles, Close, ChevronRight, Tune } from "@/components/ui/icons";
+import { Sparkle, Sparkles, Close, ChevronRight, Tune, Pencil } from "@/components/ui/icons";
 import {
   EMPTY_FILTERS,
   FilterSheet,
@@ -40,19 +40,10 @@ import type {
 
 /* ============================================================ */
 
-/* Slim navy bar the header settles into once fully collapsed (px). */
-const HEADER_COLLAPSED_PX = 36;
-/* Expanded height lives here too so the scroll handler can restore it
- * verbatim when the list returns to the top (clearing the inline style
- * would fall back to auto, losing the dvh sizing). */
-const HEADER_EXPANDED_H = "30dvh";
-
 export function LibraryBrowser() {
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   const loaderRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLElement>(null);
-  const headerContentRef = useRef<HTMLDivElement>(null);
   /* ── Library list state ─────────────────────────────────────────────── */
   const [items, setItems] = useState<LibraryListItemOut[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -68,54 +59,6 @@ export function LibraryBrowser() {
   // Upfront pills open a quick sheet scoped to ONE facet; All filters opens
   // the full sheet above.
   const [quickFilter, setQuickFilter] = useState<QuickFilterSection | null>(null);
-
-  /* ── Scroll-linked header collapse ────────────────────────────────────
-   * The header shrinks continuously with scroll (not a threshold snap):
-   * height interpolates 30dvh → HEADER_COLLAPSED_PX over the first screenful,
-   * and the title fades/drifts out with the same progress. Written straight
-   * to the DOM inside one rAF so scrolling never re-renders React. At the
-   * top the inline styles are dropped again so CSS keeps owning the dvh
-   * height (mobile URL-bar resizes stay honest). */
-  useEffect(() => {
-    const root = scrollRef.current;
-    const header = headerRef.current;
-    const content = headerContentRef.current;
-    if (!root || !header || !content) return;
-
-    let raf = 0;
-    let maxPx: number | null = null; // expanded height, measured at rest
-
-    const apply = () => {
-      raf = 0;
-      const top = root.scrollTop;
-      if (top <= 1) {
-        if (maxPx !== null) {
-          maxPx = null;
-          header.style.height = HEADER_EXPANDED_H;
-          content.style.opacity = "";
-          content.style.transform = "";
-        }
-        return;
-      }
-      maxPx ??= header.getBoundingClientRect().height;
-      const span = Math.max(maxPx - HEADER_COLLAPSED_PX, 1);
-      // 1:1 with the finger (native collapsing-header feel) — the smoothness
-      // comes from continuous tracking, not from easing the progress.
-      const p = Math.min(top / span, 1);
-      header.style.height = `${Math.round(maxPx - p * span)}px`;
-      content.style.opacity = (1 - p).toFixed(3);
-      content.style.transform = `translateY(${(-14 * p).toFixed(1)}px)`;
-    };
-
-    const onScroll = () => {
-      if (!raf) raf = requestAnimationFrame(apply);
-    };
-    root.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      root.removeEventListener("scroll", onScroll);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
 
   /* ── Initial fetch (also re-runs whenever filters change) ──────────── */
   const fetchFirstPage = useCallback(async () => {
@@ -214,41 +157,32 @@ export function LibraryBrowser() {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-column flex-col bg-warm-sand">
-      {/* ───── Header (collapses smoothly with scroll, see effect above) ──
-          Full-bleed navy; its content row re-aligns to the 480px column. */}
-      <header
-        ref={headerRef}
-        className="relative flex w-full flex-none flex-col justify-end overflow-hidden bg-ink-navy text-chalk-white"
-        style={{ height: HEADER_EXPANDED_H }}
-      >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full opacity-20 blur-md"
-          style={{ background: "var(--tape-gradient)" }}
-        />
-
-        {/* Stays mounted — the collapse effect fades/drifts it out by progress. */}
-        <div
-          ref={headerContentRef}
-          className="relative z-10 flex w-full flex-col items-center gap-2 px-4 pb-6"
-        >
-          <div className="text-center">
-            <span className="inline-flex items-center gap-1.5 rounded-pill bg-chalk-white/15 px-3 py-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white backdrop-blur-sm">
-              <RivetDot />
-              Design Library
-            </span>
-            <h1 className="mt-2 font-heading text-h1 font-semibold text-chalk-white">
-              Browse every blouse we make
-            </h1>
-          </div>
+      {/* ───── Library scroll area — MYOD hero leads, then the grid ───── */}
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        {/* MYOD hero — the "design your own" invitation, first card in the library */}
+        <div className="px-4 pt-4">
+          <MyodBanner />
         </div>
 
-        {/* Tape-gradient seam with tick overlay — Brand Book §6 (the tape) */}
-        <div aria-hidden className="lp-tape-strip absolute inset-x-0 bottom-0 z-10" />
-      </header>
+        {/* "or" — design your own, or pick from the collection below */}
+        <div
+          role="separator"
+          aria-label="or"
+          className="flex items-center gap-3 px-4 pt-5"
+        >
+          <span
+            aria-hidden
+            className="mt-px flex-1 border-t border-dotted border-tape-silver"
+          />
+          <span className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
+            or
+          </span>
+          <span
+            aria-hidden
+            className="mt-px flex-1 border-t border-dotted border-tape-silver"
+          />
+        </div>
 
-      {/* ───── Bottom section (library grid) ───── */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {/* Section header — eyebrow + tick-divider rail ending in a rivet (§6) */}
         <div className="px-4 pt-4">
           <span className="eyebrow">The collection</span>
@@ -279,9 +213,6 @@ export function LibraryBrowser() {
 
         {/* Grid body — one full-bleed hero row per design */}
         <div className="px-4 pt-4">
-          {/* MYOD banner — hidden for now (re-enable with <MyodBanner />) */}
-          {/* <MyodBanner /> */}
-
           {listLoading && items.length === 0 ? (
             <GridSkeleton />
           ) : listError ? (
@@ -472,53 +403,160 @@ function LibraryCard({
 
 /** Detail sheet body — hero, celebrity note, grouped design items, styling notes. NO prices. */
 /* ============================================================ */
-/*  MYOD banner                                                  */
+/*  MYOD hero card                                               */
 /* ============================================================ */
 
 /**
- * MYOD (Make Your Own Draep) banner — entry point to /myod/blouse where the
- * user can design a blouse step by step (each garment has its own /myod/<id or
- * slug> URL).
+ * MYOD (Make Your Own Draep) hero — the "design your own blouse" invitation
+ * at the top of the library; entry point to /myod/blouse where the user
+ * designs step by step (each garment has its own /myod/<id or slug> URL).
  *
- * On-brand per Brand Book §8: white card surface, hairline border, --shadow-card,
- * the tape-strip seam as the signature motif, mono eyebrow, navy heading, and
- * a tape-gradient CTA pill (the only place the gradient appears on a card).
+ * The one card in the list allowed to be loud: reversed treatment on Ink
+ * Navy (§8) so it pops against the white cards below, with the full motion
+ * vocabulary of the brand — measuring-tape edges (§9), a breathing
+ * tape-gradient glow, a dashed pencil design badge, twinkling sparkles, a
+ * soft light sweep, and a sheen that keeps running across the CTA pill.
+ * Content rises in one staggered wave (.od-rise + --od-delay).
  */
 function MyodBanner() {
   return (
     <Link
       href="/myod/blouse"
       onClick={() => track({ event: "myod_opened", source: "library" })}
-      className="group mb-4 flex w-full flex-col overflow-hidden rounded-card border border-hairline bg-chalk-white text-left shadow-card transition-all ease-brand active:scale-[0.99] active:shadow-brand"
+      className="myod-hero group relative block w-full overflow-hidden rounded-card bg-ink-navy text-left shadow-card transition-all ease-brand active:scale-[0.99] active:shadow-brand"
     >
-      {/* Tape-strip seam — the brand signature (draep.html .tape-strip) */}
-      <div aria-hidden className="lp-tape-strip" />
+      {/* ── Ambient layer — tapes, glow, floating alpha, sparkles, sweep ── */}
+      <MeasuringTape side="top" />
+      <MeasuringTape side="bottom" />
+      <div aria-hidden className="myod-hero-glow" />
+      {/* Design badge — dashed sketch ring (§8 dashed = in progress) around a
+          pencil: reads as "sketch your own garment" where the alpha mark sat. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -right-3 top-3 z-0"
+      >
+        <span className="myod-hero-alpha relative flex h-32 w-32 items-center justify-center">
+          <svg
+            viewBox="0 0 96 96"
+            fill="none"
+            className="absolute inset-0 h-full w-full"
+          >
+            <circle
+              cx="48"
+              cy="48"
+              r="44"
+              stroke="var(--draep-orange)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeDasharray="5 9"
+              opacity="0.6"
+            />
+          </svg>
+          <Pencil size={46} className="text-draep-orange opacity-80" />
+        </span>
+      </span>
+      <Sparkle
+        size={14}
+        className="myod-hero-spark absolute right-28 top-14 z-0 text-draep-orange"
+      />
+      <Sparkles
+        size={11}
+        className="myod-hero-spark myod-hero-spark-2 absolute bottom-20 right-7 z-0 text-draep-orange opacity-80"
+      />
+      <div aria-hidden className="myod-hero-sheen z-20" />
 
-      <div className="flex items-start gap-3 p-4">
-        {/* Symbol mark — DraepSymbol (Brand Book §1), color variant */}
-        <span aria-hidden className="mt-0.5 shrink-0 text-draep-orange">
-          <Sparkles size={22} />
+      {/* ── Content — rises in one staggered wave; pt/pb clear the tapes ── */}
+      <div className="relative z-10 flex flex-col items-start gap-1.5 p-4 pb-10 pr-8 pt-10">
+        <span
+          className="od-rise inline-flex items-center gap-1.5 rounded-pill px-3 py-1 font-mono text-eyebrow font-medium uppercase tracking-[0.18em] text-chalk-white backdrop-blur-sm"
+          style={{ backgroundColor: "rgba(255,255,255,0.14)" }}
+        >
+          <RivetDot className="!h-1.5 !w-1.5 animate-rivet" />
+          {strings.myod.bannerEyebrow}
         </span>
 
-        <div className="min-w-0 flex-1">
-          <span className="eyebrow">{strings.myod.bannerEyebrow}</span>
-          <p className="mt-1 font-heading text-h3 font-semibold leading-snug text-ink-navy">
-            {strings.myod.bannerTitle}
-          </p>
-          <p className="mt-0.5 text-caption leading-snug text-muted">
-            {strings.myod.bannerBody}
-          </p>
+        <h2
+          className="od-rise whitespace-pre-line font-heading text-h2 font-semibold leading-snug text-chalk-white"
+          style={{ "--od-delay": "70ms" } as CSSProperties}
+        >
+          {strings.myod.bannerTitle}
+        </h2>
 
-          {/* CTA — tape-gradient pill, the single gradient element (Brand Book §8) */}
-          <span className="mt-3 inline-flex items-center gap-1.5 rounded-pill bg-tape px-3.5 py-1.5 text-caption font-semibold text-chalk-white shadow-primary"
-            style={{ backgroundImage: "var(--tape-gradient)" }}
-          >
-            {strings.myod.bannerCta}
-            <ChevronRight size={14} />
+        <p
+          className="od-rise max-w-[30ch] text-caption leading-snug text-chalk-white opacity-80"
+          style={{ "--od-delay": "140ms" } as CSSProperties}
+        >
+          {strings.myod.bannerBody}
+        </p>
+
+        {/* CTA — tape-gradient pill with a running sheen (§4: gradient = primary CTA) */}
+        <span
+          className="myod-hero-cta od-rise mt-2.5 inline-flex items-center gap-1.5 rounded-pill px-4 py-2 text-caption font-semibold text-chalk-white shadow-primary"
+          style={
+            {
+              backgroundImage: "var(--tape-gradient)",
+              "--od-delay": "210ms",
+            } as CSSProperties
+          }
+        >
+          {strings.myod.bannerCta}
+          <ChevronRight
+            size={14}
+            className="transition-transform duration-200 ease-brand group-active:translate-x-0.5"
+          />
+        </span>
+      </div>
+
+    </Link>
+  );
+}
+
+/**
+ * MeasuringTape — a decorative measuring tape on the MYOD hero (Brand Book
+ * §9 "Branded tape — sand tape, navy numerals, orange rivet end"). The
+ * `top` tape anchors to the card's right edge (rivet on its left, at 0),
+ * the `bottom` tape anchors left (rivet right) — together they read as one
+ * tape pulled diagonally across the card. The scale marquees; reduced
+ * motion freezes it via globals.css.
+ */
+function MeasuringTape({ side }: { side: "top" | "bottom" }) {
+  const numbers = Array.from({ length: 16 }, (_, i) => i);
+  const half = (key: string) => (
+    <div key={key} className="flex h-full shrink-0">
+      {numbers.map((n) => (
+        <span
+          key={n}
+          className="relative flex w-7 shrink-0 flex-col items-center justify-center"
+        >
+          {/* minor tick at the segment edge */}
+          <span
+            aria-hidden
+            className="absolute left-0 top-[2px] h-[2px] w-px bg-current opacity-50"
+          />
+          {/* major tick over the numeral */}
+          <span aria-hidden className="h-[3px] w-px bg-current" />
+          <span className="mt-[1px] font-mono text-[7px] leading-none">
+            {n}
           </span>
+        </span>
+      ))}
+    </div>
+  );
+  return (
+    <div
+      aria-hidden
+      className={`myod-tape ${
+        side === "top" ? "myod-tape-top" : "myod-tape-bottom"
+      }`}
+    >
+      <div className="myod-tape-rivet" />
+      <div className="myod-tape-window">
+        <div className="myod-tape-track">
+          {half("a")}
+          {half("b")}
         </div>
       </div>
-    </Link>
+    </div>
   );
 }
 

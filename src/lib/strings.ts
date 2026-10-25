@@ -578,10 +578,10 @@ export const strings = {
   },
 
   myod: {
-    // Banner CTA on the library page
-    bannerEyebrow: "MYOD",
-    bannerTitle: "Make your own Draep",
-    bannerBody: "Design a blouse step by step — our AI builds it as you go.",
+    // Hero card at the top of the library page
+    bannerEyebrow: "Be your own fashion designer",
+    bannerTitle: "You dream it,\nwe stitch it",
+    bannerBody: "Sleeves, necklines, drama — dial it up, our AI sketches it as you go.",
     bannerCta: "Start designing",
     // Chat-first configurator
     sheetTitle: "Make Your Own Draep",
