@@ -602,6 +602,9 @@ export const strings = {
     photoCount: (n: number, max: number) => `${n} / ${max} photos`,
     removePhoto: "Remove photo",
     analyzeCta: "Read this design",
+    // Login gate on the Read CTA (anonymous visitors)
+    loginTitle: "Log in to read your design",
+    loginMessage: "Verify your phone once — your design and photos stay with your account.",
     uploading: "Uploading your photos…",
     // Analyzing (live checklist)
     analyzingTitle: "Reading your design…",

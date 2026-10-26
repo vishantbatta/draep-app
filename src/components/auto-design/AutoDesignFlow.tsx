@@ -29,12 +29,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AutoDesignOrderSheet } from "@/components/auto-design/AutoDesignOrderSheet";
+import { LoginGateSheet } from "@/components/auth/LoginGateSheet";
 import { GarmentPicker } from "@/components/myod/GarmentPicker";
 import { extrasDefaults, MyodSheet, type HostedStep } from "@/components/myod/MyodSheet";
 import { DesignPhotoPicker } from "@/components/photo/DesignPhotoPicker";
 import { Button } from "@/components/ui/Button";
 import { Check, Sparkles } from "@/components/ui/icons";
 import { track } from "@/lib/analytics";
+import { useAuthHydrated, useAuthStore } from "@/lib/auth-store";
 import {
   analyzeDesignStream,
   uploadDesignPhotos,
@@ -136,6 +138,18 @@ export function AutoDesignFlow({
     retry: "upload" | "analyze" | "finish";
   } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
+
+  // ── Login gate on "Read this design" ───────────────────────────────
+  // Anonymous visitors verify their phone before the photos are read, so
+  // the design (and the order it becomes) lands on their account. The gate
+  // overlays the picker — the chosen photos stay put — and once the store
+  // holds a user session the blocked upload runs by itself. Fail-open while
+  // the store is still hydrating (same rule as MyodSheet's Generate gate).
+  const sessionType = useAuthStore((s) => s.sessionType);
+  const authHydrated = useAuthHydrated();
+  const isLoggedIn = sessionType === "user";
+  const [showLoginGate, setShowLoginGate] = useState(false);
+  const [pendingAfterLogin, setPendingAfterLogin] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const startedAtRef = useRef(0);
@@ -240,6 +254,27 @@ export function AutoDesignFlow({
     }
   }, [files, garmentId, startAnalyze]);
 
+  /** The Read CTA: log in first when anonymous, else upload + analyze. */
+  const handleAnalyze = useCallback(() => {
+    if (!files.length) return;
+    if (authHydrated && !isLoggedIn) {
+      track({ event: "auto_design_login_gated" });
+      setPendingAfterLogin(true);
+      setShowLoginGate(true);
+      return;
+    }
+    void startUpload();
+  }, [files.length, authHydrated, isLoggedIn, startUpload]);
+
+  // The gate's verify flips sessionType in the store; this effect runs the
+  // blocked upload on the next render with a logged-in closure.
+  useEffect(() => {
+    if (!pendingAfterLogin || !isLoggedIn) return;
+    setPendingAfterLogin(false);
+    setShowLoginGate(false);
+    void startUpload();
+  }, [pendingAfterLogin, isLoggedIn, startUpload]);
+
   const backToPhotos = useCallback(() => {
     abortRef.current?.abort();
     setReviewOpen(false);
@@ -322,13 +357,27 @@ export function AutoDesignFlow({
 
   if (stage === "photos" || stage === "uploading") {
     return (
-      <DesignPhotoPicker
-        files={files}
-        onChange={setFiles}
-        onAnalyze={() => void startUpload()}
-        busy={stage === "uploading"}
-        busyLabel={strings.autoDesign.uploading}
-      />
+      <>
+        <DesignPhotoPicker
+          files={files}
+          onChange={setFiles}
+          onAnalyze={handleAnalyze}
+          busy={stage === "uploading"}
+          busyLabel={strings.autoDesign.uploading}
+        />
+        <LoginGateSheet
+          open={showLoginGate}
+          onClose={() => {
+            // Dismissed without logging in: keep the photos, drop the intent
+            // so a later login elsewhere doesn't fire the upload unasked.
+            setShowLoginGate(false);
+            setPendingAfterLogin(false);
+          }}
+          onSuccess={() => setShowLoginGate(false)}
+          title={strings.autoDesign.loginTitle}
+          message={strings.autoDesign.loginMessage}
+        />
+      </>
     );
   }
 

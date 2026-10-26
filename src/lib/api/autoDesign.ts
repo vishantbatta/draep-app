@@ -162,36 +162,50 @@ export async function analyzeDesignStream(
 
   let outcome: AutoDesignOutcome | null = null;
   let failure: ApiError | null = null;
-  await readSseEvents(res, (event) => {
-    if (failure || outcome) return;
-    switch (event.name) {
-      case "stage":
-        params.onStage?.(event.data as AutoDesignStageEvent);
-        break;
-      case "done":
-        outcome = { kind: "done", result: event.data as AutoDesignDone };
-        break;
-      case "garment_unresolved":
-        outcome = { kind: "garment_unresolved" };
-        break;
-      case "error": {
-        const err = (event.data ?? {}) as {
-          code?: string;
-          message?: string;
-          status?: number;
-        };
-        failure = new ApiError(
-          err.code ?? "auto_design_failed",
-          err.message ?? "We couldn't read the design from these photos. Please try again.",
-          err.status ?? 502,
-          {},
-        );
-        break;
+  try {
+    await readSseEvents(res, (event) => {
+      if (failure || outcome) return;
+      switch (event.name) {
+        case "stage":
+          params.onStage?.(event.data as AutoDesignStageEvent);
+          break;
+        case "done":
+          outcome = { kind: "done", result: event.data as AutoDesignDone };
+          break;
+        case "garment_unresolved":
+          outcome = { kind: "garment_unresolved" };
+          break;
+        case "error": {
+          const err = (event.data ?? {}) as {
+            code?: string;
+            message?: string;
+            status?: number;
+          };
+          failure = new ApiError(
+            err.code ?? "auto_design_failed",
+            err.message ?? "We couldn't read the design from these photos. Please try again.",
+            err.status ?? 502,
+            {},
+          );
+          break;
+        }
+        default:
+          break;
       }
-      default:
-        break;
-    }
-  });
+    });
+  } catch (err) {
+    // A mid-stream transport failure (a proxy cutting a slow request) would
+    // otherwise surface as the browser's raw "network error". Abort is the
+    // caller's Cancel — rethrown as-is; everything else becomes the same
+    // retryable message as a stream that ended without a terminal event.
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiError(
+      "auto_design_stream_ended",
+      "The connection dropped before we finished reading your photos. Please try again.",
+      0,
+      {},
+    );
+  }
 
   if (failure) throw failure;
   if (!outcome) {

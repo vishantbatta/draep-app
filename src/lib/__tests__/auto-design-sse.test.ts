@@ -3,7 +3,7 @@
  * chunk boundaries landing anywhere (mid-line, mid-frame), multi-line data,
  * and a stream that ends without a terminal event.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { readSseEvents, type SseEvent } from "../api/autoDesign";
 
@@ -63,5 +63,25 @@ describe("readSseEvents", () => {
   it("surfaces unparseable data as a raw string rather than throwing", async () => {
     const events = await collect(["event: error\ndata: not-json\n\n"]);
     expect(events).toEqual([{ name: "error", data: "not-json" }]);
+  });
+});
+
+describe("analyzeDesignStream mid-stream failures", () => {
+  it("maps a transport failure mid-read to the retryable connection-dropped error", async () => {
+    vi.stubGlobal("fetch", async () => {
+      const enc = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(enc.encode('event: stage\ndata: {"step":"garment","status":"start","label":"Garment"}\n\n'));
+          controller.error(new TypeError("network error"));
+        },
+      });
+      return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+    });
+    const { analyzeDesignStream } = await import("../api/autoDesign");
+    await expect(
+      analyzeDesignStream({ imageUrls: ["/designs/ai/ref_x.jpg"] }),
+    ).rejects.toMatchObject({ code: "auto_design_stream_ended" });
+    vi.unstubAllGlobals();
   });
 });

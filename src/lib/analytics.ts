@@ -67,6 +67,7 @@ export type AnalyticsEvent =
   // Auto-design ("Share a design with us")
   | { event: "auto_design_opened" }
   | { event: "auto_design_photos_added"; count: number }
+  | { event: "auto_design_login_gated" }
   | {
       event: "auto_design_analyzed";
       garment_detected: boolean;
