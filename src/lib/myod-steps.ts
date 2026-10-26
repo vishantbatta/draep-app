@@ -445,6 +445,22 @@ export function buildDesignSteps(tree: GarmentTreeOut): DesignStep[] {
   return steps;
 }
 
+/**
+ * Keep only the steps whose ids are listed, in their original (catalog)
+ * order; unknown ids are ignored. No list = every step. Critical steps are
+ * keyed by component id, so a host that knows which components still need
+ * an answer (auto-design's `missing_critical`) can run the wizard over just
+ * those.
+ */
+export function filterStepsById(
+  steps: DesignStep[],
+  ids: readonly string[] | undefined,
+): DesignStep[] {
+  if (!ids) return steps;
+  const keep = new Set(ids);
+  return steps.filter((s) => keep.has(s.id));
+}
+
 // Order the axis-wizard steps: placement (Where, when the labels decompose)
 // comes first (added by addonAxisModel), then style-like axes before
 // measurements before color.

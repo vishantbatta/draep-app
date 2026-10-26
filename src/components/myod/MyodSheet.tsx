@@ -77,6 +77,7 @@ import {
   buildRenderConfigText,
   computeSelectionPrice,
   describeSelection,
+  filterStepsById,
   labelText,
   placementLabel,
   selectionAmount,
@@ -242,6 +243,9 @@ export function MyodSheet({
   footerInset,
   onBackChange,
   onStepChange,
+  initialSelections,
+  onlyStepIds,
+  onStepsComplete,
 }: {
   garmentId?: string;
   /**
@@ -266,13 +270,53 @@ export function MyodSheet({
    * can fall back to its default header.
    */
   onStepChange?: (step: HostedStep | null) => void;
+  /**
+   * Hosted gap-filling mode (auto-design): start from these selections
+   * INSTEAD of the session draft — a stale hand-built draft for the same
+   * garment must not leak into a photo-derived design — and never write the
+   * session draft back. Catalog defaults still fill anything absent.
+   */
+  initialSelections?: Selections;
+  /**
+   * Hosted gap-filling mode: run the wizard over just these steps (critical
+   * step ids are component ids), in catalog order. Pass a memoized array —
+   * the step list is derived from it. The extras step is normally left out,
+   * so the flow ends on the last listed step (see onStepsComplete).
+   */
+  onlyStepIds?: readonly string[];
+  /**
+   * Hosted gap-filling mode: fires with the full selection map once the
+   * last step is answered (instead of advancing), or straight after the tree
+   * loads when `onlyStepIds` matches nothing. The host takes it from there
+   * (auto-design opens its review sheet).
+   */
+  onStepsComplete?: (selections: Selections) => void;
 }) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("loading-tree");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [tree, setTree] = useState<GarmentTreeOut | null>(null);
-  const steps = useMemo(() => (tree ? buildDesignSteps(tree) : []), [tree]);
+  // Every step the catalog defines — pricing, the render config and photo
+  // requirements always see the whole design. `steps` is what the user
+  // walks: the same list, or the host's subset in gap-filling mode.
+  const fullSteps = useMemo(() => (tree ? buildDesignSteps(tree) : []), [tree]);
+  const steps = useMemo(
+    () => filterStepsById(fullSteps, onlyStepIds),
+    [fullSteps, onlyStepIds],
+  );
+  // Hosted gap-filling mode = the host handed us a starting point. Read via
+  // refs inside the one-shot tree-load effect so prop identity changes never
+  // reload the tree.
+  const hosted = initialSelections !== undefined;
+  const initialSelectionsRef = useRef(initialSelections);
+  const onlyStepIdsRef = useRef(onlyStepIds);
+  const onStepsCompleteRef = useRef(onStepsComplete);
+  useEffect(() => {
+    initialSelectionsRef.current = initialSelections;
+    onlyStepIdsRef.current = onlyStepIds;
+    onStepsCompleteRef.current = onStepsComplete;
+  });
 
   const [activeStepIdx, setActiveStepIdx] = useState(0);
   const [selections, setSelections] = useState<Selections>({});
@@ -376,10 +420,15 @@ export function MyodSheet({
         // admin deleted since drop out, and a saved render is reused as-is
         // (Generate then reuses it instead of re-billing, because the config
         // text rebuilt from the restored selections matches byte-for-byte).
-        const saved = loadMyodDraft(t.id);
-        const restored = saved
-          ? sanitizeMyodSelections(saved.selections, nextSteps)
-          : {};
+        // A host-supplied start (gap-filling mode) replaces the draft
+        // outright — same sanitizing, no render to restore.
+        const hostedStart = initialSelectionsRef.current;
+        const saved = hostedStart === undefined ? loadMyodDraft(t.id) : null;
+        const restored = hostedStart
+          ? sanitizeMyodSelections(hostedStart, nextSteps)
+          : saved
+            ? sanitizeMyodSelections(saved.selections, nextSteps)
+            : {};
         const merged = { ...extrasDefaults(nextSteps), ...restored };
         setSelections(merged);
         if (saved?.renderViews.length) {
@@ -393,6 +442,11 @@ export function MyodSheet({
         scheduleIdle(() => prefetchImages(collectStepImageUrls(nextSteps)));
         setPhase("ready");
         track({ event: "myod_opened", source: "library" });
+        // Gap-filling mode with nothing left to ask: hand straight back.
+        const walked = filterStepsById(nextSteps, onlyStepIdsRef.current);
+        if (onlyStepIdsRef.current && walked.length === 0) {
+          onStepsCompleteRef.current?.(merged);
+        }
       } catch (err) {
         if (cancelled) return;
         setErrorMsg(
@@ -475,8 +529,8 @@ export function MyodSheet({
   // Running total — base price + one additive amount per selection, exactly
   // the rules the created order's breakdown will apply (see myod-steps).
   const priceBreakdown = useMemo(
-    () => computeSelectionPrice(steps, selections, tree?.base_price ?? null),
-    [steps, selections, tree],
+    () => computeSelectionPrice(fullSteps, selections, tree?.base_price ?? null),
+    [fullSteps, selections, tree],
   );
 
   // ── Config for the final AI render ─────────────────────────────────
@@ -487,8 +541,8 @@ export function MyodSheet({
   // render prompt is specified by this text alone: the DB descriptions are
   // the model's entire visual vocabulary.
   const buildRenderConfig = useCallback(
-    (sels: Selections) => buildRenderConfigText(steps, sels),
-    [steps],
+    (sels: Selections) => buildRenderConfigText(fullSteps, sels),
+    [fullSteps],
   );
 
   // ── Option tap ──────────────────────────────────────────────────────
@@ -512,9 +566,15 @@ export function MyodSheet({
       const tappedComp = step?.components.find((c) => c.id === componentId);
       if (!step?.isExtras && tappedComp?.selectionMode !== "multi") {
         const tappedIdx = activeStepIdx;
-        setActiveStepIdx((i) =>
-          i === tappedIdx ? Math.min(steps.length - 1, i + 1) : i,
-        );
+        // Gap-filling mode ends on its last step: hand the host the full
+        // map instead of advancing into nothing.
+        if (onStepsComplete && tappedIdx === steps.length - 1) {
+          onStepsComplete(next);
+        } else {
+          setActiveStepIdx((i) =>
+            i === tappedIdx ? Math.min(steps.length - 1, i + 1) : i,
+          );
+        }
       }
 
       const instruction = sel
@@ -524,7 +584,7 @@ export function MyodSheet({
         : `${step?.components.find((c) => c.id === componentId)?.label ?? "Add-on"} → off`;
       track({ event: "myod_refined", instruction });
     },
-    [selections, steps, activeStepIdx],
+    [selections, steps, activeStepIdx, onStepsComplete],
   );
 
   // ── Reference-photo gate (core/item_images) ──────────────────────────────
@@ -558,7 +618,7 @@ export function MyodSheet({
   const handleSelectOption = useCallback(
     (componentId: string, sel: ComponentSelection | null) => {
       if (sel) {
-        const reqs = unsatisfiedRequirements(steps, componentId, sel, photoStash);
+        const reqs = unsatisfiedRequirements(fullSteps, componentId, sel, photoStash);
         if (reqs.length) {
           // NOT selected — capture sheets chain; the pick lands after the
           // last requirement is satisfied.
@@ -568,7 +628,7 @@ export function MyodSheet({
       }
       applySelection(componentId, sel);
     },
-    [steps, photoStash, applySelection, gateChain],
+    [fullSteps, photoStash, applySelection, gateChain],
   );
 
   /** Stashed-photo preview URLs for a component's option — prefix-matches
@@ -601,12 +661,12 @@ export function MyodSheet({
         sel: ComponentSelection,
         adopt: (sel: ComponentSelection) => void,
       ): boolean => {
-        const reqs = unsatisfiedRequirements(steps, componentId, sel, photoStash);
+        const reqs = unsatisfiedRequirements(fullSteps, componentId, sel, photoStash);
         if (reqs.length === 0) return false;
         gateChain(reqs, () => adopt(sel));
         return true;
       },
-    [steps, photoStash, gateChain],
+    [fullSteps, photoStash, gateChain],
   );
 
   /** EVERY selection still missing photos across the whole design — the
@@ -614,10 +674,10 @@ export function MyodSheet({
   const unsatisfiedPhotoReqs = useCallback((): PhotoRequirement[] => {
     const out: PhotoRequirement[] = [];
     for (const [componentId, sel] of Object.entries(selections)) {
-      out.push(...unsatisfiedRequirements(steps, componentId, sel, photoStash));
+      out.push(...unsatisfiedRequirements(fullSteps, componentId, sel, photoStash));
     }
     return out;
-  }, [selections, steps, photoStash]);
+  }, [selections, fullSteps, photoStash]);
 
   /** Add validated files to a stash slot (capped at the requirement max). */
   const stashPhotos = useCallback((key: string, files: File[]) => {
@@ -731,9 +791,10 @@ export function MyodSheet({
   // A refresh restores the in-progress design (see the tree-load effect);
   // the draft is cleared when Complete Order turns it into a real order.
   useEffect(() => {
-    if (!tree) return;
+    // Hosted gap-filling runs are the host's state, not this garment's draft.
+    if (!tree || hosted) return;
     saveMyodDraft({ garmentId: tree.id, selections, renderViews });
-  }, [tree, selections, renderViews]);
+  }, [tree, hosted, selections, renderViews]);
 
   // ── Order creation helpers ─────────────────────────────────────────
   // Both order CTAs ("Order Now" on the extras bar, "Complete Order" on
@@ -1090,9 +1151,14 @@ export function MyodSheet({
   const multiPending = multiStepComponents.filter((c) => !selections[c.id]);
   const advanceMultiStep = () => {
     const fromIdx = activeStepIdx;
-    setActiveStepIdx((i) =>
-      i === fromIdx ? Math.min(steps.length - 1, i + 1) : i,
-    );
+    if (onStepsComplete && fromIdx === steps.length - 1) {
+      // Gap-filling mode: the last step hands the host the full map.
+      onStepsComplete(selections);
+    } else {
+      setActiveStepIdx((i) =>
+        i === fromIdx ? Math.min(steps.length - 1, i + 1) : i,
+      );
+    }
     track({ event: "myod_step_advanced", step: activeStep?.id ?? "", mode: "multi" });
   };
 

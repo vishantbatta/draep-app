@@ -577,6 +577,61 @@ export const strings = {
     errorRetry: "Try again",
   },
 
+  // /app/create — the first screen: build it yourself (MYOD) or share
+  // photos of a design and let the AI prefill the order (auto-design).
+  create: {
+    title: "What do you want to make today?",
+    body: "Build it detail by detail, or show us a design you already love.",
+    myodTitle: "Create your own design",
+    myodBody:
+      "Pick every detail yourself — cut, neckline, sleeves, add-ons — and watch it sketched as you go.",
+    autoTitle: "Share a design with us",
+    autoBody:
+      "Upload or snap photos of a blouse you love. We'll read the design and fill in your order.",
+    autoBadge: "New",
+  },
+
+  autoDesign: {
+    // Photo picker
+    pickerTitle: "Share a design with us",
+    pickerBody:
+      "Add photos of the design you love — the front, back and sleeves help the most.",
+    uploadCta: "Upload photos",
+    captureCta: "Take a photo",
+    photoTip: "Clear, well-lit photos work best · up to 6",
+    photoCount: (n: number, max: number) => `${n} / ${max} photos`,
+    removePhoto: "Remove photo",
+    analyzeCta: "Read this design",
+    uploading: "Uploading your photos…",
+    // Analyzing (live checklist)
+    analyzingTitle: "Reading your design…",
+    stillReading: "still reading…",
+    analyzingBody: "Matching what we see to our catalogue, one detail at a time.",
+    cancel: "Cancel",
+    notSeen: "Not clear from the photos",
+    found: (n: number) => (n === 1 ? "1 found" : `${n} found`),
+    // Garment fallback
+    garmentTitle: "Which garment is this?",
+    garmentBody: "We couldn't tell from the photos — pick it and we'll keep going.",
+    // Gap steps (MYOD over the undetected critical components)
+    gapsTitle: (n: number) =>
+      n === 1 ? "One detail to confirm" : `${n} details to confirm`,
+    gapsBody: "We couldn't see these clearly — pick them and we'll finish your order.",
+    // Review (draft order sheet)
+    reviewTitle: "Review your design",
+    reviewBody: "Everything we found is pre-selected. Change anything you like, then order.",
+    reviewSummary: (found: number, total: number) =>
+      total > 0 ? `We found ${found} of ${total} key details` : "Design read",
+    reviewCta: "Review & order",
+    orderCta: "Order now",
+    orderError: "We couldn't create your order. Please try again.",
+    // Errors
+    errorTitle: "Couldn't read the design",
+    errorRetry: "Try again",
+    errorBusy: "Our AI is busy right now — please try again in a minute.",
+    startOver: "Choose different photos",
+  },
+
   myod: {
     // Hero card at the top of the library page
     bannerEyebrow: "Be your own fashion designer",

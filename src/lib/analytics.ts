@@ -63,7 +63,20 @@ export type AnalyticsEvent =
   | { event: "myod_order_cta"; cta: "complete_order" | "order_now" }
   | { event: "myod_order_created"; order_id: string }
   | { event: "myod_order_appended"; order_id: string }
-  | { event: "myod_tried_on" };
+  | { event: "myod_tried_on" }
+  // Auto-design ("Share a design with us")
+  | { event: "auto_design_opened" }
+  | { event: "auto_design_photos_added"; count: number }
+  | {
+      event: "auto_design_analyzed";
+      garment_detected: boolean;
+      missing_count: number;
+      found_count: number;
+      ms: number;
+    }
+  | { event: "auto_design_fallback_myod"; missing_count: number }
+  | { event: "auto_design_failed"; code: string }
+  | { event: "auto_design_order_created"; order_id: string; appended?: boolean };
 
 export function track(event: AnalyticsEvent): void {
   if (typeof window === "undefined") return;

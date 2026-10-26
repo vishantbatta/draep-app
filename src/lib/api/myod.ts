@@ -154,20 +154,24 @@ export interface MyodOrderParams {
   assets: string[];
 }
 
-export async function createMyodOrder(
-  params: MyodOrderParams,
-): Promise<MyodOrderResult> {
-  const selections: Record<
-    string,
-    {
-      variation_id: string;
-      variation_type_id?: string;
-      placement?: string;
-      picks?: { variation_id: string; variation_type_id?: string; placement?: string }[];
-    }
-  > = {};
-  for (const [key, sel] of Object.entries(params.selections)) {
-    selections[key] = {
+/** The wire shape of one selection — what /myod/order and the add-to-order
+ *  MYOD branch both accept (`MyodOrderSelectionIn` on the backend). */
+export type MyodSelectionPayload = Record<
+  string,
+  {
+    variation_id: string;
+    variation_type_id?: string;
+    placement?: string;
+    picks?: { variation_id: string; variation_type_id?: string; placement?: string }[];
+  }
+>;
+
+/** Wizard selections → wire shape. Shared by the fresh create and the
+ *  add-to-existing append so both paths serialize identically. */
+export function serializeMyodSelections(selections: Selections): MyodSelectionPayload {
+  const out: MyodSelectionPayload = {};
+  for (const [key, sel] of Object.entries(selections)) {
+    out[key] = {
       variation_id: sel.variationId,
       ...(sel.variationTypeId ? { variation_type_id: sel.variationTypeId } : {}),
       ...(sel.placement ? { placement: sel.placement } : {}),
@@ -182,9 +186,15 @@ export async function createMyodOrder(
         : {}),
     };
   }
+  return out;
+}
+
+export async function createMyodOrder(
+  params: MyodOrderParams,
+): Promise<MyodOrderResult> {
   return apiPost<MyodOrderResult>("/myod/order", {
     garment_id: params.garmentId,
-    selections,
+    selections: serializeMyodSelections(params.selections),
     assets: params.assets,
   });
 }

@@ -7,8 +7,9 @@
  *
  *   /app/explore  → the design library for blouses (LibraryBrowser, shared
  *                   with the standalone /library page).
- *   /app/create   → the MYOD launch pad — hands off to the full-screen
- *                   configurator at /myod/blouse.
+ *   /app/create   → two paths: build the design yourself (the MYOD
+ *                   configurator) or share photos of a design and let the
+ *                   AI prefill the order (auto-design).
  *   /app/profile  → the account dashboard as-is (audit C2/C3): greeting +
  *                   profile, inline login, order history with status,
  *                   invoices and one-tap re-order from the design library.
@@ -31,6 +32,8 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 
 import { LibraryBrowser } from "@/components/library/LibraryBrowser";
+import { AutoDesignFlow, type AutoDesignHeader } from "@/components/auto-design/AutoDesignFlow";
+import { GarmentPicker } from "@/components/myod/GarmentPicker";
 import { MyodSheet, type HostedStep } from "@/components/myod/MyodSheet";
 import { OrderStatusPills } from "@/components/order/OrderStatus";
 import { ScreenShell } from "@/components/layout/ScreenShell";
@@ -220,12 +223,18 @@ function BottomTabBar({
 /* ============================================================ */
 
 /**
- * The full MYOD flow lives in this tab. Same shape as the standalone
- * /myod/[garment_id] page (slim navy header + scrollable configurator),
- * minus the back button — the tab bar handles navigation. MyodSheet's fixed
- * step-CTA is lifted above the tab bar via footerInset; its completion
- * takeover still covers the whole viewport by design.
+ * The Create tab opens on a two-card chooser — build the design yourself
+ * (MYOD) or share photos of one and let the AI prefill the order
+ * (auto-design) — then hosts whichever flow was picked. Same shape as the
+ * standalone /myod/[garment_id] page (slim navy header + scrollable body),
+ * minus the back button — the tab bar handles navigation. Both flows report
+ * their header (step rail + title, or plain title/body) and Back action up
+ * here, so the navy header is the one header. MyodSheet's fixed step-CTA is
+ * lifted above the tab bar via footerInset; its completion takeover still
+ * covers the whole viewport by design.
  */
+type CreateMode = "choose" | "myod" | "auto";
+
 function CreateTab() {
   // Mounting the configurator is "opening" MYOD as far as the funnel is
   // concerned — the old launch-pad CTA carried this event.
@@ -233,7 +242,9 @@ function CreateTab() {
     track({ event: "myod_opened", source: "app_create_tab" });
   }, []);
 
-  // Step-back action reported by the configurator. While set, the header
+  const [mode, setMode] = useState<CreateMode>("choose");
+
+  // Step-back action reported by the hosted flow. While set, the header
   // shows it in place of the scissors badge; the configurator hides its
   // own in-flow Back pill. Boxed in an object on purpose: a bare function
   // passed to setState would be INVOKED as a state updater (reverting the
@@ -247,18 +258,22 @@ function CreateTab() {
 
   // Active step reported by the configurator — the header mirrors it
   // (segmented step rail + step title) instead of static branding. Null
-  // (tree loading / after completion) falls back to the MYOD title.
+  // (tree loading / after completion) falls back to the flow's own title.
   const [headerStep, setHeaderStep] = useState<HostedStep | null>(null);
   const handleStepChange = useCallback((step: HostedStep | null) => {
     setHeaderStep(step);
   }, []);
+  // Auto-design's title/body for the stages that aren't MYOD steps.
+  const [autoHeader, setAutoHeader] = useState<AutoDesignHeader | null>(null);
+  const handleAutoHeader = useCallback((h: AutoDesignHeader | null) => {
+    setAutoHeader(h);
+  }, []);
 
-  // ── Garment picker — step 0 of Create ───────────────────────────────
+  // ── Garments — shared by the MYOD picker and auto-design's fallback ──
   // The catalogue carries several garments; when more than one is enabled,
-  // Create opens on a picker and hands the chosen garment to the
-  // configurator. A single-garment catalogue skips the picker entirely —
-  // today's blouse-only behaviour. (The server already hides disabled
-  // garments from this list.)
+  // MYOD opens on a picker and hands the chosen garment to the configurator.
+  // A single-garment catalogue skips the picker entirely — today's
+  // blouse-only behaviour. (The server already hides disabled garments.)
   const [garments, setGarments] = useState<GarmentListItem[] | null>(null);
   const [garmentsError, setGarmentsError] = useState<string | null>(null);
   const [picked, setPicked] = useState<GarmentListItem | null>(null);
@@ -291,9 +306,49 @@ function CreateTab() {
     handleBackChange(null);
   }, [handleStepChange, handleBackChange]);
 
-  // The header's Back button: step-back while inside the configurator,
-  // back-to-the-picker on its first step / while the tree loads.
-  const headerBackAction = headerBack.back ?? (picked && canPick ? backToPicker : null);
+  // Leave either flow for the chooser. A single-garment catalogue keeps its
+  // auto-pick so re-entering MYOD still skips the picker.
+  const backToChooser = useCallback(() => {
+    setMode("choose");
+    if (canPick) setPicked(null);
+    handleStepChange(null);
+    handleBackChange(null);
+    handleAutoHeader(null);
+  }, [canPick, handleStepChange, handleBackChange, handleAutoHeader]);
+
+  // The header's Back button: the flow's own step-back while it has one;
+  // else back-to-the-picker inside MYOD (multi-garment); else back to the
+  // chooser from either flow's first screen.
+  const headerBackAction =
+    headerBack.back ??
+    (mode === "myod" && picked && canPick
+      ? backToPicker
+      : mode !== "choose"
+        ? backToChooser
+        : null);
+
+  // What the header says when no step rail is active.
+  // What the header says when no step rail is active.
+  const headerTitle =
+    mode === "choose"
+      ? strings.create.title
+      : mode === "auto"
+        ? // Filling gaps: the MYOD step owns the title (the rail is up too);
+          // every other auto-design stage uses its reported title/body.
+          headerStep?.title ?? autoHeader?.title ?? strings.autoDesign.pickerTitle
+        : !picked
+          ? strings.myod.pickerTitle
+          : headerStep?.title ?? strings.myod.sheetTitle;
+  const headerBody =
+    mode === "choose"
+      ? strings.create.body
+      : mode === "auto"
+        ? headerStep
+          ? undefined // the step's own description renders below
+          : autoHeader?.body
+        : !picked
+          ? strings.myod.pickerBody
+          : undefined;
 
   return (
     <div className="flex h-full flex-col bg-warm-sand">
@@ -342,13 +397,13 @@ function CreateTab() {
             )}
             {!headerStep && (
               <span className="font-mono text-caption font-medium uppercase tracking-[0.18em] text-chalk-white/80">
-                MYOD
+                {mode === "auto" ? "AI DESIGN" : "MYOD"}
               </span>
             )}
           </div>
           {/* Component photo left, name + description right — the banner
-              mirrors the catalogue card for the step's component. In the
-              picker state (no garment yet) it's just the picker title. */}
+              mirrors the catalogue card for the step's component. Outside a
+              step it's the flow's own title + one-liner. */}
           <div className="flex items-center gap-3.5">
             {headerStep?.image ? (
               <img
@@ -360,19 +415,19 @@ function CreateTab() {
             ) : null}
             <div className="min-w-0">
               <h2 className="font-heading text-h1 font-semibold leading-tight text-chalk-white">
-                {!picked
-                  ? strings.myod.pickerTitle
-                  : headerStep?.title ?? strings.myod.sheetTitle}
+                {headerTitle}
               </h2>
-              {!picked ? (
-                // Fixed one-liner — no expander (HeaderDescription's font-load
-                // measurement shows a spurious "Read more" on short text).
-                <p className="max-w-[340px] text-caption leading-relaxed text-chalk-white/85">
-                  {strings.myod.pickerBody}
-                </p>
-              ) : (
-                headerStep?.description && (
+              {headerStep ? (
+                headerStep.description && (
                   <HeaderDescription text={headerStep.description} />
+                )
+              ) : (
+                headerBody && (
+                  // Fixed one-liner — no expander (HeaderDescription's font-load
+                  // measurement shows a spurious "Read more" on short text).
+                  <p className="max-w-[340px] text-caption leading-relaxed text-chalk-white/85">
+                    {headerBody}
+                  </p>
                 )
               )}
             </div>
@@ -382,9 +437,22 @@ function CreateTab() {
         <div aria-hidden className="lp-tape-strip absolute inset-x-0 bottom-0 z-10" />
       </header>
 
-      {/* Body: garment picker first, then the configurator for the pick */}
+      {/* Body: chooser → (MYOD: garment picker, then the configurator) or
+          the auto-design flow. */}
       <div className="min-h-0 flex-1 overflow-y-auto pt-4">
-        {picked ? (
+        {mode === "choose" ? (
+          <ModeChooser onPick={setMode} />
+        ) : mode === "auto" ? (
+          <AutoDesignFlow
+            garments={garments}
+            garmentsError={garmentsError}
+            onRetryGarments={() => void loadGarments()}
+            footerInset={TAB_BAR_INSET}
+            onBackChange={handleBackChange}
+            onStepChange={handleStepChange}
+            onHeaderChange={handleAutoHeader}
+          />
+        ) : picked ? (
           <MyodSheet
             key={picked.id}
             garmentId={picked.id}
@@ -406,105 +474,66 @@ function CreateTab() {
 }
 
 /**
- * Step 0 of Create — one card per enabled garment (image, name, gender,
- * starting price). Only mounted when the catalogue offers a choice; a
- * single enabled garment is auto-picked and never shown.
+ * The first screen of Create — two cards, one per path. "Create your own
+ * design" is the configurator as before; "Share a design with us" is the
+ * photo-driven prefill.
  */
-function GarmentPicker({
-  garments,
-  error,
-  onRetry,
-  onPick,
-}: {
-  garments: GarmentListItem[] | null;
-  error: string | null;
-  onRetry: () => void;
-  onPick: (g: GarmentListItem) => void;
-}) {
-  if (error) {
-    return (
-      <div className="mx-auto flex w-full max-w-column flex-col items-center gap-3 px-4 py-10 text-center">
-        <p className="text-body text-muted">{error}</p>
-        <Button variant="secondary" onClick={onRetry}>
-          {strings.myod.pickerRetry}
-        </Button>
-      </div>
-    );
-  }
-  if (!garments) {
-    return (
-      <p className="px-4 py-10 text-center text-body text-muted">
-        {strings.myod.loadingTree}
-      </p>
-    );
-  }
-  if (garments.length === 0) {
-    return (
-      <p className="px-4 py-10 text-center text-body text-muted">
-        {strings.myod.pickerEmpty}
-      </p>
-    );
-  }
+function ModeChooser({ onPick }: { onPick: (mode: CreateMode) => void }) {
+  const cards: {
+    mode: CreateMode;
+    title: string;
+    body: string;
+    icon: ReactNode;
+    badge?: string;
+  }[] = [
+    {
+      mode: "myod",
+      title: strings.create.myodTitle,
+      body: strings.create.myodBody,
+      icon: <Scissors size={22} />,
+    },
+    {
+      mode: "auto",
+      title: strings.create.autoTitle,
+      body: strings.create.autoBody,
+      icon: <Sparkles size={22} />,
+      badge: strings.create.autoBadge,
+    },
+  ];
   return (
     <div className="mx-auto flex w-full max-w-column flex-col gap-3 px-4 pb-6">
-      {garments.map((g) => {
-        const label =
-          g.labels?.en ??
-          Object.values(g.labels ?? {})[0] ??
-          g.slug ??
-          g.id;
-        const desc =
-          g.descriptions?.en ??
-          Object.values(g.descriptions ?? {})[0] ??
-          null;
-        const img = g.asset_urls?.[0] ?? null;
-        return (
-          <button
-            key={g.id}
-            type="button"
-            onClick={() => onPick(g)}
-            className="group flex w-full items-center gap-3.5 overflow-hidden rounded-card border border-hairline bg-chalk-white p-3 text-left shadow-card transition-all ease-brand active:scale-[0.99] active:shadow-brand"
+      {cards.map((c) => (
+        <button
+          key={c.mode}
+          type="button"
+          onClick={() => onPick(c.mode)}
+          className="group flex w-full items-center gap-3.5 overflow-hidden rounded-card border border-hairline bg-chalk-white p-4 text-left shadow-card transition-all ease-brand active:scale-[0.99] active:shadow-brand"
+        >
+          <span
+            aria-hidden
+            className="flex h-14 w-14 flex-none items-center justify-center rounded-card text-chalk-white shadow-card"
+            style={{ backgroundImage: "var(--tape-gradient)" }}
           >
-            <div className="h-28 w-28 flex-none overflow-hidden rounded-card bg-mist-navy">
-              {img ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={img}
-                  alt={label}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <div
-                  className="flex h-full w-full items-center justify-center text-muted"
-                  style={{ backgroundImage: "linear-gradient(135deg,#EAF0F8,#FFF6EA)" }}
-                >
-                  <Sparkles size={26} />
-                </div>
-              )}
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5 self-stretch py-0.5">
-              <p className="font-heading text-[15px] font-semibold leading-snug text-ink-navy">
-                {label}
+            {c.icon}
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <p className="font-heading text-[16px] font-semibold leading-snug text-ink-navy">
+                {c.title}
               </p>
-              {desc && (
-                <p className="line-clamp-3 text-[12.5px] leading-snug text-muted">
-                  {desc}
-                </p>
-              )}
-              {g.base_price != null && (
-                <div className="mt-auto flex flex-wrap items-center gap-1.5">
-                  <span className="rounded-pill bg-warm-sand px-2 py-0.5 text-[11px] font-medium text-ink-navy">
-                    {strings.myod.pickerFromPrice} {formatPrice(g.base_price)}
-                  </span>
-                </div>
+              {c.badge && (
+                <span className="rounded-pill bg-warm-sand px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-text">
+                  {c.badge}
+                </span>
               )}
             </div>
-            <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-warm-sand text-ink-navy transition-transform ease-brand active:scale-90">
-              <ChevronRight size={14} />
-            </span>
-          </button>
-        );
-      })}
+            <p className="text-[12.5px] leading-snug text-muted">{c.body}</p>
+          </div>
+          <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-warm-sand text-ink-navy transition-transform ease-brand active:scale-90">
+            <ChevronRight size={14} />
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
