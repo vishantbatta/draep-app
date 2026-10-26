@@ -408,8 +408,8 @@ function LibraryCard({
 
 /**
  * MYOD (Make Your Own Draep) hero — the "design your own blouse" invitation
- * at the top of the library; entry point to /myod/blouse where the user
- * designs step by step (each garment has its own /myod/<id or slug> URL).
+ * at the top of the library; routes to /app/create where the user picks a
+ * garment and designs it step by step.
  *
  * The one card in the list allowed to be loud: reversed treatment on Ink
  * Navy (§8) so it pops against the white cards below, with the full motion
@@ -421,7 +421,7 @@ function LibraryCard({
 function MyodBanner() {
   return (
     <Link
-      href="/myod/blouse"
+      href="/app/create"
       onClick={() => track({ event: "myod_opened", source: "library" })}
       className="myod-hero group relative block w-full overflow-hidden rounded-card bg-ink-navy text-left shadow-card transition-all ease-brand active:scale-[0.99] active:shadow-brand"
     >
