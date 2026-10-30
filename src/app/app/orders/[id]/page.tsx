@@ -465,9 +465,10 @@ function OrderLoadingSkeleton() {
 
 /* ============================================================ */
 
-// Preview amount for the pay-choice sheet (mirrors BE settings.cod_fee_rupees);
-// the authoritative fee always comes back on the order's COD adjustment row.
-const COD_FEE_PREVIEW = 50;
+// Preview amount for the pay-choice sheet (mirrors BE
+// settings.prepay_discount_rupees); the authoritative discount always comes
+// back on the order's source="prepay" adjustment row.
+const PREPAY_DISCOUNT_PREVIEW = 100;
 
 export default function OrderDetailPage() {
   // useSearchParams (?placed=1) needs a Suspense boundary during prerender;
@@ -843,7 +844,6 @@ function OrderDetailContent() {
 
   /* ── Pay-method choice sheet: online vs Cash on Delivery ──────────────── */
   const [payChoiceOpen, setPayChoiceOpen] = useState(false);
-  const [codConfirmOpen, setCodConfirmOpen] = useState(false);
   const [choosingCod, setChoosingCod] = useState(false);
   const [choiceError, setChoiceError] = useState<string | null>(null);
 
@@ -1298,14 +1298,26 @@ function OrderDetailContent() {
   const bookingLocked =
     hasActiveVisit && (activeJob?.status !== "draft" || paidUp);
 
-  /* ── COD — the ₹50 booking-advance fee row, waivable until delivery ────── */
-  // The active fee is the order-level adjustment tagged source="cod"; it
-  // renders in the summary automatically with the other adjustments.
-  const codAdj = orderAdjustments.find((a) => a.source === "cod") ?? null;
-  const codFee = codAdj?.amount ?? 0;
+  /* ── COD flag + prepay discount ──────────────────────────────────────────── */
+  // COD is a zero-amount flag row (source="cod"; legacy ₹50-fee rows keep
+  // their amount and still read here). The prepay discount
+  // (source="prepay", −₹100) is banked server-side by the first online
+  // capture; until then it is offered on every pay CTA while the order is
+  // pre-delivery, unpaid enough and no row exists.
+  const codAdj = detail.adjustments.find((a) => a.source === "cod") ?? null;
+  const codFee = codAdj?.amount ?? 0; // legacy ₹50-era rows only
   const isDelivered = detail.fulfillment_status === "delivered";
-  // Advance CTA: pay the total minus the fee while it can still be waived.
-  const advanceAmount = Math.max(payAmount - codFee, 0);
+  const prepayAdj = detail.adjustments.find((a) => a.source === "prepay") ?? null;
+  const discountOffered =
+    prepayAdj === null &&
+    !isDelivered &&
+    (detail.total_price ?? 0) > PREPAY_DISCOUNT_PREVIEW &&
+    payAmount > PREPAY_DISCOUNT_PREVIEW
+      ? PREPAY_DISCOUNT_PREVIEW
+      : 0;
+  // Advance CTA: pay the total minus any live legacy fee and the offered
+  // prepay discount — the server charges exactly this at /pay init.
+  const advanceAmount = Math.max(payAmount - codFee - discountOffered, 0);
 
   /* ── Item reference photos (core/item_images) — items still waiting for
      photos, in garment order. Pay / COD short-circuit onto the capture
@@ -1327,7 +1339,8 @@ function OrderDetailContent() {
                      nothing paid, no COD choice  → Confirm Booking
        4 "cod"       COD confirmed, nothing paid  → Pay-advance (save pill)
        5 "underpaid" money captured, balance left → Pay balance (save pill
-                                                     while a COD fee is live)
+                                                     while the prepay
+                                                     discount is on offer)
        6 "overpaid"  captured exceeds the total
                      (the order shrank)           → Explore More Designs +
                                                      refund-at-delivery note
@@ -1434,9 +1447,10 @@ function OrderDetailContent() {
     }
   };
 
-  /* ── Cash on Delivery — confirm the booking now, add the ₹50 fee; the
-     server confirms the order (draft hold → booked visit) and returns the
-     refreshed totals, so the CTA becomes "Pay ₹<advance> in Advance" ───── */
+  /* ── Cash on Delivery — confirm the booking now, no fee; the server
+     confirms the order (draft hold → booked visit) and returns the
+     refreshed totals, so the CTA becomes "Pay ₹<advance> in Advance"
+     with the prepay-discount save pill ────────────────────────────────── */
   const handleChooseCod = async () => {
     if (choosingCod) return;
     // Same reference-photo gate as Pay — COD books the visit, so photos
@@ -1444,7 +1458,6 @@ function OrderDetailContent() {
     if (pendingImageItems.length > 0) {
       setImageSheet(pendingImageItems[0]);
       setPayChoiceOpen(false);
-      setCodConfirmOpen(false);
       setPlaceError(
         `${pendingImageItems.length} item${
           pendingImageItems.length !== 1 ? "s" : ""
@@ -1457,22 +1470,19 @@ function OrderDetailContent() {
     try {
       await checkoutApi.chooseCodPayment(id);
       setPayChoiceOpen(false);
-      setCodConfirmOpen(false);
       await refreshDetail();
     } catch (err) {
       if (err instanceof ApiError && err.code === "slot_taken") {
-        // The dead hold is released server-side — drop the sheets, put the
+        // The dead hold is released server-side — drop the sheet, put the
         // message at the CTA (the sheet holding choiceError is closing),
         // and refetch so the ladder flips back to "Select Slot".
         setPayChoiceOpen(false);
-        setCodConfirmOpen(false);
         setPlaceError(err.message);
         await refreshDetail();
         return;
       }
       if (err instanceof ApiError && err.code === "item_images_pending") {
         setPayChoiceOpen(false);
-        setCodConfirmOpen(false);
         setPlaceError(err.message);
         await refreshDetail();
         setImageSheet((cur) => cur ?? pendingImageItems[0] ?? null);
@@ -2435,15 +2445,16 @@ function OrderDetailContent() {
               <span className="font-semibold">{formatPrice(advanceAmount)}</span>{" "}
               {strings.orderDetail.payAdvanceSuffix}{" "}
               <span className="ml-1 inline-block rounded-pill bg-ink-navy px-2 py-px text-[10px] font-semibold uppercase tracking-wider text-chalk-white">
-                {strings.orderDetail.saveTag(formatPrice(codFee))}
+                {strings.orderDetail.saveTag(formatPrice(payAmount - advanceAmount))}
               </span>
             </span>
           </Button>
         )}
         {barState === "underpaid" &&
-          (codChosen ? (
-            // COD fee still live on the balance: paying it in full in
-            // advance waives the fee — same composition as the COD confirm.
+          (discountOffered > 0 || codFee > 0 ? (
+            // Prepay discount still on offer (and/or a legacy COD fee live
+            // on the balance): the CTA charges the net amount — strike the
+            // rest, same composition as the COD confirm.
             <Button
               variant="secondary"
               fullWidth
@@ -2460,7 +2471,7 @@ function OrderDetailContent() {
                 <span className="font-semibold">{formatPrice(advanceAmount)}</span>{" "}
                 {strings.orderDetail.payAdvanceSuffix}{" "}
                 <span className="ml-1 inline-block rounded-pill bg-ink-navy px-2 py-px text-[10px] font-semibold uppercase tracking-wider text-chalk-white">
-                  {strings.orderDetail.saveTag(formatPrice(codFee))}
+                  {strings.orderDetail.saveTag(formatPrice(payAmount - advanceAmount))}
                 </span>
               </span>
             </Button>
@@ -2654,9 +2665,9 @@ function OrderDetailContent() {
       />
 
       {/* Pay-method choice — Pay opens this on a fresh unpaid order. Online
-          (free) goes straight to the gateway; Cash on Delivery confirms the
-          booking right away and adds the ₹50 advance fee, which is waived
-          if the advance is paid before delivery. */}
+          banks the ₹100 prepay discount at capture; Cash on Delivery
+          confirms the booking right away at no extra cost (the discount
+          stays on offer until delivery or until it's banked). */}
       <BottomSheet
         open={payChoiceOpen}
         onClose={() => setPayChoiceOpen(false)}
@@ -2687,14 +2698,14 @@ function OrderDetailContent() {
               </span>
             </span>
             <span className="flex-none rounded-pill bg-success-bg px-2.5 py-1 text-caption font-semibold text-success-text">
-              {strings.payChoice.onlineTag}
+              {strings.payChoice.onlineTag(formatPrice(PREPAY_DISCOUNT_PREVIEW))}
             </span>
           </button>
 
           <button
             type="button"
             disabled={choosingCod}
-            onClick={() => setCodConfirmOpen(true)}
+            onClick={() => void handleChooseCod()}
             className="mt-3 flex w-full items-center gap-3 rounded-card border-[1.5px] border-hairline bg-chalk-white p-4 text-left transition-all ease-brand active:scale-[0.99] active:bg-mist-navy/30 disabled:opacity-50"
           >
             <span
@@ -2712,120 +2723,15 @@ function OrderDetailContent() {
               </span>
             </span>
             <span className="flex-none rounded-pill bg-warm-sand/80 px-2.5 py-1 text-caption font-semibold text-accent-text">
-              {strings.payChoice.codTag(formatPrice(COD_FEE_PREVIEW))}
+              {strings.payChoice.codTag}
             </span>
           </button>
-        </div>
-      </BottomSheet>
-
-      {/* COD soft-confirm — stacks above the choice sheet. The case for
-          paying online (fee waived, no dummy bookings, refundable) before
-          the customer commits to Cash on Delivery. */}
-      <BottomSheet
-        open={codConfirmOpen}
-        onClose={() => setCodConfirmOpen(false)}
-        title={strings.payChoice.codSheetTitle}
-      >
-        <div className="pb-2">
-          <div className="mt-2 flex items-start gap-3">
-            <span
-              aria-hidden
-              className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-pill bg-warm-sand text-accent-text"
-            >
-              <Sparkles size={16} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-body font-medium text-ink-navy">
-                {strings.payChoice.codSheetSaveTitle(formatPrice(COD_FEE_PREVIEW))}
-              </p>
-              <p className="text-caption text-muted">
-                {strings.payChoice.codSheetSaveBody}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-3 flex items-start gap-3">
-            <span
-              aria-hidden
-              className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-pill bg-warm-sand text-accent-text"
-            >
-              <Calendar size={16} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-body font-medium text-ink-navy">
-                {strings.payChoice.codSheetHonestTitle}
-              </p>
-              <p className="text-caption text-muted">
-                {strings.payChoice.codSheetHonestBody}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-3 flex items-start gap-3">
-            <span
-              aria-hidden
-              className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-pill bg-warm-sand text-accent-text"
-            >
-              <ShieldCheck size={16} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-body font-medium text-ink-navy">
-                {strings.payChoice.codSheetRefundTitle}
-              </p>
-              <p className="text-caption text-muted">
-                {strings.payChoice.codSheetRefundBody}
-              </p>
-            </div>
-          </div>
-
-          {/* COD never forfeits the saving — paying online later still
-              waives the fee until delivery. Styled as a quiet tip card,
-              not another point row. */}
-          <div className="mt-3 flex items-start gap-2.5 rounded-card bg-warm-sand/70 p-3">
-            <span aria-hidden className="text-[18px] leading-none">
-              🙂
-            </span>
-            <p className="min-w-0 flex-1 text-caption font-medium text-ink/85">
-              {strings.payChoice.codSheetAnytimeTitle(formatPrice(COD_FEE_PREVIEW))}
-            </p>
-          </div>
 
           {choiceError && (
             <Banner variant="error" className="mt-3">
               <p className="text-caption">{choiceError}</p>
             </Banner>
           )}
-
-          <Button
-            fullWidth
-            className="mt-4"
-            disabled={choosingCod}
-            onClick={() => {
-              setCodConfirmOpen(false);
-              setPayChoiceOpen(false);
-              void handlePay();
-            }}
-          >
-            {strings.payChoice.codSheetOnlineCta}{" "}
-            {/* Same save slot as the COD-confirmed advance CTA — navy pill
-                reads on the tape fill too. The sheet always previews the
-                default fee (no COD row exists yet at this point). */}
-            <span className="ml-1 inline-block rounded-pill bg-ink-navy px-2 py-px text-[10px] font-semibold uppercase tracking-wider text-chalk-white">
-              {strings.orderDetail.saveTag(formatPrice(COD_FEE_PREVIEW))}
-            </span>
-          </Button>
-          <Button
-            variant="secondary"
-            fullWidth
-            className="mt-2"
-            loading={choosingCod}
-            disabled={choosingCod}
-            onClick={() => void handleChooseCod()}
-          >
-            {strings.payChoice.codSheetConfirmCta(
-              formatPrice(payAmount + COD_FEE_PREVIEW),
-            )}
-          </Button>
         </div>
       </BottomSheet>
 

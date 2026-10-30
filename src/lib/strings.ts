@@ -458,11 +458,12 @@ export const strings = {
     // Bottom-card slot row once the hold is a real booking (COD confirmed / paid)
     visitConfirmed: (time: string | null, captain: string | null) =>
       captain ? `Visit confirmed · ${time} · ${captain}` : `Visit confirmed · ${time}`,
-    // COD orders: the CTA pays the advance (total minus the ₹50 COD fee),
-    // composed around a struck-through fee-inclusive total, so the copy
-    // lives here while the strike renders as markup on the order page.
+    // COD orders / any order with the prepay discount still on offer: the
+    // CTA pays the net amount (total minus the discount, minus any live
+    // legacy COD fee), composed around a struck-through gross amount, so
+    // the copy lives here while the strike renders as markup on the page.
     payAdvancePrefix: "Pay",
-    payAdvanceSuffix: "in Advance",
+    payAdvanceSuffix: "Online",
     saveTag: (amount: string) => `Save ${amount}`,
     // Garments stay editable until the visit concludes — remove one below.
     removeGarmentCta: "Remove garment",
@@ -483,27 +484,12 @@ export const strings = {
     // Sheet opened by the order-page Pay button
     title: "How would you like to pay?",
     onlineLabel: "UPI · Credit Card · Wallet · Netbanking · Bank Transfer",
-    onlineTag: "Free",
-    onlineCaption: "Pay the advance online now — no charges.",
+    onlineTag: (amount: string) => `Save ${amount}`,
+    onlineCaption: "Pay online now — the discount is applied instantly.",
     codLabel: "Cash on Delivery",
-    codTag: (amount: string) => `+ ${amount}`,
-    codCaption: "COD fee — pay any time before delivery to avoid it.",
+    codTag: "Pay at doorstep",
+    codCaption: "Pay the full amount in cash at delivery.",
     codError: "Could not switch to Cash on Delivery. Please try again.",
-    // COD soft-confirm sheet — the save-money nudge before committing
-    codSheetTitle: "Cash on Delivery",
-    codSheetSaveTitle: (amount: string) => `Save ${amount} by paying online`,
-    codSheetSaveBody: "The COD fee is waived when you pay the advance online instead.",
-    codSheetHonestTitle: "It avoids dummy slot bookings",
-    codSheetHonestBody:
-      "The advance keeps visit slots for real bookings, so times stay open for everyone.",
-    codSheetRefundTitle: "Refundable, no questions asked",
-    codSheetRefundBody:
-      "If anything goes wrong, your advance comes straight back to you.",
-    codSheetAnytimeTitle: (amount: string) =>
-      `You can always save ${amount} by paying online any time before delivery`,
-    codSheetOnlineCta: "Pay online instead",
-    codSheetConfirmCta: (amount: string) =>
-      `Continue ${amount} with Cash on Delivery`,
   },
 
   errors: {

@@ -598,7 +598,10 @@ export interface PayMethodOut {
   fulfillment_status: string | null;
   total_price: number | null;
   balance_due: number | null;
+  /** Legacy ₹50-era field — 0 for every new COD row (flag only). */
   cod_fee: number;
+  /** Prepay reward still on offer (rupees); 0 once banked/past delivery. */
+  prepay_discount: number;
   advance_amount: number;
 }
 
