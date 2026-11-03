@@ -76,9 +76,18 @@ export interface LeafletMapPickerProps {
    * its own container.
    */
   mapClassName?: string;
+  /**
+   * Emit the initial (possibly default-center) position via onPinChange on
+   * mount. Default true — historical behavior. Set false when "no pin yet"
+   * must survive mount in the parent until the user actually places one
+   * (two-step address form): the map still opens at the given/default
+   * center with a draggable pin, but stays silent until a real interaction.
+   * A provided lat/lng is always emitted regardless.
+   */
+  emitInitial?: boolean;
 }
 
-export function LeafletMapPicker({ lat, lng, onPinChange, flyTo, mapClassName }: LeafletMapPickerProps) {
+export function LeafletMapPicker({ lat, lng, onPinChange, flyTo, mapClassName, emitInitial }: LeafletMapPickerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // React-side UI state only — never fed back into Leaflet.
@@ -261,9 +270,12 @@ export function LeafletMapPicker({ lat, lng, onPinChange, flyTo, mapClassName }:
     };
     map.on("click", onMapClick);
 
-    // Emit the initial position once.
-    lastEmittedRef.current = `${start[0]},${start[1]}`;
-    onPinChangeRef.current(start[0], start[1]);
+    // Emit the initial position once — unless suppressed: the two-step
+    // address form needs "no pin yet" to survive mount until the user acts.
+    if (emitInitial !== false || (lat != null && lng != null)) {
+      lastEmittedRef.current = `${start[0]},${start[1]}`;
+      onPinChangeRef.current(start[0], start[1]);
+    }
 
     // Cleanup.
     return () => {

@@ -36,9 +36,18 @@ export interface MapPinPickerProps {
   flyTo?: { lat: number; lng: number; nonce: number };
   /** Height/aspect override for the map container (see LeafletMapPicker). */
   mapClassName?: string;
+  /** Suppress the on-mount emission of the initial/default position (see LeafletMapPicker). */
+  emitInitial?: boolean;
 }
 
-export function MapPinPicker({ lat, lng, onPinChange, flyTo, mapClassName }: MapPinPickerProps) {
+export function MapPinPicker({
+  lat,
+  lng,
+  onPinChange,
+  flyTo,
+  mapClassName,
+  emitInitial,
+}: MapPinPickerProps) {
   return (
     <LeafletMapPicker
       lat={lat}
@@ -46,6 +55,7 @@ export function MapPinPicker({ lat, lng, onPinChange, flyTo, mapClassName }: Map
       onPinChange={onPinChange}
       flyTo={flyTo}
       mapClassName={mapClassName}
+      emitInitial={emitInitial}
     />
   );
 }
