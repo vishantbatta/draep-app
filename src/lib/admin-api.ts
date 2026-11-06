@@ -1400,6 +1400,25 @@ export async function fetchUserById(id: string): Promise<UserRow | null> {
   return rows[0] ?? null;
 }
 
+// ─── Users CSV export ────────────────────────────────────────────────────────
+
+/** One row of GET /admin/users/export — a user with aggregated activity counts. */
+export interface UserExportRow {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  gender: string | null;
+  roles: string[];
+  order_count: number;
+  measurement_job_count: number;
+}
+
+/** Every user + order/measurement-job counts, for the users list CSV export. */
+export async function fetchUsersExport(): Promise<UserExportRow[]> {
+  return adminFetch<UserExportRow[]>("/admin/users/export");
+}
+
 /** Fetch all garment orders that belong to a given order. */
 export async function fetchGarmentOrdersForOrder(
   orderId: string,

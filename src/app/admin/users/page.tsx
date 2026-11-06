@@ -6,6 +6,7 @@ import {
   createTableRow,
   deleteUser,
   fetchTableRows,
+  fetchUsersExport,
   type UserRow,
 } from "@/lib/admin-api";
 import { AcquisitionSection } from "@/components/acquisition/AcquisitionSection";
@@ -62,6 +63,12 @@ function truncateId(id: string): string {
   return id.slice(0, 8);
 }
 
+/** Quote a CSV field when it contains a separator, quote, or newline. */
+function csvEscape(value: string): string {
+  if (/[",\r\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function UsersListPage() {
@@ -80,6 +87,10 @@ export default function UsersListPage() {
   // ── Multi-select + bulk actions ─────────────────────────────────────────
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+
+  // ── CSV export state ────────────────────────────────────────────────────
+  const [csvBusy, setCsvBusy] = useState(false);
+  const [csvError, setCsvError] = useState<string | null>(null);
 
   // ── Create user form state ──────────────────────────────────────────────
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -290,6 +301,60 @@ export default function UsersListPage() {
     loadUsers();
   }, [selected, clearSelection, loadUsers]);
 
+  // ── CSV export handler ────────────────────────────────────────────────────
+  const handleDownloadCsv = useCallback(async () => {
+    setCsvBusy(true);
+    setCsvError(null);
+    try {
+      const rows = await fetchUsersExport();
+      const header = [
+        "Name",
+        "Phone",
+        "Gender",
+        "Role",
+        "Email",
+        "Orders",
+        "Measurement Jobs",
+        "Profile Link",
+      ];
+      const lines = [header.join(",")];
+      for (const u of rows) {
+        lines.push(
+          [
+            u.name ?? "",
+            u.phone ?? "",
+            u.gender ?? "",
+            (u.roles ?? []).join(" | "),
+            u.email ?? "",
+            String(u.order_count ?? 0),
+            String(u.measurement_job_count ?? 0),
+            `${window.location.origin}/admin/users/${u.id}`,
+          ]
+            .map(csvEscape)
+            .join(","),
+        );
+      }
+      // BOM so Excel opens UTF-8 names correctly.
+      const blob = new Blob(["\uFEFF" + lines.join("\r\n")], {
+        type: "text/csv;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `draep-users-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setCsvError(
+        e instanceof Error ? e.message : "Failed to prepare users CSV",
+      );
+    } finally {
+      setCsvBusy(false);
+    }
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-8">
@@ -317,6 +382,13 @@ export default function UsersListPage() {
             {showCreateForm ? "✕ Cancel" : "+ New User"}
           </button>
           <button
+            onClick={handleDownloadCsv}
+            disabled={csvBusy}
+            className="rounded-lg border border-hairline-strong px-4 py-2 text-xs font-medium text-ink transition hover:bg-mist-navy/30 disabled:opacity-40"
+          >
+            {csvBusy ? "Preparing CSV…" : "↓ Download CSV"}
+          </button>
+          <button
             onClick={() => loadUsers()}
             className="rounded-lg border border-hairline-strong px-4 py-2 text-xs font-medium text-ink transition hover:bg-mist-navy/30"
           >
@@ -329,6 +401,13 @@ export default function UsersListPage() {
       {flash && (
         <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-800">
           {flash}
+        </div>
+      )}
+
+      {/* CSV export error */}
+      {csvError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+          {csvError}
         </div>
       )}
 
