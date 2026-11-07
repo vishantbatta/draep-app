@@ -1,12 +1,15 @@
 "use client";
 
 /**
- * Hub QC tool — throwaway stitched-vs-recorded measurement comparison.
+ * Hub QC tool — throwaway stitched-vs-recorded measurement comparison plus
+ * a finishing QC checklist gate.
  *
  * Flow: order lookup (11-digit order number or UUID) → pick the garment
  * instance → type what the stitched garment actually measures for every
- * body + garment-specific metric → report card of deltas sorted worst
- * first (green ≤0.25", yellow 0.25–0.5", red ≥0.5").
+ * body + garment-specific metric → mark the 53-point finishing QC
+ * checklist (pass/fail/correction/NA + remarks) → report card of deltas
+ * sorted worst-first (green ≤0.25", yellow 0.25–0.5", red ≥0.5") with the
+ * checklist verdicts, and a PDF export.
  *
  * Read-only and stateless: every value comes from existing admin read
  * APIs (recorded readings via the measurement-job checklist resolver)
@@ -16,11 +19,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GarmentSelectionSheet } from "@/components/admin/GarmentSelectionSheet";
+import { QC_CHECKLIST, QC_ITEM_COUNT } from "./checklist";
 import {
   fetchAdminJobChecklist,
   fetchGarmentOrderItems,
   fetchGarmentOrdersForOrder,
   fetchJobsForOrder,
+  fetchOrderGarmentMaterials,
   fetchTableRows,
   fetchUserById,
   getAdminToken,
@@ -28,6 +33,7 @@ import {
   type AdminJobChecklist,
   type ChecklistMetric,
   type GarmentOrderItemRow,
+  type GarmentOrderMaterialRow,
   type MeasurementJobRow,
   type OrderRow,
 } from "@/lib/admin-api";
@@ -90,7 +96,15 @@ function Spinner({ className = "h-4 w-4" }: { className?: string }) {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Phase = "lookup" | "pick" | "enter" | "report";
+type Phase = "lookup" | "pick" | "enter" | "checklist" | "report";
+
+/** Finishing-QC mark for one checklist item (never persisted). */
+type QcStatus = "pass" | "fail" | "na";
+
+interface QcMark {
+  status: QcStatus;
+  remark: string;
+}
 
 /** A garment instance card on the picker. Deliberately carries no status —
  *  the tool only needs identity, imagery, pricing and the user's note. */
@@ -122,6 +136,31 @@ const BAND_PDF: Record<Band, { label: string; fg: string; bg: string }> = {
   ok: { label: "OK", fg: "#1C7A48", bg: "#E8F1EC" },
   warn: { label: "Off", fg: "#92580A", bg: "#FEF6E0" },
   fail: { label: "Fail", fg: "#B3382C", bg: "#FCE9E7" },
+};
+
+/** Finishing-QC status display (chips on screen, cells in the PDF). */
+const QC_STATUS_META: Record<
+  QcStatus,
+  { label: string; chip: string; pdfFg: string; pdfBg: string }
+> = {
+  pass: {
+    label: "Pass",
+    chip: "bg-success-bg text-success-text border-success-border",
+    pdfFg: "#1C7A48",
+    pdfBg: "#E8F1EC",
+  },
+  fail: {
+    label: "Fail",
+    chip: "bg-error-bg text-error-text border-error-border",
+    pdfFg: "#B3382C",
+    pdfBg: "#FCE9E7",
+  },
+  na: {
+    label: "NA",
+    chip: "bg-mist-navy text-ink-navy border-hairline-strong",
+    pdfFg: "#4A5568",
+    pdfBg: "#EAF0F8",
+  },
 };
 
 interface ReportNumRow {
@@ -169,6 +208,7 @@ const STEPS: { key: Phase; label: string }[] = [
   { key: "lookup", label: "Order" },
   { key: "pick", label: "Garment" },
   { key: "enter", label: "Measure" },
+  { key: "checklist", label: "QC" },
   { key: "report", label: "Report" },
 ];
 
@@ -249,6 +289,9 @@ export default function HubQcToolPage() {
   const [entries, setEntries] = useState<Record<string, string>>({});
   const [report, setReport] = useState<ReportData | null>(null);
   const [building, setBuilding] = useState(false);
+  // Finishing QC marks, keyed by checklist sr number. Cleared when
+  // switching garment or order; survives "Edit measurements".
+  const [qcMarks, setQcMarks] = useState<Record<number, QcMark>>({});
   // Compare button — receives focus when Enter is pressed on the last input.
   const compareRef = useRef<HTMLButtonElement>(null);
 
@@ -297,7 +340,7 @@ export default function HubQcToolPage() {
       const uniqueGarmentIds = [
         ...new Set(goRows.map((g) => g.garment_id).filter(Boolean)),
       ] as string[];
-      const [itemsByGo, catalogRows] = await Promise.all([
+      const [itemsByGo, catalogRows, materialRows] = await Promise.all([
         Promise.all(
           goRows.map((g) =>
             fetchGarmentOrderItems(g.id).catch(
@@ -315,10 +358,21 @@ export default function HubQcToolPage() {
               .catch(() => null),
           ),
         ),
+        fetchOrderGarmentMaterials(found.id).catch(
+          () => [] as GarmentOrderMaterialRow[],
+        ),
       ]);
       const catalogById = new Map(
         catalogRows.filter(Boolean).map((c) => [c!.id, c!]),
       );
+      // Photos captured during the measurement visit (cloth/addon material
+      // shots), grouped per garment order.
+      const materialPhotosByGo = new Map<string, string[]>();
+      for (const m of materialRows) {
+        const list = materialPhotosByGo.get(m.garment_order_id) ?? [];
+        list.push(...(m.asset_urls ?? []));
+        materialPhotosByGo.set(m.garment_order_id, list);
+      }
 
       const cards: GarmentCard[] = goRows.map((go, i) => {
         const catalog = catalogById.get(go.garment_id);
@@ -327,11 +381,16 @@ export default function HubQcToolPage() {
         )?.label;
         const label =
           clLabel ?? catalog?.labels?.en ?? catalog?.slug ?? `Garment ${i + 1}`;
+        // Real photos first — inspiration shared while ordering, reference
+        // photos on selections, then the garment/cloth shots taken during
+        // the measurement visit. The catalog image is only a fallback when
+        // the order carries no photos at all.
         const raw = [
-          (catalog?.asset_urls ?? [])[0],
           ...(go.assets_shared ?? []),
           ...itemsByGo[i].flatMap((it) => it.images ?? []),
+          ...(materialPhotosByGo.get(go.id) ?? []),
         ].filter((u): u is string => !!u);
+        if (raw.length === 0) raw.push((catalog?.asset_urls ?? [])[0] ?? "");
         const images = [
           ...new Set(raw.map((u) => resolveAssetUrl(u)).filter((u): u is string => !!u)),
         ];
@@ -378,6 +437,7 @@ export default function HubQcToolPage() {
     setEntries({});
     setReport(null);
     setBuilding(false);
+    setQcMarks({});
   }
 
   function backToPick() {
@@ -385,6 +445,7 @@ export default function HubQcToolPage() {
     setSelectedGoId(null);
     setEntries({});
     setReport(null);
+    setQcMarks({});
     setDetailsGoId(null);
     setError(null);
   }
@@ -503,7 +564,8 @@ export default function HubQcToolPage() {
     num.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
     setReport({ garment: selected, num, text, skipped });
     setBuilding(false);
-    setPhase("report");
+    // Measurements compared — the finishing QC checklist gates the report.
+    setPhase("checklist");
   }
 
   /** Build a one/two-page A4 PDF of the report (Draep logo header, summary
@@ -734,6 +796,73 @@ export default function HubQcToolPage() {
         pdf.setTextColor(20);
       }
 
+      // ── Finishing QC checklist (English-only: jsPDF built-ins are WinAnsi) ─
+      if (Object.keys(qcMarks).length > 0) {
+        y += 4;
+        ensureSpace(16);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(12);
+        pdf.setTextColor(8, 48, 104);
+        pdf.text("Finishing QC checklist", M, y + 4);
+        pdf.setTextColor(20);
+        y += 10;
+
+        const qcCount = { pass: 0, fail: 0, na: 0 };
+        for (const s of QC_CHECKLIST) {
+          for (const it of s.items) {
+            const m = qcMarks[it.sr];
+            if (m) qcCount[m.status]++;
+          }
+        }
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(9);
+        pdf.setTextColor(60);
+        pdf.text(
+          `${qcCount.pass} pass - ${qcCount.fail} fail - ${qcCount.na} NA`,
+          M,
+          y + 3,
+        );
+        pdf.setTextColor(20);
+        y += 8;
+
+        for (const section of QC_CHECKLIST) {
+          ensureSpace(10);
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(8.5);
+          pdf.setTextColor(80);
+          pdf.text(section.title.en, M, y + 3);
+          pdf.setTextColor(20);
+          y += 6;
+
+          for (const item of section.items) {
+            const m = qcMarks[item.sr];
+            if (!m) continue;
+            const remark = m.remark.trim();
+            const rowH = remark ? 10 : 6.5;
+            ensureSpace(rowH + 2);
+            const meta = QC_STATUS_META[m.status];
+            pdf.setFont("helvetica", "normal");
+            pdf.setFontSize(9);
+            pdf.text(`${item.sr}. ${item.label.en}`, M, y + 3.2);
+            if (remark) {
+              pdf.setFontSize(7.5);
+              pdf.setTextColor(110);
+              pdf.text(`Remark: ${remark.slice(0, 110)}`, M + 3, y + 7.4);
+              pdf.setTextColor(20);
+            }
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(8.5);
+            const pillW = pdf.getTextWidth(meta.label) + 6;
+            pdf.setFillColor(meta.pdfBg);
+            pdf.roundedRect(colEnd - pillW, y, pillW, 5, 1.5, 1.5, "F");
+            pdf.setTextColor(meta.pdfFg);
+            pdf.text(meta.label, colEnd - pillW + 3, y + 3.6);
+            pdf.setTextColor(20);
+            y += rowH;
+          }
+        }
+      }
+
       // ── Footer on every page ───────────────────────────────────────────────
       const pages = pdf.getNumberOfPages();
       for (let p = 1; p <= pages; p++) {
@@ -921,15 +1050,22 @@ export default function HubQcToolPage() {
                 >
                   <div className="flex h-36 items-center justify-center gap-1 overflow-hidden bg-mist-navy/40 p-2">
                     {g.images.length > 0 ? (
-                      g.images.slice(0, 3).map((src, i) => (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          key={src + i}
-                          src={src}
-                          alt=""
-                          className="h-full max-w-[33%] rounded-md object-cover"
-                        />
-                      ))
+                      <>
+                        {g.images.slice(0, 4).map((src, i) => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            key={src + i}
+                            src={src}
+                            alt=""
+                            className="h-full max-w-[25%] rounded-md object-cover"
+                          />
+                        ))}
+                        {g.images.length > 4 && (
+                          <span className="flex h-full items-center justify-center px-1 font-mono text-[11px] text-muted">
+                            +{g.images.length - 4}
+                          </span>
+                        )}
+                      </>
                     ) : (
                       <span className="text-[11px] text-muted">No images</span>
                     )}
@@ -1023,12 +1159,34 @@ export default function HubQcToolPage() {
           </div>
         )}
 
-        {/* ── 4. Report card ────────────────────────────────────────────── */}
+        {/* ── 4. Finishing QC checklist ─────────────────────────────────── */}
+        {phase === "checklist" && selected && (
+          <QcChecklist
+            garmentLabel={`${selected.label}${garments.length > 1 ? ` #${selected.index}` : ""}`}
+            marks={qcMarks}
+            onMark={(sr, mark) =>
+              setQcMarks((prev) => {
+                const next = { ...prev };
+                if (mark) next[sr] = mark;
+                else delete next[sr];
+                return next;
+              })
+            }
+            onBack={() => {
+              // Re-edit measurements; entries + marks are kept.
+              setPhase("enter");
+            }}
+            onDone={() => setPhase("report")}
+          />
+        )}
+
+        {/* ── 5. Report card ────────────────────────────────────────────── */}
         {phase === "report" && report && order && (
           <ReportCard
             report={report}
             orderNumber={order.order_number ?? order.id.slice(0, 8)}
             job={job}
+            qcMarks={qcMarks}
             building={building}
             onDownload={() => void downloadReport()}
             onEdit={() => {
@@ -1180,6 +1338,193 @@ function EntryGroups({
   );
 }
 
+// ─── Finishing QC checklist (gates the report) ───────────────────────────────
+
+const QC_LANGS = [
+  { key: "en", label: "EN" },
+  { key: "hi", label: "हिं" },
+  { key: "kn", label: "ಕನ" },
+] as const;
+
+type QcLang = (typeof QC_LANGS)[number]["key"];
+
+function QcChecklist({
+  garmentLabel,
+  marks,
+  onMark,
+  onBack,
+  onDone,
+}: {
+  garmentLabel: string;
+  marks: Record<number, QcMark>;
+  onMark: (sr: number, mark: QcMark | null) => void;
+  onBack: () => void;
+  onDone: () => void;
+}) {
+  const [lang, setLang] = useState<QcLang>("en");
+  const marked = Object.keys(marks).length;
+  const complete = marked === QC_ITEM_COUNT;
+
+  return (
+    <div className="max-w-2xl">
+      {/* Header: garment, instructions, language pills */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-card border border-hairline bg-chalk-white px-4 py-3 shadow-card">
+        <div className="min-w-0">
+          <p className="font-mono text-eyebrow text-ink-navy">{garmentLabel}</p>
+          <p className="mt-1 max-w-md text-[11px] text-muted">
+            Toggle every checkpoint Pass or Fail — or NA when it doesn&apos;t
+            apply — then view the results. Fails don&apos;t block; they appear
+            in the report and PDF.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-1">
+          {QC_LANGS.map((l) => (
+            <button
+              key={l.key}
+              type="button"
+              onClick={() => setLang(l.key)}
+              className={`tap rounded-pill px-3 py-1 text-[11px] font-medium transition ${
+                lang === l.key
+                  ? "bg-ink-navy text-chalk-white"
+                  : "bg-mist-navy text-ink-navy hover:bg-mist-navy/60"
+              }`}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Section cards (A–J) */}
+      <div className="space-y-4">
+        {QC_CHECKLIST.map((section) => (
+          <div
+            key={section.title.en}
+            className="rounded-card border border-hairline bg-chalk-white p-4 shadow-card"
+          >
+            <p className="mb-1 font-mono text-eyebrow text-ink-navy">
+              {section.title[lang] || section.title.en}
+            </p>
+            <div className="divide-y divide-hairline">
+              {section.items.map((item) => {
+                const mark = marks[item.sr];
+                return (
+                  <div key={item.sr} className="py-2.5">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-data text-ink">
+                          <span className="mr-1.5 font-mono text-[11px] text-muted">
+                            {item.sr}.
+                          </span>
+                          {item.label[lang] || item.label.en}
+                        </p>
+                        <p className="mt-0.5 text-[11px] leading-snug text-muted">
+                          {item.description[lang] || item.description.en}
+                        </p>
+                      </div>
+                      <div className="flex max-w-[55%] shrink-0 items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onMark(
+                              item.sr,
+                              mark?.status === "na"
+                                ? null
+                                : {
+                                    status: "na",
+                                    remark: mark?.remark ?? "",
+                                  },
+                            )
+                          }
+                          className={`tap rounded-pill border px-2.5 py-1 text-[10px] font-medium transition ${
+                            mark?.status === "na"
+                              ? QC_STATUS_META.na.chip
+                              : "border-hairline-strong bg-chalk-white text-muted hover:bg-mist-navy"
+                          }`}
+                        >
+                          NA
+                        </button>
+                        <span className="mx-0.5 h-4 w-px bg-hairline-strong" />
+                        {(["fail", "pass"] as QcStatus[]).map((s) => {
+                          const active = mark?.status === s;
+                          return (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() =>
+                                onMark(
+                                  item.sr,
+                                  active
+                                    ? null
+                                    : {
+                                        status: s,
+                                        remark: mark?.remark ?? "",
+                                      },
+                                )
+                              }
+                              className={`tap rounded-pill border px-2.5 py-1 text-[10px] font-medium transition ${
+                                active
+                                  ? QC_STATUS_META[s].chip
+                                  : "border-hairline-strong bg-chalk-white text-muted hover:bg-mist-navy"
+                              }`}
+                            >
+                              {QC_STATUS_META[s].label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {mark && (
+                      <input
+                        type="text"
+                        value={mark.remark}
+                        onChange={(e) =>
+                          onMark(item.sr, {
+                            status: mark.status,
+                            remark: e.target.value,
+                          })
+                        }
+                        placeholder="Remark (optional)"
+                        aria-label={`Remark for checkpoint ${item.sr}`}
+                        className="mt-2 w-full rounded-md border border-hairline-strong bg-chalk-white px-2.5 py-1.5 text-[12px] text-ink focus:border-ink-navy focus:outline-none"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Sticky footer: progress + gate */}
+      <div className="sticky bottom-3 mt-5 flex items-center justify-between gap-3 rounded-card border border-hairline bg-chalk-white/95 px-4 py-3 shadow-brand backdrop-blur">
+        <span className="text-[11px] text-muted">
+          {marked} of {QC_ITEM_COUNT} marked
+          {!complete && " — all checkpoints required"}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            className="tap rounded-pill border border-hairline-strong bg-chalk-white px-4 py-2 text-caption font-medium text-ink-navy transition hover:bg-mist-navy"
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={onDone}
+            disabled={!complete}
+            className="tap rounded-pill bg-ink-navy px-6 py-2 text-caption font-medium text-chalk-white transition hover:bg-ink-navy/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            View results
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Report card ─────────────────────────────────────────────────────────────
 
 const BAND_STYLE: Record<Band, { chip: string; row: string; label: string }> = {
@@ -1204,6 +1549,7 @@ function ReportCard({
   report,
   orderNumber,
   job,
+  qcMarks,
   building,
   onDownload,
   onEdit,
@@ -1212,6 +1558,7 @@ function ReportCard({
   report: ReportData;
   orderNumber: string;
   job: MeasurementJobRow | null;
+  qcMarks: Record<number, QcMark>;
   building: boolean;
   onDownload: () => void;
   onEdit: () => void;
@@ -1224,6 +1571,28 @@ function ReportCard({
     fail: num.filter((r) => r.band === "fail").length,
   };
   const worst = num[0] ?? null;
+
+  // Finishing QC rollup: counts + every marked row (passes included).
+  const qcCounts = { pass: 0, fail: 0, na: 0 };
+  const qcRows: {
+    sr: number;
+    label: string;
+    status: QcStatus;
+    remark: string;
+  }[] = [];
+  for (const section of QC_CHECKLIST) {
+    for (const item of section.items) {
+      const m = qcMarks[item.sr];
+      if (!m) continue;
+      qcCounts[m.status]++;
+      qcRows.push({
+        sr: item.sr,
+        label: item.label.en,
+        status: m.status,
+        remark: m.remark,
+      });
+    }
+  }
 
   return (
     <div className="max-w-2xl space-y-4">
@@ -1309,6 +1678,59 @@ function ReportCard({
             green ≤ ±{BAND_OK}″ · yellow &lt; ±{BAND_FAIL}″ · red ≥ ±{BAND_FAIL}″
           </span>
         </div>
+      </div>
+
+      {/* Finishing QC checklist verdict */}
+      <div className="rounded-card border border-hairline bg-chalk-white p-4 shadow-card md:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="font-mono text-eyebrow text-ink-navy">
+            Finishing QC checklist
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {(["pass", "fail", "na"] as QcStatus[]).map((s) => (
+              <span
+                key={s}
+                className={`rounded-pill border px-3 py-1 text-[11px] font-medium ${QC_STATUS_META[s].chip}`}
+              >
+                {qcCounts[s]} {QC_STATUS_META[s].label}
+              </span>
+            ))}
+          </div>
+        </div>
+        {qcCounts.fail === 0 && (
+          <p className="mt-3 text-caption font-medium text-success-text">
+            ✓ All checkpoints passed.
+          </p>
+        )}
+        {qcRows.length > 0 && (
+          <div className="mt-3 divide-y divide-hairline rounded-card border border-hairline">
+            {qcRows.map((r) => (
+              <div
+                key={r.sr}
+                className="flex items-start justify-between gap-2 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="text-data text-ink">
+                    <span className="mr-1.5 font-mono text-[11px] text-muted">
+                      {r.sr}.
+                    </span>
+                    {r.label}
+                  </p>
+                  {r.remark && (
+                    <p className="mt-0.5 text-[11px] text-muted">
+                      “{r.remark}”
+                    </p>
+                  )}
+                </div>
+                <span
+                  className={`shrink-0 rounded-pill border px-2 py-0.5 text-[10px] font-medium ${QC_STATUS_META[r.status].chip}`}
+                >
+                  {QC_STATUS_META[r.status].label}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Numeric deltas, worst first */}
