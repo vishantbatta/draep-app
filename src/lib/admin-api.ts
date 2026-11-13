@@ -2044,6 +2044,20 @@ export function adminUpdateLibrary(id: string, patch: LibraryUpdate): Promise<Li
   });
 }
 
+/** DELETE /library/admin/{id} — permanently remove a design (items cascade). */
+export function adminDeleteLibrary(id: string): Promise<void> {
+  return adminFetch<void>(`/library/admin/${id}`, { method: "DELETE" });
+}
+
+/** POST /library/admin/bulk-delete — remove several designs in one call.
+ *  Returns how many were actually deleted (missing ids are skipped). */
+export function adminBulkDeleteLibraries(ids: string[]): Promise<{ deleted: number }> {
+  return adminFetch<{ deleted: number }>(`/library/admin/bulk-delete`, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
 /** POST /library/admin/{id}/image — upload hero/front/back/side image. */
 export async function adminUploadLibraryImage(
   id: string,
